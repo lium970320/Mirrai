@@ -1573,6 +1573,13 @@ export default function Lobby() {
 
         {hasPersonas ? (
           <>
+            {readyCount === 0 && analyzingCount > 0 && (
+              <div className="mb-4 p-4 rounded-xl bg-primary/5 border border-primary/10 text-center">
+                <p className="text-sm text-muted-foreground">
+                  所有分身正在解析中，完成后即可开始对话
+                </p>
+              </div>
+            )}
             <ChatStreak />
             <TodayRecommendation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
             <DailyMessages personas={personas as any[]} />
