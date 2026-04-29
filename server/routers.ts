@@ -773,11 +773,21 @@ export const appRouter = router({
         const persona = await getPersonaById(input.personaId, ctx.user.id);
         if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
         const date = input.date || new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "日期格式无效，需要 YYYY-MM-DD" });
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        if (date > today) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "不能为未来日期生成日记" });
+        }
         const existing = await getDiaryByDate(input.personaId, ctx.user.id, date);
         if (existing) throw new TRPCError({ code: "CONFLICT", message: "该日期已有日记" });
         const msgs = await getMessagesByDate(input.personaId, ctx.user.id, date);
         if (msgs.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "该日期没有聊天记录" });
-        const chatText = msgs.map(m => `${m.role === "user" ? "用户" : persona.name}: ${m.content}`).join("\n");
+        const chatText = msgs.map(m => `${m.role === "user" ? "用户" : persona.name}: ${m.content || ""}`).join("\n");
+        if (!chatText.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "该日期的聊天记录内容为空" });
+        }
         const response = await llmService.invoke({
           messages: [
             { role: "system", content: '你是日记助手。请根据对话记录生成一篇温暖的日记。只返回JSON：{"summary":"2-3句概述","highlights":["亮点1","亮点2"],"emotionalArc":{"start":"开始情绪","end":"结束情绪","dominant":"主导情绪"},"quotes":["原话1","原话2"],"reflection":"温暖的反思1-2句"}' },
