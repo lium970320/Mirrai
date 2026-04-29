@@ -1658,6 +1658,11 @@ export default function Lobby() {
                     没有找到匹配的分身
                   </div>
                 )}
+                {filteredPersonas.length === 0 && !searchQuery && filterTab !== "all" && (
+                  <div className="col-span-2 py-8 text-center text-sm text-muted-foreground">
+                    该分类下暂无分身
+                  </div>
+                )}
               </div>
             </div>
 
