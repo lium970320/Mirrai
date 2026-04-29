@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { UNAUTHED_ERR_MSG } from '@shared/const';
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
@@ -8,7 +8,32 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (failureCount, error) => {
+        if (error instanceof TRPCClientError && error.data?.code === "UNAUTHORIZED") return false;
+        return failureCount < 3;
+      },
+      retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt), 10000),
+      networkMode: "online",
+    },
+    mutations: {
+      networkMode: "online",
+    },
+  },
+});
+
+onlineManager.setEventListener((setOnline) => {
+  const onOnline = () => setOnline(true);
+  const onOffline = () => setOnline(false);
+  window.addEventListener("online", onOnline);
+  window.addEventListener("offline", onOffline);
+  return () => {
+    window.removeEventListener("online", onOnline);
+    window.removeEventListener("offline", onOffline);
+  };
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;

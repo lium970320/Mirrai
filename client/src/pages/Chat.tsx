@@ -192,8 +192,20 @@ export default function Chat() {
   const [isSending, setIsSending] = useState(false);
   const [currentState, setCurrentState] = useState("warm");
   const [showStatePanel, setShowStatePanel] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const onOnline = () => { setIsOnline(true); toast.success("网络已恢复"); };
+    const onOffline = () => { setIsOnline(false); toast.error("网络连接已断开"); };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   const { data: persona } = trpc.persona.get.useQuery(
     { id: personaId },
@@ -624,7 +636,7 @@ export default function Chat() {
               <Textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown} placeholder={`对 ${persona?.name || "TA"} 说点什么...`}
                 rows={1} className="flex-1 resize-none bg-muted/50 border-border text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 rounded-xl min-h-[44px] max-h-32" />
-              <Button onClick={handleSend} disabled={!input.trim() || isSending}
+              <Button onClick={handleSend} disabled={!input.trim() || isSending || !isOnline}
                 className="h-11 w-11 p-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl flex-shrink-0">
                 {isSending ? <Sparkles className="w-5 h-5 animate-pulse" /> : <Send className="w-5 h-5" />}
               </Button>
