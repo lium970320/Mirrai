@@ -12,16 +12,53 @@ import {
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+function isTransientDbError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return /econnreset|econnrefused|etimedout|connection terminated|socket hang up|too many clients/.test(msg);
+}
+
 export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
+  if (_db) return _db;
+  if (!process.env.DATABASE_URL) return null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
+      return _db;
     } catch (error) {
+      if (attempt < 2 && isTransientDbError(error)) {
+        const delay = 100 * Math.pow(2, attempt);
+        console.warn(`[Database] Connection attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+      return null;
     }
   }
-  return _db;
+  return null;
+}
+
+export async function withRetry<T>(operation: () => Promise<T>, maxRetries = 2): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (isTransientDbError(err) && attempt < maxRetries) {
+        _db = null;
+        const delay = 100 * Math.pow(2, attempt);
+        console.warn(`[Database] Transient error, reconnecting in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
 }
 
 // ─── User helpers ───────────────────────────────────────────────────────────
