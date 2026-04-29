@@ -22,6 +22,18 @@ registry.register(new DifyProvider(ENV.difyApiKey, ENV.difyUrl));
 
 registry.setDefault(ENV.defaultLlmProvider);
 
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return /econnreset|etimedout|socket hang up|5\d{2}|rate.?limit|too many requests/.test(msg);
+}
+
+function isVersionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return /version|deprecated|unsupported.*model|model.*not found|invalid.*api/.test(msg);
+}
+
 class LLMService {
   async invoke(params: InvokeParams): Promise<string> {
     const providerName = params.options?.provider;
@@ -32,7 +44,27 @@ class LLMService {
     if (!provider.isConfigured()) {
       throw new Error(`LLM provider "${provider.name}" is not configured. Check your .env file.`);
     }
-    return provider.invoke(params.messages, params.options);
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await provider.invoke(params.messages, params.options);
+      } catch (err) {
+        lastError = err;
+        if (isVersionError(err)) {
+          console.warn(`[LLM] Provider "${provider.name}" returned a version/compatibility error:`, (err as Error).message);
+          break;
+        }
+        if (isTransientError(err) && attempt < 2) {
+          const delay = 200 * Math.pow(2, attempt);
+          console.warn(`[LLM] Transient error from "${provider.name}", retrying in ${delay}ms (attempt ${attempt + 1}/3)`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        break;
+      }
+    }
+    throw lastError;
   }
 
   getRegistry() {
