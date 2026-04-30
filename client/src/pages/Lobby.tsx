@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import ForewordModal from "@/components/ForewordModal";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -1714,6 +1715,8 @@ export default function Lobby() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ForewordModal />
     </div>
   );
 }
