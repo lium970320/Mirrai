@@ -1,4 +1,4 @@
-# Presence
+# Mirrai
 
 > _"不在身边的时候，TA 还在这里。"_
 
@@ -90,7 +90,7 @@ Drizzle Schema → DB Helpers → tRPC Router → React Query Hook → UI 组件
 
 ## 功能概览
 
-- **创建数字分身** — 输入名字、关系描述、在一起时间，创建一个新的前任分身
+- **创建数字分身** — 输入名字、关系描述、在一起时间，创建一个新的数字分身
 - **上传素材** — 支持微信聊天记录 (.txt)、CSV、照片、视频，拖拽上传
 - **AI 性格分析** — 多阶段 pipeline 自动提取人物画像，实时显示进度
 - **沉浸式对话** — 暗色系 UI，情感状态实时变化，支持文本/图片/语音消息
@@ -317,9 +317,10 @@ girlfriend/
 │       │   ├── Analytics.tsx        # 数据分析仪表盘
 │       │   ├── Diary.tsx            # AI 生成的对话日记
 │       │   └── NotFound.tsx         # 404 页面
-│       ├── components/              # UI 组件 (shadcn/ui + 自定义)
+│       ├── components/              # UI 组件 (shadcn/ui + ErrorBoundary + GraduationModal)
 │       ├── contexts/                # ThemeContext · LocaleContext
 │       ├── hooks/                   # useComposition · useMobile · usePersistFn
+│       ├── const.ts                 # 客户端常量 (re-export shared + 路由辅助)
 │       └── lib/
 │           ├── trpc.ts             # tRPC 客户端
 │           ├── i18n.ts             # 国际化
@@ -362,9 +363,12 @@ girlfriend/
 │       └── prompts.ts              # Prompt 模板加载
 │
 ├── drizzle/
-│   └── schema.ts                   # 数据库 Schema (12 张表)
+│   ├── schema.ts                   # 数据库 Schema (12 张表)
+│   └── relations.ts                # Drizzle 关系定义
 │
 ├── shared/
+│   ├── _core/
+│   │   └── errors.ts               # HTTP 错误类
 │   ├── const.ts                    # 前后端共享常量
 │   └── types.ts                    # 共享类型定义
 │

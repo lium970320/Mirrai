@@ -147,7 +147,7 @@ export default function Login() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-5 login-icon-breathe">
             <Leaf className="w-7 h-7 text-primary" />
           </div>
-          <h1 className="text-2xl font-semibold text-foreground tracking-tight">Presence</h1>
+          <h1 className="text-2xl font-semibold text-foreground tracking-tight">Mirrai</h1>
           <p className="text-muted-foreground text-sm mt-1.5">
             {isRegister ? "创建账号" : "欢迎回来"}
           </p>

@@ -28,7 +28,7 @@ function LandingNav() {
           <div className="app-nav-mark">
             <Leaf className="w-5 h-5 text-primary" />
           </div>
-          <span className="app-nav-title text-lg tracking-tight">Presence</span>
+          <span className="app-nav-title text-lg tracking-tight">Mirrai</span>
         </div>
         <div className="app-nav-spacer" />
         <div className="app-nav-actions">
@@ -377,7 +377,7 @@ function LandingFooter() {
               <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
                 <Leaf className="w-4 h-4 text-primary" />
               </div>
-              <span className="text-base font-semibold text-foreground">Presence</span>
+              <span className="text-base font-semibold text-foreground">Mirrai</span>
             </div>
             <p className="text-sm text-muted-foreground max-w-xs">{t.footer.tagline}</p>
           </div>

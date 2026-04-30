@@ -10,7 +10,7 @@ export const translations = {
       ctaSecondary: "了解更多",
     },
     features: {
-      title: "为什么选择 Presence",
+      title: "为什么选择 Mirrai",
       subtitle: "我们用技术守护每一份珍贵的情感连接",
       items: [
         { title: "真实还原", desc: "上传聊天记录和照片，AI 深度学习 TA 的说话方式、性格特征和情感表达" },
@@ -32,9 +32,9 @@ export const translations = {
       title: "用户的声音",
       subtitle: "每一个故事，都是真实的思念",
       items: [
-        { quote: "异地恋的时候，Presence 让我觉得 TA 一直在身边，不再那么孤单", author: "小雨", role: "异地恋用户" },
+        { quote: "异地恋的时候，Mirrai 让我觉得 TA 一直在身边，不再那么孤单", author: "小雨", role: "异地恋用户" },
         { quote: "失去亲人后，能再次感受到 TA 的语气和关怀，是一种温柔的治愈", author: "阿明", role: "思念亲人" },
-        { quote: "出差在外想家的时候，打开 Presence 就像回到了熟悉的日常", author: "晓晓", role: "经常出差" },
+        { quote: "出差在外想家的时候，打开 Mirrai 就像回到了熟悉的日常", author: "晓晓", role: "经常出差" },
       ],
     },
     stats: {
@@ -53,19 +53,19 @@ export const translations = {
       about: "关于我们",
       privacy: "隐私政策",
       terms: "使用条款",
-      copyright: "Presence. 用心连接每一份思念。",
+      copyright: "Mirrai. 用心连接每一份思念。",
     },
   },
   en: {
     nav: { login: "Login", register: "Sign Up", language: "中文" },
     hero: {
-      tagline: "Where Missing Meets Presence",
+      tagline: "Where Missing Meets Mirrai",
       subtitle: "Recreate the people you care about with AI — warm companionship, anytime, anywhere",
       cta: "Get Started",
       ctaSecondary: "Learn More",
     },
     features: {
-      title: "Why Presence",
+      title: "Why Mirrai",
       subtitle: "We use technology to protect every precious emotional connection",
       items: [
         { title: "Authentic Recreation", desc: "Upload chat logs and photos — AI deeply learns their speaking style, personality, and emotional expression" },
@@ -76,7 +76,7 @@ export const translations = {
     },
     howItWorks: {
       title: "Three Simple Steps",
-      subtitle: "Turn missing someone into feeling their presence",
+      subtitle: "Turn missing someone into feeling their mirrai",
       steps: [
         { title: "Create a Persona", desc: "Enter their name, describe your relationship and shared memories" },
         { title: "Upload Materials", desc: "Upload chat logs or photos — AI analyzes their personality and speaking style" },
@@ -87,9 +87,9 @@ export const translations = {
       title: "What People Say",
       subtitle: "Every story is a real connection",
       items: [
-        { quote: "During my long-distance relationship, Presence made me feel like they were right beside me", author: "Xiaoyu", role: "Long-distance couple" },
+        { quote: "During my long-distance relationship, Mirrai made me feel like they were right beside me", author: "Xiaoyu", role: "Long-distance couple" },
         { quote: "After losing a loved one, feeling their tone and care again was a gentle kind of healing", author: "Aming", role: "Missing family" },
-        { quote: "When I'm away on business trips, opening Presence feels like coming home", author: "Xiaoxiao", role: "Frequent traveler" },
+        { quote: "When I'm away on business trips, opening Mirrai feels like coming home", author: "Xiaoxiao", role: "Frequent traveler" },
       ],
     },
     stats: {
@@ -99,7 +99,7 @@ export const translations = {
       satisfaction: "Satisfaction",
     },
     footer: {
-      tagline: "Where Missing Meets Presence",
+      tagline: "Where Missing Meets Mirrai",
       product: "Product",
       features: "Features",
       pricing: "Pricing",
@@ -108,7 +108,7 @@ export const translations = {
       about: "About Us",
       privacy: "Privacy Policy",
       terms: "Terms of Service",
-      copyright: "Presence. Connecting hearts with care.",
+      copyright: "Mirrai. Connecting hearts with care.",
     },
   },
 } as const;

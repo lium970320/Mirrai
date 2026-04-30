@@ -180,7 +180,7 @@ ${memoriesHtml}
   ${messagesHtml}
 </section>
 ${diaryHtml}
-<div class="footer">导出于 ${new Date().toLocaleString("zh-CN")} · Presence</div>
+<div class="footer">导出于 ${new Date().toLocaleString("zh-CN")} · Mirrai</div>
 </body>
 </html>`;
 }

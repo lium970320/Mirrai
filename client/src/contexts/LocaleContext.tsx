@@ -12,12 +12,12 @@ const LocaleContext = createContext<LocaleContextType | undefined>(undefined);
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() => {
     if (typeof window === "undefined") return "zh";
-    return (localStorage.getItem("presence-locale") as Locale) || "zh";
+    return (localStorage.getItem("mirrai-locale") as Locale) || "zh";
   });
 
   const handleSetLocale = (l: Locale) => {
     setLocale(l);
-    localStorage.setItem("presence-locale", l);
+    localStorage.setItem("mirrai-locale", l);
   };
 
   return (

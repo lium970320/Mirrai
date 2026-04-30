@@ -1524,7 +1524,7 @@ export default function Lobby() {
             <div className="app-nav-mark">
               <Leaf className="w-3.5 h-3.5" />
             </div>
-            <span className="app-nav-title tracking-tight">Presence</span>
+            <span className="app-nav-title tracking-tight">Mirrai</span>
           </div>
           <div className="app-nav-spacer" />
           {analyzingCount > 0 && (
@@ -1686,7 +1686,7 @@ export default function Lobby() {
         <div className="container max-w-3xl mx-auto flex items-center justify-between text-xs text-muted-foreground/40">
           <div className="flex items-center gap-1.5">
             <Leaf className="w-3 h-3" />
-            <span>Presence</span>
+            <span>Mirrai</span>
           </div>
           <span>让思念有回应</span>
         </div>
