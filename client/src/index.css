@@ -735,6 +735,26 @@ html.dark .gradient-mesh-bg {
   }
 }
 
+/* ─── Landing Story ─── */
+.landing-story-quote {
+  position: relative;
+  padding: 2rem 2.5rem;
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--color-background));
+  border: 1px solid color-mix(in oklab, var(--color-primary) 15%, transparent);
+}
+.landing-story-quote-mark {
+  position: absolute;
+  top: -0.25rem;
+  left: 1.25rem;
+  font-size: 4rem;
+  line-height: 1;
+  font-family: Georgia, serif;
+  color: var(--color-primary);
+  opacity: 0.2;
+  pointer-events: none;
+}
+
 /* ─── Login Page Animations ────────────────────────────────────────────────── */
 .login-orbs {
   display: none;

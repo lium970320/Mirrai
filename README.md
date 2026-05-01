@@ -426,6 +426,18 @@ pnpm build
 pnpm start
 ```
 
+### macOS 一键安装（无需任何依赖）
+
+下载 `Mirrai-macOS-arm64.dmg`，拖入 Applications 即可使用。内置 Node.js 和 PostgreSQL，双击启动，浏览器自动打开。
+
+如需自行构建 DMG：
+
+```bash
+bash scripts/build-macos-app.sh
+```
+
+详见 [docs/macos-build-guide.md](docs/macos-build-guide.md)。
+
 ---
 
 ## 环境变量配置
@@ -556,6 +568,16 @@ girlfriend/
 │   ├── tools/                      # Python 脚本
 │   └── prompts/                    # Prompt 模板
 │       └── relationship/           # 恋爱关系专用模板
+│
+├── scripts/                         # 构建与打包脚本
+│   ├── build-macos-app.sh          # macOS .app + .dmg 一键构建
+│   └── macos/                      # macOS 打包资源
+│       ├── Info.plist              # 应用元数据
+│       ├── launcher.sh             # 薄启动器（AppleScript → Terminal）
+│       └── start.sh               # 启动脚本（PG + Node + 迁移）
+│
+├── docs/                            # 文档
+│   └── macos-build-guide.md        # macOS 安装包构建指南
 │
 ├── .env.example                    # 环境变量模板
 ├── package.json

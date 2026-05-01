@@ -29,15 +29,15 @@ export default function ForewordModal() {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent
-        className="bg-card border-border rounded-2xl max-w-lg p-0 gap-0 max-h-[85vh] flex flex-col"
+        className="bg-card border-border rounded-2xl max-w-lg p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden"
         showCloseButton={false}
       >
-        <div className="flex items-center gap-2 p-5 pb-3 border-b border-border/60">
+        <div className="flex items-center gap-2 p-5 pb-3 border-b border-border/60 shrink-0">
           <BookOpen className="w-5 h-5 text-primary" />
           <h3 className="font-semibold text-foreground">前序</h3>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0">
+        <ScrollArea className="h-0 flex-1 overflow-hidden">
           <div className="p-5 pt-4 text-sm text-foreground/90 leading-relaxed space-y-5">
             <blockquote className="border-l-2 border-primary/40 pl-3 text-muted-foreground text-[0.8125rem] leading-relaxed">
               写在前面：这篇文章里的所有情绪都是真实的，但它只是我自己的内心独白，不代表我们的关系有任何问题。她是一个很好的人，从来没有做错过什么。所有的不安全感都来自我自己，不来自她。我写这些不是为了让任何人同情我，更不是为了绑架谁。如果她看到这篇文章，我希望她知道的是：这不是你的错，这是我在学着面对自己。发出来，只是因为我觉得可能有人跟我一样，需要知道自己不是一个人。
@@ -210,7 +210,7 @@ export default function ForewordModal() {
           </div>
         </ScrollArea>
 
-        <div className="border-t border-border/60 p-5 pt-4 space-y-4">
+        <div className="border-t border-border/60 p-5 pt-4 space-y-4 shrink-0">
           <label className="flex items-center gap-2.5 cursor-pointer select-none">
             <Checkbox
               checked={dontShowAgain}
