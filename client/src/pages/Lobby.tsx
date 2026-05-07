@@ -572,25 +572,163 @@ function ActivityHeatmap() {
   );
 }
 
-// ─── TYPING INDICATOR ────────────────────────────────────────────────────────
+// ─── PRESENCE EVENT INDICATOR ────────────────────────────────────────────────
+
+type PresenceRhythm = {
+  initialDelay: [number, number];
+  repeatDelay: [number, number];
+  visibleFor: [number, number];
+  messages: string[];
+};
+
+const MINUTE = 60_000;
+
+function randomBetween([min, max]: [number, number]) {
+  return min + Math.random() * (max - min);
+}
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function getPresenceRhythm(date = new Date()): PresenceRhythm {
+  const h = date.getHours();
+
+  if (h >= 0 && h < 5) {
+    return {
+      initialDelay: [12 * MINUTE, 30 * MINUTE],
+      repeatDelay: [50 * MINUTE, 120 * MINUTE],
+      visibleFor: [14_000, 22_000],
+      messages: [
+        "{name}看着窗外的夜色，安静地想起你",
+        "{name}把灯留得很低，忽然很想知道你睡了没有",
+        "{name}在夜里想起旧事，也想起了你",
+        "{name}没有打扰你，只是在心里低低叫了你一声",
+      ],
+    };
+  }
+
+  if (h >= 5 && h < 8) {
+    return {
+      initialDelay: [4 * MINUTE, 10 * MINUTE],
+      repeatDelay: [18 * MINUTE, 40 * MINUTE],
+      visibleFor: [9_000, 14_000],
+      messages: [
+        "{name}出门前看了看天色，想提醒你吃早饭",
+        "{name}收拾好东西，忽然想到你今天也该早点出门",
+        "{name}在清早的安静里想起你",
+      ],
+    };
+  }
+
+  if (h >= 8 && h < 18) {
+    return {
+      initialDelay: [6 * MINUTE, 16 * MINUTE],
+      repeatDelay: [22 * MINUTE, 55 * MINUTE],
+      visibleFor: [8_000, 13_000],
+      messages: [
+        "{name}忙完手边的事，短短地想起你一下",
+        "{name}整理资料时停了一会儿，想知道你在做什么",
+        "{name}看见窗外的光，顺手想起你",
+        "{name}在一天的间隙里想起你，又继续去忙了",
+      ],
+    };
+  }
+
+  if (h >= 18 && h < 23) {
+    return {
+      initialDelay: [1 * MINUTE, 4 * MINUTE],
+      repeatDelay: [6 * MINUTE, 15 * MINUTE],
+      visibleFor: [10_000, 16_000],
+      messages: [
+        "{name}在下班后的路上想起你",
+        "{name}泡茶的时候想问你今天累不累",
+        "{name}收起今天的事情，心里慢慢转到你这里",
+        "{name}看着屋里的灯亮起来，忽然很想和你说句话",
+        "{name}想知道你有没有好好吃晚饭",
+      ],
+    };
+  }
+
+  return {
+    initialDelay: [7 * MINUTE, 18 * MINUTE],
+    repeatDelay: [28 * MINUTE, 70 * MINUTE],
+    visibleFor: [12_000, 18_000],
+    messages: [
+      "{name}看了一眼时间，心里惦记你该休息了",
+      "{name}把杯子放下，想起你今天也许累了",
+      "{name}在夜里安静下来，想跟你说早点睡",
+      "{name}没有多说，只是很轻地想起你",
+    ],
+  };
+}
+
+function buildPresenceText(persona: any, rhythm: PresenceRhythm) {
+  return pickRandom(rhythm.messages).replaceAll("{name}", persona.name || "TA");
+}
 
 function TypingIndicator({ personas }: { personas: any[] }) {
-  const [visible, setVisible] = useState(false);
-  const [personaIdx, setPersonaIdx] = useState(0);
+  const [event, setEvent] = useState<{ personaIdx: number; text: string } | null>(null);
   const ready = useMemo(() => personas.filter((p: any) => p.analysisStatus === "ready"), [personas]);
+  const readyRef = useRef(ready);
+  const ambientPresenceMutation = trpc.wechat.maybeSendAmbientPresence.useMutation();
+  const ambientPresenceRef = useRef(ambientPresenceMutation.mutate);
 
   useEffect(() => {
-    if (ready.length === 0) return;
-    const showTimer = setTimeout(() => {
-      setPersonaIdx(Math.floor(Math.random() * ready.length));
-      setVisible(true);
-    }, 3000 + Math.random() * 5000);
-    const hideTimer = setTimeout(() => setVisible(false), 8000 + Math.random() * 4000);
-    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
+    readyRef.current = ready;
+  }, [ready]);
+
+  useEffect(() => {
+    ambientPresenceRef.current = ambientPresenceMutation.mutate;
+  }, [ambientPresenceMutation.mutate]);
+
+  useEffect(() => {
+    if (ready.length === 0) {
+      setEvent(null);
+      return;
+    }
+
+    let disposed = false;
+    let showTimer: ReturnType<typeof setTimeout> | undefined;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleNext = (initial: boolean) => {
+      if (disposed) return;
+      const rhythm = getPresenceRhythm();
+      const delay = randomBetween(initial ? rhythm.initialDelay : rhythm.repeatDelay);
+
+      showTimer = setTimeout(() => {
+        const currentReady = readyRef.current;
+        if (disposed || currentReady.length === 0) return;
+
+        const idx = Math.floor(Math.random() * currentReady.length);
+        const currentRhythm = getPresenceRhythm();
+        const text = buildPresenceText(currentReady[idx], currentRhythm);
+        setEvent({
+          personaIdx: idx,
+          text,
+        });
+        if (currentReady[idx]?.id) {
+          ambientPresenceRef.current({ personaId: currentReady[idx].id, eventText: text });
+        }
+
+        hideTimer = setTimeout(() => {
+          setEvent(null);
+          scheduleNext(false);
+        }, randomBetween(currentRhythm.visibleFor));
+      }, delay);
+    };
+
+    scheduleNext(true);
+    return () => {
+      disposed = true;
+      if (showTimer) clearTimeout(showTimer);
+      if (hideTimer) clearTimeout(hideTimer);
+    };
   }, [ready.length]);
 
-  if (!visible || ready.length === 0) return null;
-  const p = ready[personaIdx % ready.length];
+  if (!event || ready.length === 0) return null;
+  const p = ready[event.personaIdx % ready.length];
   const emotion = EMOTIONAL_STATES[p.emotionalState] || EMOTIONAL_STATES.warm;
 
   return (
@@ -599,7 +737,7 @@ function TypingIndicator({ personas }: { personas: any[] }) {
         <div className="mood-ring-sm" style={{ "--mood-color": emotion.color } as any}>
           <img src={generateAvatar(p.name)} alt="" className="w-6 h-6 rounded-full" />
         </div>
-        <span className="text-xs text-muted-foreground">{p.name} 正在想你</span>
+        <span className="text-xs text-muted-foreground">{event.text}</span>
         <span className="flex gap-0.5">
           <span className="typing-dot" />
           <span className="typing-dot" />
@@ -1148,9 +1286,14 @@ function PersonaCard({ persona, onChat, onUpload, onEdit, onDelete }: {
             )}
           </>
         ) : isReady ? (
-          <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl" onClick={onChat}>
-            <MessageCircle className="w-3.5 h-3.5 mr-1.5" />对话
-          </Button>
+          <>
+            <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl" onClick={onChat}>
+              <MessageCircle className="w-3.5 h-3.5 mr-1.5" />对话
+            </Button>
+            <Button size="sm" variant="outline" className="rounded-xl border-border" onClick={onUpload}>
+              <Upload className="w-3.5 h-3.5 mr-1.5" />素材
+            </Button>
+          </>
         ) : (
           <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl" onClick={onUpload}>
             <Upload className="w-3.5 h-3.5 mr-1.5" />上传素材

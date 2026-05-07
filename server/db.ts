@@ -9,6 +9,7 @@ import {
   InsertWechatBinding, InsertSkillJob, InsertLlmConfig,
   InsertMemory, InsertEmotionSnapshot, InsertDiaryEntry, InsertScene,
 } from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -169,6 +170,23 @@ export async function getPersonasByUserId(userId: number) {
   return db.select().from(personas).where(eq(personas.userId, userId)).orderBy(desc(personas.updatedAt));
 }
 
+export async function getReadyPersonasForProactiveMessages() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const list = await db
+    .select()
+    .from(personas)
+    .where(eq(personas.analysisStatus, "ready"))
+    .orderBy(asc(personas.id));
+
+  return list.filter((p) => {
+    const data = (p.personaData as any) || {};
+    const proactive = data.proactiveMessages;
+    return Boolean(proactive?.enabled && Array.isArray(proactive.times) && proactive.times.length > 0);
+  });
+}
+
 export async function getPersonasWithStats(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -318,12 +336,43 @@ export async function getWechatBindingsByUserId(userId: number) {
   return db.select().from(wechatBindings).where(eq(wechatBindings.userId, userId));
 }
 
+export async function getActiveWechatBindingsByPersonaId(personaId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(wechatBindings)
+    .where(and(
+      eq(wechatBindings.personaId, personaId),
+      eq(wechatBindings.userId, userId),
+      eq(wechatBindings.isActive, true),
+    ));
+}
+
 export async function getWechatBindingByContactId(contactId: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(wechatBindings)
     .where(and(eq(wechatBindings.wechatContactId, contactId), eq(wechatBindings.isActive, true))).limit(1);
   return result[0];
+}
+
+export async function getSingleReadyPersonaForWechatAutoBind() {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select({
+      id: personas.id,
+      userId: personas.userId,
+      name: personas.name,
+    })
+    .from(personas)
+    .where(eq(personas.analysisStatus, "ready"))
+    .orderBy(asc(personas.id))
+    .limit(2);
+
+  return result.length === 1 ? result[0] : undefined;
 }
 
 export async function deleteWechatBinding(id: number, userId: number) {
@@ -356,6 +405,31 @@ export async function updateSkillJob(id: number, data: Partial<InsertSkillJob>) 
 
 // ─── LLM Config helpers ────────────────────────────────────────────────────
 
+const DEFAULT_LLM_EXTRA_CONFIG = {
+  temperature: 0.7,
+  maxTokens: 4096,
+  contextLimit: 20,
+};
+
+const LLM_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  kimi: "Kimi",
+  qwen: "Qwen",
+  tongyi: "Qwen",
+  deepseek: "DeepSeek",
+  doubao: "Doubao",
+  "302ai": "302AI",
+  claude: "Claude",
+  ollama: "Ollama",
+  xunfei: "xunfei",
+  dify: "dify",
+};
+
+function getEnvDefaultLlmProviderName() {
+  const configured = ENV.defaultLlmProvider || "openai";
+  return LLM_PROVIDER_DISPLAY_NAMES[configured.toLowerCase()] ?? configured;
+}
+
 export async function getLlmConfigsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -365,19 +439,27 @@ export async function getLlmConfigsByUserId(userId: number) {
 export async function upsertLlmConfig(userId: number, data: Partial<InsertLlmConfig> & { providerName: string }) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const currentDefault = await db.select({ id: llmConfigs.id }).from(llmConfigs)
+    .where(and(eq(llmConfigs.userId, userId), eq(llmConfigs.isDefault, true))).limit(1);
+  const dataWithDefault = currentDefault[0] ? data : { ...data, isDefault: data.isDefault ?? true };
   const existing = await db.select().from(llmConfigs)
     .where(and(eq(llmConfigs.userId, userId), eq(llmConfigs.providerName, data.providerName))).limit(1);
   if (existing[0]) {
-    await db.update(llmConfigs).set(data).where(eq(llmConfigs.id, existing[0].id));
+    await db.update(llmConfigs).set(dataWithDefault).where(eq(llmConfigs.id, existing[0].id));
     return existing[0].id;
   }
-  const [result] = await db.insert(llmConfigs).values({ userId, ...data }).returning({ id: llmConfigs.id });
+  const [result] = await db.insert(llmConfigs).values({ userId, ...dataWithDefault }).returning({ id: llmConfigs.id });
   return result.id;
 }
 
 export async function setDefaultLlmConfig(userId: number, providerName: string) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const existing = await db.select({ id: llmConfigs.id }).from(llmConfigs)
+    .where(and(eq(llmConfigs.userId, userId), eq(llmConfigs.providerName, providerName))).limit(1);
+  if (!existing[0]) {
+    await db.insert(llmConfigs).values({ userId, providerName, isDefault: false });
+  }
   await db.update(llmConfigs).set({ isDefault: false }).where(eq(llmConfigs.userId, userId));
   await db.update(llmConfigs).set({ isDefault: true })
     .where(and(eq(llmConfigs.userId, userId), eq(llmConfigs.providerName, providerName)));
@@ -388,7 +470,25 @@ export async function getDefaultLlmConfig(userId: number) {
   if (!db) return null;
   const rows = await db.select().from(llmConfigs)
     .where(and(eq(llmConfigs.userId, userId), eq(llmConfigs.isDefault, true))).limit(1);
-  return rows[0] ?? null;
+  if (rows[0]) return rows[0];
+
+  const existingRows = await db.select().from(llmConfigs)
+    .where(eq(llmConfigs.userId, userId))
+    .orderBy(asc(llmConfigs.id))
+    .limit(1);
+  if (existingRows[0]) {
+    await setDefaultLlmConfig(userId, existingRows[0].providerName);
+    return { ...existingRows[0], isDefault: true };
+  }
+
+  const providerName = getEnvDefaultLlmProviderName();
+  const [created] = await db.insert(llmConfigs).values({
+    userId,
+    providerName,
+    isDefault: true,
+    extraConfig: DEFAULT_LLM_EXTRA_CONFIG,
+  }).returning();
+  return created ?? null;
 }
 
 // ─── Daily Activity helpers ────────────────────────────────────────────────

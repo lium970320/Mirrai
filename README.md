@@ -360,6 +360,8 @@ scenes             -- 对话场景模板 (内置 + 自定义, 含开场白)
 
 ## 快速开始
 
+> Windows + Google Drive 同步盘用户请先阅读 `docs/windows-google-drive-workflow.md`。同步盘目录只保存源码；依赖、构建产物和运行数据放在本机目录。
+
 ### 前置要求
 
 - **Node.js** 20+

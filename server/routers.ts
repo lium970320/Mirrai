@@ -27,8 +27,10 @@ import {
 } from "./db";
 import { nanoid } from "nanoid";
 import { getBotStatus, startWeChatBot, stopWeChatBot } from "./wechat/bot";
+import { maybeSendAmbientPresenceMessage } from "./wechat/ambient-proactive";
 import { runSkillPipeline } from "./skill-engine/pipeline";
 import { getEmotionalStateDesc, computeEmotionalState, buildSystemPrompt, computeIntimacy, checkGraduationEligibility } from "./_core/persona-utils";
+import { stripLeadingAsides } from "./_core/reply-utils";
 
 async function analyzeAndBuildPersona(
   personaId: number,
@@ -88,7 +90,33 @@ async function analyzeAndBuildPersona(
     } catch (e) { console.error("[Image Analysis] error:", e); }
   }
 
-  await updatePersona(personaId, userId, { personaData, analysisStatus: "ready", analysisProgress: 100, analysisMessage: `${name} 的数字分身已准备好，可以开始对话了` });
+  const existingPersona = await getPersonaById(personaId, userId);
+  const existingData = (existingPersona?.personaData ?? {}) as Record<string, unknown>;
+  const preservedKeys = [
+    "summary",
+    "personality",
+    "speakingStyle",
+    "catchphrases",
+    "nickname",
+    "memories",
+    "longBackground",
+    "attachmentStyle",
+    "loveLanguage",
+    "conflictStyle",
+    "touchingMoments",
+    "customInstructions",
+    "starterQuestions",
+    "proactiveMessages",
+  ];
+  const mergedPersonaData = { ...personaData };
+  for (const key of preservedKeys) {
+    const value = existingData[key];
+    if (value !== undefined && value !== null && value !== "") {
+      mergedPersonaData[key] = value;
+    }
+  }
+
+  await updatePersona(personaId, userId, { personaData: mergedPersonaData, analysisStatus: "ready", analysisProgress: 100, analysisMessage: `${name} 的数字分身已准备好，可以开始对话了` });
 }
 
 export const appRouter = router({
@@ -383,7 +411,7 @@ export const appRouter = router({
           messages: llmMessages,
           options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens },
         });
-        const replyText = response || "（沉默）";
+        const replyText = stripLeadingAsides(response || "（沉默）");
         const newEmotionalState = computeEmotionalState(input.message, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
@@ -452,7 +480,7 @@ export const appRouter = router({
 
         const provider = (persona as any).llmProvider || undefined;
         const response = await llmService.invoke({ messages: llmMessages, options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens } });
-        const replyText = response || "（沉默）";
+        const replyText = stripLeadingAsides(response || "（沉默）");
         const newEmotionalState = computeEmotionalState("[图片]", replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
@@ -491,7 +519,7 @@ export const appRouter = router({
 
         const provider = (persona as any).llmProvider || undefined;
         const response = await llmService.invoke({ messages: llmMessages, options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens } });
-        const replyText = response || "（沉默）";
+        const replyText = stripLeadingAsides(response || "（沉默）");
         const newEmotionalState = computeEmotionalState(transcription, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
@@ -582,6 +610,16 @@ export const appRouter = router({
     listBindings: protectedProcedure.query(async ({ ctx }) =>
       getWechatBindingsByUserId(ctx.user.id)
     ),
+
+    maybeSendAmbientPresence: protectedProcedure
+      .input(z.object({
+        personaId: z.number(),
+        eventText: z.string().min(1).max(160),
+        force: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) =>
+        maybeSendAmbientPresenceMessage(input.personaId, ctx.user.id, input.eventText, { force: input.force })
+      ),
   }),
 
   skillEngine: router({

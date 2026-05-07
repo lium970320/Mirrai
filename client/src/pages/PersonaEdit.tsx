@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
-  ArrowLeft, Save, Eye, X, Plus, Sparkles
+  ArrowLeft, Save, Eye, X, Plus, Sparkles, Bell, Clock, Upload
 } from "lucide-react";
 import { toast } from "sonner";
 
 const ATTACHMENT_STYLES = ["安全型", "焦虑型", "回避型", "混乱型"];
 const LOVE_LANGUAGES = ["精心时刻", "肯定的言辞", "服务的行动", "身体接触", "接收礼物"];
+const DEFAULT_PROACTIVE_TIME = "09:00";
 
 function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
   const [input, setInput] = useState("");
@@ -76,12 +78,17 @@ export default function PersonaEdit() {
   const [catchphrases, setCatchphrases] = useState<string[]>([]);
   const [nickname, setNickname] = useState("");
   const [memories, setMemories] = useState("");
+  const [longBackground, setLongBackground] = useState("");
   const [attachmentStyle, setAttachmentStyle] = useState("");
   const [loveLanguage, setLoveLanguage] = useState("");
   const [conflictStyle, setConflictStyle] = useState("");
   const [touchingMoments, setTouchingMoments] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [starterQuestions, setStarterQuestions] = useState<string[]>([]);
+  const [proactiveEnabled, setProactiveEnabled] = useState(false);
+  const [proactiveTimes, setProactiveTimes] = useState<string[]>([]);
+  const [proactiveTimeInput, setProactiveTimeInput] = useState(DEFAULT_PROACTIVE_TIME);
+  const [proactiveStylePrompt, setProactiveStylePrompt] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
@@ -97,12 +104,16 @@ export default function PersonaEdit() {
     setCatchphrases(p.catchphrases || []);
     setNickname(p.nickname || "");
     setMemories(p.memories || "");
+    setLongBackground(p.longBackground || "");
     setAttachmentStyle(p.attachmentStyle || "");
     setLoveLanguage(p.loveLanguage || "");
     setConflictStyle(p.conflictStyle || "");
     setTouchingMoments(p.touchingMoments || "");
     setCustomInstructions(p.customInstructions || "");
     setStarterQuestions(p.starterQuestions || []);
+    setProactiveEnabled(Boolean(p.proactiveMessages?.enabled));
+    setProactiveTimes(Array.isArray(p.proactiveMessages?.times) ? p.proactiveMessages.times : []);
+    setProactiveStylePrompt(p.proactiveMessages?.stylePrompt || "");
   }, [persona]);
 
   const saveBasic = () => updateMutation.mutate({
@@ -111,11 +122,42 @@ export default function PersonaEdit() {
     llmProvider: llmProvider || undefined,
   });
 
-  const savePersonaData = () => updateDataMutation.mutate({
-    id: personaId,
-    personaData: { personality, speakingStyle, catchphrases, nickname, memories,
-      attachmentStyle, loveLanguage, conflictStyle, touchingMoments, customInstructions, starterQuestions },
-  });
+  const addProactiveTime = () => {
+    if (!/^\d{2}:\d{2}$/.test(proactiveTimeInput)) return;
+    if (!proactiveTimes.includes(proactiveTimeInput)) {
+      setProactiveTimes([...proactiveTimes, proactiveTimeInput].sort());
+    }
+  };
+
+  const savePersonaData = () => {
+    const current = ((persona?.personaData as any) || {});
+    const currentProactive = current.proactiveMessages || {};
+
+    updateDataMutation.mutate({
+      id: personaId,
+      personaData: {
+        ...current,
+        personality,
+        speakingStyle,
+        catchphrases,
+        nickname,
+        memories,
+        longBackground,
+        attachmentStyle,
+        loveLanguage,
+        conflictStyle,
+        touchingMoments,
+        customInstructions,
+        starterQuestions,
+        proactiveMessages: {
+          ...currentProactive,
+          enabled: proactiveEnabled,
+          times: proactiveTimes,
+          stylePrompt: proactiveStylePrompt,
+        },
+      },
+    });
+  };
 
   if (!persona) return null;
 
@@ -140,7 +182,13 @@ export default function PersonaEdit() {
       <main className="container py-8 max-w-2xl mx-auto space-y-6">
         {/* Basic Info */}
         <section className="warm-card p-5 space-y-4">
-          <h2 className="font-semibold text-foreground">基本信息</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold text-foreground">基本信息</h2>
+            <Button size="sm" variant="outline" className="rounded-xl border-border"
+              onClick={() => navigate(`/upload/${personaId}`)}>
+              <Upload className="w-3.5 h-3.5 mr-1.5" />资料文件
+            </Button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs text-foreground/70">名字</Label>
@@ -246,6 +294,16 @@ export default function PersonaEdit() {
                 rows={3} className="bg-muted/50 border-border rounded-lg text-sm" />
             </div>
             <div className="space-y-1.5">
+              <Label className="text-xs text-foreground/70">长篇人物设定 / 小说资料</Label>
+              <Textarea value={longBackground} onChange={e => setLongBackground(e.target.value)}
+                rows={10}
+                placeholder="把小说里和这个人物有关的背景、经历、关系、价值观、说话习惯、禁忌、关键情节贴在这里。系统会在聊天时优先使用这些设定。"
+                className="bg-muted/50 border-border rounded-lg text-sm leading-relaxed" />
+              <p className="text-xs text-muted-foreground">
+                当前已输入 {longBackground.length.toLocaleString("zh-CN")} 字。过长时系统会优先使用前约 32,000 字进入提示词。
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs text-foreground/70">触动瞬间</Label>
               <Textarea value={touchingMoments} onChange={e => setTouchingMoments(e.target.value)}
                 rows={2} className="bg-muted/50 border-border rounded-lg text-sm" />
@@ -260,6 +318,48 @@ export default function PersonaEdit() {
                 rows={3} placeholder="例如：回复时多用表情包描述、每次回复不超过50字..."
                 className="bg-muted/50 border-border rounded-lg text-sm" />
             </div>
+
+            <div className="border border-border rounded-xl p-4 space-y-4 bg-muted/20">
+              <div className="flex items-center gap-3">
+                <Bell className="w-4 h-4 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-medium text-foreground">主动消息</h3>
+                  <p className="text-xs text-muted-foreground">服务运行且微信已登录时，在设定时间主动给已绑定联系人发消息。</p>
+                </div>
+                <Switch checked={proactiveEnabled} onCheckedChange={setProactiveEnabled} />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {proactiveTimes.map(time => (
+                  <span key={time} className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-primary/10 text-primary rounded-full">
+                    <Clock className="w-3 h-3" />{time}
+                    <button onClick={() => setProactiveTimes(proactiveTimes.filter(t => t !== time))}
+                      className="hover:text-destructive"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+                {proactiveTimes.length === 0 && (
+                  <span className="text-xs text-muted-foreground">还没有设置时间点</span>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <Input type="time" value={proactiveTimeInput} onChange={e => setProactiveTimeInput(e.target.value)}
+                  className="h-9 bg-card border-border rounded-lg max-w-[140px]" />
+                <Button size="sm" variant="outline" onClick={addProactiveTime}
+                  className="rounded-lg">
+                  <Plus className="w-3.5 h-3.5" />添加时间
+                </Button>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-foreground/70">主动消息风格补充</Label>
+                <Textarea value={proactiveStylePrompt} onChange={e => setProactiveStylePrompt(e.target.value)}
+                  rows={2}
+                  placeholder="例如：早上偏关心，晚上偏分享回忆；不要太热情；偶尔提到小说里的某个细节。"
+                  className="bg-card border-border rounded-lg text-sm" />
+              </div>
+            </div>
+
             <Button size="sm" onClick={savePersonaData} disabled={updateDataMutation.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl">
               <Save className="w-3.5 h-3.5 mr-1.5" />{updateDataMutation.isPending ? "保存中..." : "保存人设数据"}

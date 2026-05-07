@@ -40,24 +40,24 @@
 
 /* ─── Dark Mode Overrides ──────────────────────────────────────────────────── */
 html.dark {
-  --color-background: oklch(0.16 0.018 236);
-  --color-foreground: oklch(0.92 0.01 118);
-  --color-card: oklch(0.20 0.018 236);
-  --color-card-foreground: oklch(0.92 0.01 118);
-  --color-popover: oklch(0.20 0.018 236);
-  --color-popover-foreground: oklch(0.92 0.01 118);
+  --color-background: oklch(0.24 0.014 236);
+  --color-foreground: oklch(0.96 0.006 118);
+  --color-card: oklch(0.30 0.014 236);
+  --color-card-foreground: oklch(0.96 0.006 118);
+  --color-popover: oklch(0.31 0.014 236);
+  --color-popover-foreground: oklch(0.96 0.006 118);
   --color-primary: oklch(0.70 0.13 164);
-  --color-primary-foreground: oklch(0.14 0.018 236);
-  --color-secondary: oklch(0.26 0.018 236);
-  --color-secondary-foreground: oklch(0.86 0.012 118);
-  --color-muted: oklch(0.25 0.017 236);
-  --color-muted-foreground: oklch(0.70 0.016 118);
-  --color-accent: oklch(0.30 0.04 164);
-  --color-accent-foreground: oklch(0.90 0.012 118);
+  --color-primary-foreground: oklch(0.14 0.014 236);
+  --color-secondary: oklch(0.35 0.014 236);
+  --color-secondary-foreground: oklch(0.92 0.008 118);
+  --color-muted: oklch(0.36 0.012 236);
+  --color-muted-foreground: oklch(0.78 0.010 118);
+  --color-accent: oklch(0.38 0.035 164);
+  --color-accent-foreground: oklch(0.95 0.008 118);
   --color-destructive: oklch(0.66 0.16 25);
   --color-destructive-foreground: oklch(0.99 0 0);
-  --color-border: oklch(0.32 0.017 236);
-  --color-input: oklch(0.30 0.016 236);
+  --color-border: oklch(0.46 0.014 236);
+  --color-input: oklch(0.39 0.012 236);
   --color-ring: oklch(0.70 0.13 164);
   --color-chart-1: oklch(0.70 0.13 164);
   --color-chart-2: oklch(0.72 0.14 42);
@@ -179,13 +179,13 @@ html.dark .warm-card:hover {
 html.dark .app-header {
   background:
     linear-gradient(180deg,
-      oklch(0.22 0.02 236 / 0.88),
-      oklch(0.18 0.018 236 / 0.84)
+      oklch(0.32 0.016 236 / 0.92),
+      oklch(0.27 0.014 236 / 0.90)
     );
-  border-bottom-color: oklch(0.40 0.025 220 / 0.30);
+  border-bottom-color: oklch(0.52 0.018 220 / 0.45);
   box-shadow:
-    0 1px 0 oklch(0.60 0.015 220 / 0.06) inset,
-    0 4px 24px oklch(0.04 0.01 240 / 0.40);
+    0 1px 0 oklch(0.78 0.010 220 / 0.10) inset,
+    0 4px 24px oklch(0.08 0.008 240 / 0.22);
 }
 
 .app-nav {
@@ -228,16 +228,16 @@ html.dark .app-nav-mark {
   font-weight: 600;
   font-size: 0.9375rem;
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 .app-nav-subtitle {
   color: var(--color-muted-foreground);
   font-size: 0.6875rem;
   line-height: 1.2;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 html.dark .app-nav-subtitle {
-  color: oklch(0.68 0.012 200 / 0.72);
+  color: oklch(0.82 0.010 200 / 0.86);
 }
 .app-nav-spacer {
   flex: 1;
@@ -285,13 +285,13 @@ html.dark .app-nav-subtitle {
 }
 html.dark .app-nav-icon,
 html.dark .app-nav-back {
-  color: oklch(0.72 0.01 200 / 0.72);
+  color: oklch(0.82 0.01 200 / 0.82);
 }
 html.dark .app-nav-icon:hover,
 html.dark .app-nav-back:hover {
-  color: oklch(0.92 0.01 200);
-  background: oklch(0.36 0.02 220 / 0.50);
-  border-color: oklch(0.50 0.025 220 / 0.20);
+  color: oklch(0.98 0.006 200);
+  background: oklch(0.42 0.014 220 / 0.70);
+  border-color: oklch(0.58 0.016 220 / 0.35);
 }
 .app-nav-icon-active {
   color: var(--color-primary) !important;
@@ -319,8 +319,8 @@ html.dark .app-nav-divider {
   border-top: 1px solid color-mix(in oklab, var(--color-border) 50%, transparent);
 }
 html.dark .chat-composer {
-  background: oklch(0.16 0.016 236 / 0.90);
-  border-top-color: oklch(0.34 0.018 236 / 0.60);
+  background: oklch(0.27 0.014 236 / 0.94);
+  border-top-color: oklch(0.48 0.014 236 / 0.70);
 }
 @media (max-width: 640px) {
   .app-nav {
@@ -375,6 +375,11 @@ html.dark .bubble-user {
   border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
   color: var(--color-foreground);
   border-radius: 1.125rem 1.125rem 1.125rem 0.25rem;
+}
+html.dark .bubble-ai {
+  background: oklch(0.34 0.014 236);
+  border-color: oklch(0.54 0.014 236 / 0.72);
+  color: oklch(0.96 0.006 118);
 }
 
 /* ─── Accent Text ──────────────────────────────────────────────────────────── */

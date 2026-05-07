@@ -1,3 +1,9 @@
+import path from "path";
+
+const defaultLocalDataDir = process.platform === "win32"
+  ? path.join(path.parse(process.cwd()).root, ".mirrai-local", "Mirrai")
+  : path.join(process.cwd(), ".mirrai-local");
+
 export const ENV = {
   cookieSecret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   databaseUrl: process.env.DATABASE_URL ?? "",
@@ -45,6 +51,10 @@ export const ENV = {
 
   wechatEnabled: process.env.WECHAT_ENABLED === "true",
   wechatPuppet: process.env.WECHAT_PUPPET ?? "wechaty-puppet-wechat4u",
+  wechatBotName: process.env.WECHAT_BOT_NAME ?? "Girlfriend",
+  wechatSessionDir: process.env.WECHAT_SESSION_DIR ?? path.join(defaultLocalDataDir, "wechat"),
+  wechatAutoBindSingleReadyPersona:
+    process.env.WECHAT_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
 
   pythonPath: process.env.PYTHON_PATH ?? "python3",
   skillEngineDir: process.env.SKILL_ENGINE_DIR ?? "./skill-engine",

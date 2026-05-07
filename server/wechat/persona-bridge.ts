@@ -1,17 +1,55 @@
 import { llmService } from "../llm";
 import * as db from "../db";
-import { getEmotionalStateDesc, computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
+import { ENV } from "../_core/env";
+import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
+import { stripLeadingAsides } from "../_core/reply-utils";
 
 export async function handlePersonaChat(
   contactId: string,
   contactName: string,
   messageText: string,
 ): Promise<string | null> {
-  const binding = await db.getWechatBindingByContactId(contactId);
-  if (!binding) return null;
+  let binding = await db.getWechatBindingByContactId(contactId);
+  if (!binding && ENV.wechatAutoBindSingleReadyPersona) {
+    const persona = await db.getSingleReadyPersonaForWechatAutoBind();
+    if (persona) {
+      const bindingId = await db.createWechatBinding({
+        userId: persona.userId,
+        personaId: persona.id,
+        wechatContactId: contactId,
+        wechatName: contactName,
+        isActive: true,
+      });
+      binding = {
+        id: bindingId,
+        userId: persona.userId,
+        personaId: persona.id,
+        wechatContactId: contactId,
+        wechatName: contactName,
+        wechatAlias: null,
+        isActive: true,
+        createdAt: new Date(),
+      };
+      console.log(
+        `[WeChat] Auto-bound ${contactName} (${contactId}) to persona ${persona.name} (${persona.id})`
+      );
+    }
+  }
+
+  if (!binding) {
+    console.warn(
+      `[WeChat] No active binding for ${contactName} (${contactId}); cannot choose a persona`
+    );
+    return null;
+  }
 
   const persona = await db.getPersonaById(binding.personaId, binding.userId);
-  if (!persona || persona.analysisStatus !== "ready") return null;
+  if (!persona || persona.analysisStatus !== "ready") {
+    console.warn(
+      `[WeChat] Bound persona ${binding.personaId} is missing or not ready for ${contactName} (${contactId})`
+    );
+    return null;
+  }
 
   await db.createMessage({
     personaId: binding.personaId,
@@ -25,7 +63,7 @@ export async function handlePersonaChat(
   const history = await db.getMessagesByPersonaId(binding.personaId, 20);
   const systemPrompt = buildSystemPrompt(persona);
 
-  const replyText = await llmService.invoke({
+  const response = await llmService.invoke({
     messages: [
       { role: "system", content: systemPrompt },
       ...history.slice(-19).map(m => ({
@@ -33,7 +71,8 @@ export async function handlePersonaChat(
         content: m.content,
       })),
     ],
-  }) || "（沉默）";
+  });
+  const replyText = stripLeadingAsides(response || "（沉默）");
 
   const newState = computeEmotionalState(messageText, replyText, persona.emotionalState);
 

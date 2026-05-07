@@ -15,8 +15,12 @@ export async function handleWeChatMessage(msg: any, bot: WechatyInterface) {
   const content = msg.text().trim();
   if (!content) return;
 
+  console.log(`[WeChat] Incoming private text from ${contactName} (${contactId})`);
   const reply = await handlePersonaChat(contactId, contactName, content);
   if (reply) {
     await contact.say(reply);
+    console.log(`[WeChat] Replied to ${contactName} (${contactId})`);
+  } else {
+    console.warn(`[WeChat] No reply generated for ${contactName} (${contactId})`);
   }
 }

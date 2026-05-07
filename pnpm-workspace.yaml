@@ -1,0 +1,7 @@
+allowBuilds:
+  '@embedded-postgres/windows-x64': true
+  '@swc/core': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+  leveldown: true
+  protobufjs: true

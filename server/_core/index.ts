@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
+import { startProactiveScheduler } from "../wechat/proactive-scheduler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -73,6 +74,8 @@ async function startServer() {
       console.warn("[WeChat] Bot failed to start:", e);
     }
   }
+
+  startProactiveScheduler();
 }
 
 startServer().catch(console.error);

@@ -40,7 +40,6 @@ function SliderField({ label, value, onChange, min, max, step, unit }: {
         <Label className="text-sm text-foreground/70">{label}</Label>
         <span className="text-sm font-medium text-foreground">{value}{unit}</span>
       </div>
-// ─── SLIDER_PLACEHOLDER ──────────────────────────────────────────────────────
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
         className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer accent-primary" />
@@ -344,7 +343,7 @@ function AISettingsTab() {
   const providers = trpc.llmConfig.listProviders.useQuery();
   const defaultConfig = trpc.llmConfig.getDefault.useQuery();
   const upsertConfig = trpc.llmConfig.upsert.useMutation({
-    onSuccess: () => { toast.success("配置已保存"); providers.refetch(); },
+    onSuccess: () => { toast.success("配置已保存"); providers.refetch(); defaultConfig.refetch(); },
   });
   const setDefault = trpc.llmConfig.setDefault.useMutation({
     onSuccess: () => { toast.success("默认提供商已更新"); defaultConfig.refetch(); },
@@ -397,7 +396,10 @@ function AISettingsTab() {
         <SliderField label="Max Tokens（最大回复长度）" value={maxTokens} onChange={setMaxTokens}
           min={256} max={8192} step={256} />
         <SliderField label="上下文消息数" value={contextLimit} onChange={setContextLimit}
-          min={5} max={50} step={5} unit=" 条" />
+          min={5} max={100} step={5} unit=" 条" />
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          长篇人物设定请写在人物编辑页，这里只控制每次对话回看最近多少条聊天记录。
+        </p>
         <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
           onClick={() => updateExtra.mutate({ extraConfig: { temperature, maxTokens, contextLimit } })}
           disabled={updateExtra.isPending}>
@@ -426,6 +428,7 @@ function WeChatTab() {
           <h2 className="font-semibold text-foreground">微信机器人</h2>
           <span className="text-sm text-muted-foreground ml-auto">
             {bot?.status === "logged_in" && `已登录: ${bot.loggedInUser}`}
+            {bot?.status === "starting" && "正在恢复登录..."}
             {bot?.status === "scanning" && "等待扫码..."}
             {bot?.status === "stopped" && "未启动"}
             {bot?.status === "error" && "出错"}
@@ -436,31 +439,35 @@ function WeChatTab() {
           <div className="flex items-center gap-3 mb-3">
             <div className={`w-3 h-3 rounded-full ${
               bot?.status === "logged_in" ? "bg-emerald-500" :
+              bot?.status === "starting" ? "bg-amber-400 animate-pulse" :
               bot?.status === "scanning" ? "bg-blue-400 animate-pulse" :
               bot?.status === "error" ? "bg-red-400" : "bg-muted-foreground/30"
             }`} />
             <span className="text-sm text-foreground font-medium">
               {bot?.status === "logged_in" ? "在线运行中" :
+               bot?.status === "starting" ? "正在尝试自动恢复登录" :
                bot?.status === "scanning" ? "等待扫码登录" :
                bot?.status === "error" ? "运行出错" : "未启动"}
             </span>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            启动微信机器人后，绑定的分身可以通过微信自动回复消息。扫码登录你的微信账号即可开始使用。
+            启动微信机器人后，绑定的分身可以通过微信自动回复消息。系统会优先复用本机保存的微信登录态；如果登录态过期，再扫码登录。
           </p>
         </div>
 
         {bot?.qrCodeUrl && (
           <div className="flex flex-col items-center gap-3 py-4">
             <img src={bot.qrCodeUrl} alt="WeChat QR" className="w-48 h-48 rounded-xl border border-border" />
-            <p className="text-xs text-muted-foreground">请使用微信扫描二维码登录</p>
+            <p className="text-xs text-muted-foreground">
+              {bot.hasStoredSession ? "正在尝试复用本机登录态；如果长时间停在这里，再用微信扫码登录。" : "请使用微信扫描二维码登录"}
+            </p>
           </div>
         )}
 
         <div className="flex gap-2">
           <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
             onClick={() => startBot.mutate()}
-            disabled={bot?.status === "logged_in" || bot?.status === "scanning"}>
+            disabled={bot?.status === "logged_in" || bot?.status === "starting" || bot?.status === "scanning"}>
             启动
           </Button>
           <Button size="sm" variant="outline" className="rounded-xl border-border"
