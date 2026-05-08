@@ -3,6 +3,7 @@ import {
   createMessage,
   getActiveWechatBindingsByPersonaId,
   getDefaultLlmConfig,
+  getMessagesByPersonaId,
   getPersonaById,
   updatePersona,
 } from "../db";
@@ -30,6 +31,7 @@ type AmbientPresenceState = {
 };
 
 const MINUTE = 60_000;
+const runningAmbientSends = new Set<string>();
 
 const PERIODS: Record<AmbientPeriod, AmbientPeriodConfig> = {
   day: {
@@ -141,10 +143,22 @@ function fallbackMessage(period: AmbientPeriod) {
   return "刚忙完手边的事，短短地想起你一下。记得吃饭，别一忙就忘了照顾自己。";
 }
 
+async function getRecentConversationContext(personaId: number): Promise<string> {
+  const history = await getMessagesByPersonaId(personaId, 12);
+  return history
+    .slice(-10)
+    .map((m) => {
+      const who = m.role === "user" ? "用户" : "王芃泽";
+      return `${who}（${m.channel}）：${m.content}`;
+    })
+    .join("\n");
+}
+
 async function generateAmbientMessage(persona: any, eventText: string, period: AmbientPeriod) {
   const defaultConfig = await getDefaultLlmConfig(persona.userId);
   const extra = (defaultConfig?.extraConfig as any) || {};
   const proactive = (((persona.personaData as any) || {}).proactiveMessages || {}) as any;
+  const recentContext = await getRecentConversationContext(persona.id);
 
   const response = await llmService.invoke({
     messages: [
@@ -156,6 +170,9 @@ async function generateAmbientMessage(persona: any, eventText: string, period: A
           "这次事件抽中了主动微信消息。请把这个动作或心情转成角色本人会发给用户的一条自然私聊。",
           "要求：内容要和当下动作/心情有关，不要提到网页、事件、触发、概率、系统或定时。",
           "不要写括号动作/旁白，不要剧本格式，30 到 80 个中文字符。",
+          "必须延续最近对话里的时间线和空间状态；不要重复刚说过的话，不要和最近说过的行程矛盾。",
+          "如果最近已经说过到所里、正在看地图或已经下班，就不要再说正要去所里；如果用户刚纠正异地，就必须按武汉-南京异地来写。",
+          recentContext ? `最近对话上下文：\n${recentContext}` : "",
           proactive.stylePrompt ? `主动消息风格补充：${proactive.stylePrompt}` : "",
         ].filter(Boolean).join("\n"),
       },
@@ -176,6 +193,13 @@ export async function maybeSendAmbientPresenceMessage(
   eventText: string,
   options: { force?: boolean } = {},
 ) {
+  const lockKey = `${userId}:${personaId}`;
+  if (runningAmbientSends.has(lockKey)) {
+    return { sent: false, reason: "already_running" as const };
+  }
+  runningAmbientSends.add(lockKey);
+
+  try {
   const now = new Date();
   const period = getAmbientPeriod(now);
   const today = dateKey(now);
@@ -250,4 +274,7 @@ export async function maybeSendAmbientPresenceMessage(
 
   console.log(`[AmbientProactive] Sent ${period} message for persona ${persona.name} (${persona.id})`);
   return { sent: true, period, count: count + 1, target };
+  } finally {
+    runningAmbientSends.delete(lockKey);
+  }
 }

@@ -326,6 +326,24 @@ export async function searchMessages(personaId: number, userId: number, query: s
 export async function createWechatBinding(data: InsertWechatBinding) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  await db.update(wechatBindings)
+    .set({ isActive: false })
+    .where(and(
+      eq(wechatBindings.personaId, data.personaId),
+      eq(wechatBindings.userId, data.userId),
+      eq(wechatBindings.isActive, true),
+      eq(wechatBindings.wechatContactId, data.wechatContactId),
+    ));
+  if (data.wechatName) {
+    await db.update(wechatBindings)
+      .set({ isActive: false })
+      .where(and(
+        eq(wechatBindings.personaId, data.personaId),
+        eq(wechatBindings.userId, data.userId),
+        eq(wechatBindings.isActive, true),
+        eq(wechatBindings.wechatName, data.wechatName),
+      ));
+  }
   const [result] = await db.insert(wechatBindings).values(data).returning({ id: wechatBindings.id });
   return result.id;
 }
@@ -339,14 +357,26 @@ export async function getWechatBindingsByUserId(userId: number) {
 export async function getActiveWechatBindingsByPersonaId(personaId: number, userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db
+  const rows = await db
     .select()
     .from(wechatBindings)
     .where(and(
       eq(wechatBindings.personaId, personaId),
       eq(wechatBindings.userId, userId),
       eq(wechatBindings.isActive, true),
-    ));
+    ))
+    .orderBy(desc(wechatBindings.createdAt));
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const keys = [
+      row.wechatName?.trim() ? `name:${row.wechatName.trim().toLowerCase()}` : "",
+      row.wechatContactId ? `id:${row.wechatContactId}` : "",
+    ].filter(Boolean);
+    if (keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
+    return true;
+  });
 }
 
 export async function getWechatBindingByContactId(contactId: string) {

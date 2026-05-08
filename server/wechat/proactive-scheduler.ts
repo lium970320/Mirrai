@@ -3,6 +3,7 @@ import {
   getActiveWechatBindingsByPersonaId,
   getDefaultLlmConfig,
   getReadyPersonasForProactiveMessages,
+  getMessagesByPersonaId,
   updatePersona,
   createMessage,
 } from "../db";
@@ -44,11 +45,23 @@ function getDueTimes(times: string[], now: Date): string[] {
   });
 }
 
+async function getRecentConversationContext(personaId: number): Promise<string> {
+  const history = await getMessagesByPersonaId(personaId, 12);
+  return history
+    .slice(-10)
+    .map((m) => {
+      const who = m.role === "user" ? "用户" : "王芃泽";
+      return `${who}（${m.channel}）：${m.content}`;
+    })
+    .join("\n");
+}
+
 async function generateProactiveMessage(persona: any, time: string): Promise<string> {
   const defaultConfig = await getDefaultLlmConfig(persona.userId);
   const extra = (defaultConfig?.extraConfig as any) || {};
   const personaData = (persona.personaData as any) || {};
   const proactive = personaData.proactiveMessages || {};
+  const recentContext = await getRecentConversationContext(persona.id);
 
   const response = await llmService.invoke({
     messages: [
@@ -60,6 +73,9 @@ async function generateProactiveMessage(persona: any, time: string): Promise<str
           "请以角色本人会发出的私聊消息主动联系用户。",
           "要求：随机选择一个自然切入点，可以是问候、分享此刻想到的事、想起某段背景经历、轻微关心或延续你的人物关系。",
           "不要解释这是定时消息，不要写括号动作/旁白，不要超过 80 个中文字符。",
+          "必须延续最近对话里的时间线和空间状态；不要重复刚说过的话，不要和最近说过的行程矛盾。",
+          "如果最近已经说过到所里、正在看地图或已经下班，就不要再说正要去所里；如果用户刚纠正异地，就必须按武汉-南京异地来写。",
+          recentContext ? `最近对话上下文：\n${recentContext}` : "",
           proactive.stylePrompt ? `额外要求：${proactive.stylePrompt}` : "",
         ].filter(Boolean).join("\n"),
       },
