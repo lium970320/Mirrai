@@ -8,7 +8,7 @@ import {
   createMessage,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
-import { stripLeadingAsides } from "../_core/reply-utils";
+import { cleanAssistantReply } from "../_core/reply-utils";
 import { getBotStatus, sendWeChatText } from "./bot";
 
 let scheduler: ReturnType<typeof setInterval> | null = null;
@@ -87,7 +87,7 @@ async function generateProactiveMessage(persona: any, time: string): Promise<str
     },
   });
 
-  return stripLeadingAsides(response || "我刚刚突然想到你，就想问问你现在在做什么。");
+  return cleanAssistantReply(response, "我刚刚突然想到你，就想问问你现在在做什么。");
 }
 
 async function runProactiveTick() {

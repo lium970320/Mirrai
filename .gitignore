@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 uploads/
+uploads (1)/
 *.log
 *.memory-card.json
 .DS_Store

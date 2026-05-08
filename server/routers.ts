@@ -27,10 +27,25 @@ import {
 } from "./db";
 import { nanoid } from "nanoid";
 import { getBotStatus, startWeChatBot, stopWeChatBot } from "./wechat/bot";
+import { listRecentContacts } from "./wechat/contact-registry";
 import { maybeSendAmbientPresenceMessage } from "./wechat/ambient-proactive";
 import { runSkillPipeline } from "./skill-engine/pipeline";
 import { getEmotionalStateDesc, computeEmotionalState, buildSystemPrompt, computeIntimacy, checkGraduationEligibility } from "./_core/persona-utils";
-import { stripLeadingAsides } from "./_core/reply-utils";
+import { describeImage } from "./vision";
+import { cleanAssistantReply } from "./_core/reply-utils";
+
+function webImageInstruction(description: string): string {
+  return [
+    "用户在网页聊天里发来了一张图片。视觉模型识别结果如下：",
+    description,
+    "",
+    "请只根据这段识别结果和上下文，用你的人格口吻自然回应。不要写成图片说明，也不要说自己是AI。",
+  ].join("\n");
+}
+
+function noWebImageVisionInstruction(): string {
+  return "用户在网页聊天里发来了一张图片，但当前没有可用的视觉模型识别具体画面。请不要编造画面细节，也不要提技术问题；用你的人格口吻自然接住这条消息，可以温柔地回应，或顺势问一句。";
+}
 
 async function analyzeAndBuildPersona(
   personaId: number,
@@ -90,33 +105,7 @@ async function analyzeAndBuildPersona(
     } catch (e) { console.error("[Image Analysis] error:", e); }
   }
 
-  const existingPersona = await getPersonaById(personaId, userId);
-  const existingData = (existingPersona?.personaData ?? {}) as Record<string, unknown>;
-  const preservedKeys = [
-    "summary",
-    "personality",
-    "speakingStyle",
-    "catchphrases",
-    "nickname",
-    "memories",
-    "longBackground",
-    "attachmentStyle",
-    "loveLanguage",
-    "conflictStyle",
-    "touchingMoments",
-    "customInstructions",
-    "starterQuestions",
-    "proactiveMessages",
-  ];
-  const mergedPersonaData = { ...personaData };
-  for (const key of preservedKeys) {
-    const value = existingData[key];
-    if (value !== undefined && value !== null && value !== "") {
-      mergedPersonaData[key] = value;
-    }
-  }
-
-  await updatePersona(personaId, userId, { personaData: mergedPersonaData, analysisStatus: "ready", analysisProgress: 100, analysisMessage: `${name} 的数字分身已准备好，可以开始对话了` });
+  await updatePersona(personaId, userId, { personaData, analysisStatus: "ready", analysisProgress: 100, analysisMessage: `${name} 的数字分身已准备好，可以开始对话了` });
 }
 
 export const appRouter = router({
@@ -411,7 +400,7 @@ export const appRouter = router({
           messages: llmMessages,
           options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens },
         });
-        const replyText = stripLeadingAsides(response || "（沉默）");
+        const replyText = cleanAssistantReply(response);
         const newEmotionalState = computeEmotionalState(input.message, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
@@ -459,20 +448,35 @@ export const appRouter = router({
         const buffer = Buffer.from(input.imageContent, "base64");
         const fileKey = `chat/${ctx.user.id}/${input.personaId}/${nanoid()}-${input.fileName}`;
         const { url } = await storagePut(fileKey, buffer, input.mimeType);
+        let visionDescription: string | null = null;
+        try {
+          visionDescription = await describeImage({
+            kind: "image",
+            buffer,
+            fileName: input.fileName,
+            mimeType: input.mimeType,
+          });
+        } catch (err) {
+          console.warn("[Chat] Vision description failed:", err);
+        }
+        const userContent = visionDescription ? `[图片]\n${visionDescription}` : "[图片]";
 
-        await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "user", content: "[图片]", messageType: "image", mediaUrl: url, emotionalState: persona.emotionalState });
+        const userMessageId = await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "user", content: userContent, messageType: "image", mediaUrl: url, emotionalState: persona.emotionalState });
 
         const defaultConfig = await getDefaultLlmConfig(ctx.user.id);
         const extra = (defaultConfig?.extraConfig as any) || {};
         const contextLimit = extra.contextLimit || 20;
         const history = await getMessagesByPersonaId(input.personaId, contextLimit);
         const systemPrompt = buildSystemPrompt(persona, scene?.systemPromptOverlay);
+        const currentImageInstruction = visionDescription
+          ? webImageInstruction(visionDescription)
+          : noWebImageVisionInstruction();
 
         const llmMessages = [
           { role: "system" as const, content: systemPrompt },
           ...history.slice(-(contextLimit - 1)).map((m) => {
-            if (m.messageType === "image" && m.mediaUrl) {
-              return { role: m.role as "user" | "assistant", content: [{ type: "text" as const, text: m.content }, { type: "image_url" as const, url: m.mediaUrl }] };
+            if (m.id === userMessageId) {
+              return { role: "user" as const, content: currentImageInstruction };
             }
             return { role: m.role as "user" | "assistant", content: m.content };
           }),
@@ -480,8 +484,8 @@ export const appRouter = router({
 
         const provider = (persona as any).llmProvider || undefined;
         const response = await llmService.invoke({ messages: llmMessages, options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens } });
-        const replyText = stripLeadingAsides(response || "（沉默）");
-        const newEmotionalState = computeEmotionalState("[图片]", replyText, persona.emotionalState);
+        const replyText = cleanAssistantReply(response);
+        const newEmotionalState = computeEmotionalState(userContent, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
         await updatePersona(input.personaId, ctx.user.id, { chatCount: (persona.chatCount || 0) + 1, lastChatAt: new Date(), emotionalState: newEmotionalState as any });
@@ -519,7 +523,7 @@ export const appRouter = router({
 
         const provider = (persona as any).llmProvider || undefined;
         const response = await llmService.invoke({ messages: llmMessages, options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens } });
-        const replyText = stripLeadingAsides(response || "（沉默）");
+        const replyText = cleanAssistantReply(response);
         const newEmotionalState = computeEmotionalState(transcription, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });
@@ -574,6 +578,20 @@ export const appRouter = router({
   wechat: router({
     getStatus: protectedProcedure.query(() => getBotStatus()),
 
+    recentContacts: protectedProcedure.query(() => listRecentContacts()),
+
+    maybeSendAmbientPresence: protectedProcedure
+      .input(z.object({
+        personaId: z.number(),
+        eventText: z.string().min(1).max(120),
+        force: z.boolean().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return maybeSendAmbientPresenceMessage(input.personaId, ctx.user.id, input.eventText, {
+          force: input.force,
+        });
+      }),
+
     start: protectedProcedure.mutation(() => {
       startWeChatBot();
       return { success: true };
@@ -610,16 +628,6 @@ export const appRouter = router({
     listBindings: protectedProcedure.query(async ({ ctx }) =>
       getWechatBindingsByUserId(ctx.user.id)
     ),
-
-    maybeSendAmbientPresence: protectedProcedure
-      .input(z.object({
-        personaId: z.number(),
-        eventText: z.string().min(1).max(160),
-        force: z.boolean().optional(),
-      }))
-      .mutation(async ({ ctx, input }) =>
-        maybeSendAmbientPresenceMessage(input.personaId, ctx.user.id, input.eventText, { force: input.force })
-      ),
   }),
 
   skillEngine: router({

@@ -8,7 +8,7 @@ import {
   updatePersona,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
-import { stripLeadingAsides } from "../_core/reply-utils";
+import { cleanAssistantReply } from "../_core/reply-utils";
 import { getBotStatus, sendWeChatText } from "./bot";
 
 type AmbientPeriod = "day" | "evening" | "lateNight";
@@ -184,7 +184,7 @@ async function generateAmbientMessage(persona: any, eventText: string, period: A
     },
   });
 
-  return stripLeadingAsides(response || fallbackMessage(period));
+  return cleanAssistantReply(response, fallbackMessage(period));
 }
 
 export async function maybeSendAmbientPresenceMessage(

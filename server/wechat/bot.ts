@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { ENV } from "../_core/env";
 import { handleWeChatMessage } from "./message-handler";
+import { sayWeChatReply } from "./reply-sender";
 
 let bot: WechatyInterface | null = null;
 let currentQrUrl: string | null = null;
@@ -90,9 +91,9 @@ export async function sendWeChatText(contactId: string, text: string, contactNam
   }
 
   try {
-    await contact.say(text);
+    const messageCount = await sayWeChatReply(contact, text);
     botStatus = "logged_in";
-    console.log(`[WeChat] Sent proactive message to ${contactName || contactId}`);
+    console.log(`[WeChat] Sent proactive message to ${contactName || contactId} (${messageCount} chunk${messageCount === 1 ? "" : "s"})`);
     return true;
   } catch (error) {
     console.error(`[WeChat] Failed to send proactive message to ${contactName || contactId}:`, error);

@@ -4,6 +4,10 @@ const defaultLocalDataDir = process.platform === "win32"
   ? path.join(path.parse(process.cwd()).root, ".mirrai-local", "Mirrai")
   : path.join(process.cwd(), ".mirrai-local");
 
+function firstNonEmpty(...values: Array<string | undefined>): string {
+  return values.find(value => value?.trim())?.trim() ?? "";
+}
+
 export const ENV = {
   cookieSecret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   databaseUrl: process.env.DATABASE_URL ?? "",
@@ -48,6 +52,11 @@ export const ENV = {
   doubaoModel: process.env.DOUBAO_MODEL ?? "",
 
   _302aiApiKey: process.env._302AI_API_KEY ?? "",
+
+  visionApiKey: firstNonEmpty(process.env.VISION_API_KEY, process.env.TONGYI_API_KEY, process.env.DASHSCOPE_API_KEY),
+  visionBaseUrl: firstNonEmpty(process.env.VISION_BASE_URL, process.env.TONGYI_URL) || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  visionModel: firstNonEmpty(process.env.VISION_MODEL) || "qwen3-vl-flash",
+  visionMaxInlineBytes: Number.parseInt(process.env.VISION_MAX_INLINE_BYTES ?? "", 10) || 7 * 1024 * 1024,
 
   wechatEnabled: process.env.WECHAT_ENABLED === "true",
   wechatPuppet: process.env.WECHAT_PUPPET ?? "wechaty-puppet-wechat4u",

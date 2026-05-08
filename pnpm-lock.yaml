@@ -137,9 +137,15 @@ importers:
       framer-motion:
         specifier: ^12.23.22
         version: 12.23.22(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      gifwrap:
+        specifier: 0.9.4
+        version: 0.9.4
       input-otp:
         specifier: ^1.4.2
         version: 1.4.2(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
+      jimp:
+        specifier: 0.16.13
+        version: 0.16.13
       jose:
         specifier: 6.1.0
         version: 6.1.0
