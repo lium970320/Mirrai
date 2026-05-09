@@ -65,6 +65,14 @@ export const ENV = {
   wechatAutoBindSingleReadyPersona:
     process.env.WECHAT_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
 
+  qqEnabled: process.env.QQ_ENABLED === "true",
+  qqOnebotBaseUrl: firstNonEmpty(process.env.QQ_ONEBOT_BASE_URL, process.env.ONEBOT_BASE_URL) || "http://127.0.0.1:3001",
+  qqOnebotAccessToken: firstNonEmpty(process.env.QQ_ONEBOT_ACCESS_TOKEN, process.env.ONEBOT_ACCESS_TOKEN),
+  qqOnebotWebhookSecret: process.env.QQ_ONEBOT_WEBHOOK_SECRET ?? "",
+  qqAllowGroups: process.env.QQ_ALLOW_GROUPS === "true",
+  qqAutoBindSingleReadyPersona:
+    process.env.QQ_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
+
   pythonPath: process.env.PYTHON_PATH ?? "python3",
   skillEngineDir: process.env.SKILL_ENGINE_DIR ?? "./skill-engine",
 

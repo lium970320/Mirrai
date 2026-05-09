@@ -197,7 +197,7 @@ export async function getPersonasWithStats(userId: number) {
       .from(messages).where(eq(messages.personaId, p.id)).orderBy(desc(messages.createdAt)).limit(1);
     const [fileCountRow] = await db.select({ c: count() }).from(personaFiles).where(eq(personaFiles.personaId, p.id));
     const [bindingRow] = await db.select({ c: count() }).from(wechatBindings)
-      .where(and(eq(wechatBindings.personaId, p.id), eq(wechatBindings.isActive, true)));
+      .where(and(eq(wechatBindings.personaId, p.id), eq(wechatBindings.isActive, true), nonQqBindingFilter()));
     result.push({
       ...p,
       lastMessage: lastMsgRow ? { content: (lastMsgRow.content || "").slice(0, 60), createdAt: lastMsgRow.createdAt } : null,
@@ -323,6 +323,27 @@ export async function searchMessages(personaId: number, userId: number, query: s
 
 // ─── WeChat Binding helpers ─────────────────────────────────────────────────
 
+export const QQ_CONTACT_PREFIX = "qq:";
+
+function isQqContactId(contactId: string | null | undefined): boolean {
+  return Boolean(contactId?.startsWith(QQ_CONTACT_PREFIX));
+}
+
+function qqBindingFilter() {
+  return sql`${wechatBindings.wechatContactId} LIKE ${`${QQ_CONTACT_PREFIX}%`}`;
+}
+
+function nonQqBindingFilter() {
+  return sql`${wechatBindings.wechatContactId} NOT LIKE ${`${QQ_CONTACT_PREFIX}%`}`;
+}
+
+function normalizeQqContactId(contactId: string): string {
+  const trimmed = contactId.trim();
+  if (/^qq:(private|group):.+$/.test(trimmed)) return trimmed;
+  if (/^(private|group):.+$/.test(trimmed)) return `${QQ_CONTACT_PREFIX}${trimmed}`;
+  return `${QQ_CONTACT_PREFIX}private:${trimmed}`;
+}
+
 export async function createWechatBinding(data: InsertWechatBinding) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -333,6 +354,7 @@ export async function createWechatBinding(data: InsertWechatBinding) {
       eq(wechatBindings.userId, data.userId),
       eq(wechatBindings.isActive, true),
       eq(wechatBindings.wechatContactId, data.wechatContactId),
+      nonQqBindingFilter(),
     ));
   if (data.wechatName) {
     await db.update(wechatBindings)
@@ -342,6 +364,7 @@ export async function createWechatBinding(data: InsertWechatBinding) {
         eq(wechatBindings.userId, data.userId),
         eq(wechatBindings.isActive, true),
         eq(wechatBindings.wechatName, data.wechatName),
+        nonQqBindingFilter(),
       ));
   }
   const [result] = await db.insert(wechatBindings).values(data).returning({ id: wechatBindings.id });
@@ -351,7 +374,11 @@ export async function createWechatBinding(data: InsertWechatBinding) {
 export async function getWechatBindingsByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(wechatBindings).where(eq(wechatBindings.userId, userId));
+  return db.select().from(wechatBindings).where(and(
+    eq(wechatBindings.userId, userId),
+    eq(wechatBindings.isActive, true),
+    nonQqBindingFilter(),
+  ));
 }
 
 export async function getActiveWechatBindingsByPersonaId(personaId: number, userId: number) {
@@ -364,6 +391,7 @@ export async function getActiveWechatBindingsByPersonaId(personaId: number, user
       eq(wechatBindings.personaId, personaId),
       eq(wechatBindings.userId, userId),
       eq(wechatBindings.isActive, true),
+      nonQqBindingFilter(),
     ))
     .orderBy(desc(wechatBindings.createdAt));
 
@@ -380,11 +408,87 @@ export async function getActiveWechatBindingsByPersonaId(personaId: number, user
 }
 
 export async function getWechatBindingByContactId(contactId: string) {
+  if (isQqContactId(contactId)) return undefined;
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(wechatBindings)
     .where(and(eq(wechatBindings.wechatContactId, contactId), eq(wechatBindings.isActive, true))).limit(1);
   return result[0];
+}
+
+export async function createQqBinding(data: {
+  personaId: number;
+  userId: number;
+  qqContactId: string;
+  qqName?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const qqContactId = normalizeQqContactId(data.qqContactId);
+
+  await db.update(wechatBindings)
+    .set({ isActive: false })
+    .where(and(
+      eq(wechatBindings.personaId, data.personaId),
+      eq(wechatBindings.userId, data.userId),
+      eq(wechatBindings.isActive, true),
+      eq(wechatBindings.wechatContactId, qqContactId),
+      qqBindingFilter(),
+    ));
+
+  if (data.qqName) {
+    await db.update(wechatBindings)
+      .set({ isActive: false })
+      .where(and(
+        eq(wechatBindings.personaId, data.personaId),
+        eq(wechatBindings.userId, data.userId),
+        eq(wechatBindings.isActive, true),
+        eq(wechatBindings.wechatName, data.qqName),
+        qqBindingFilter(),
+      ));
+  }
+
+  const [result] = await db.insert(wechatBindings).values({
+    personaId: data.personaId,
+    userId: data.userId,
+    wechatContactId: qqContactId,
+    wechatName: data.qqName ?? null,
+  }).returning({ id: wechatBindings.id });
+  return result.id;
+}
+
+export async function getQqBindingsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(wechatBindings).where(and(
+    eq(wechatBindings.userId, userId),
+    eq(wechatBindings.isActive, true),
+    qqBindingFilter(),
+  ));
+}
+
+export async function getQqBindingByContactId(contactId: string) {
+  if (!isQqContactId(contactId)) return undefined;
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(wechatBindings)
+    .where(and(
+      eq(wechatBindings.wechatContactId, contactId),
+      eq(wechatBindings.isActive, true),
+      qqBindingFilter(),
+    ))
+    .limit(1);
+  return result[0];
+}
+
+export async function deleteQqBinding(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(wechatBindings).where(and(
+    eq(wechatBindings.id, id),
+    eq(wechatBindings.userId, userId),
+    qqBindingFilter(),
+  ));
 }
 
 export async function getSingleReadyPersonaForWechatAutoBind() {

@@ -23,6 +23,7 @@ const TABS = [
   { key: "profile", label: "个人资料", icon: User },
   { key: "ai", label: "AI 设置", icon: Settings2 },
   { key: "wechat", label: "微信", icon: Wifi },
+  { key: "qq", label: "QQ", icon: MessageCircle },
   { key: "data", label: "数据管理", icon: Database },
 ] as const;
 
@@ -602,6 +603,188 @@ function WeChatTab() {
   );
 }
 
+// ─── QQ TAB ──────────────────────────────────────────────────────────────────
+
+function QqTab() {
+  const [selectedPersonaId, setSelectedPersonaId] = useState("");
+  const qqStatus = trpc.qq.getStatus.useQuery(undefined, { refetchInterval: 5000 });
+  const recentContacts = trpc.qq.recentContacts.useQuery(undefined, { refetchInterval: 3000 });
+  const bindings = trpc.qq.listBindings.useQuery(undefined, { refetchInterval: 3000 });
+  const personas = trpc.persona.list.useQuery();
+  const bot = qqStatus.data;
+  const webhookUrl = typeof window === "undefined"
+    ? "/api/qq/onebot/event"
+    : `${window.location.origin}/api/qq/onebot/event`;
+
+  const readyPersonas = useMemo(
+    () => (personas.data ?? []).filter((p: any) => p.analysisStatus === "ready"),
+    [personas.data],
+  );
+  const personaById = useMemo(
+    () => new Map((personas.data ?? []).map((p: any) => [p.id, p])),
+    [personas.data],
+  );
+  const bindingByContactId = useMemo(
+    () => new Map((bindings.data ?? []).map((b: any) => [b.wechatContactId, b])),
+    [bindings.data],
+  );
+
+  useEffect(() => {
+    if (!selectedPersonaId && readyPersonas.length > 0) {
+      setSelectedPersonaId(String(readyPersonas[0].id));
+    }
+  }, [readyPersonas, selectedPersonaId]);
+
+  const bindContact = trpc.qq.bindContact.useMutation({
+    onSuccess: () => { toast.success("QQ 联系人已绑定"); bindings.refetch(); personas.refetch(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const unbindContact = trpc.qq.unbindContact.useMutation({
+    onSuccess: () => { toast.success("已解除绑定"); bindings.refetch(); personas.refetch(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleBind = (contact: { id: string; name: string }) => {
+    const personaId = Number(selectedPersonaId);
+    if (!personaId) {
+      toast.error("请先选择分身");
+      return;
+    }
+    bindContact.mutate({
+      personaId,
+      qqContactId: contact.id,
+      qqName: contact.name,
+    });
+  };
+
+  const statusText = bot?.status === "connected" ? "已连接"
+    : bot?.status === "error" ? "连接异常"
+    : "未启用";
+
+  return (
+    <div className="space-y-6">
+      <section className="warm-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          {bot?.status === "connected"
+            ? <Wifi className="w-5 h-5 text-emerald-500" />
+            : <WifiOff className="w-5 h-5 text-muted-foreground" />}
+          <h2 className="font-semibold text-foreground">QQ OneBot 接入</h2>
+          <span className="text-sm text-muted-foreground ml-auto">{statusText}</span>
+        </div>
+
+        <div className="p-4 bg-muted/20 rounded-xl space-y-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${
+              bot?.status === "connected" ? "bg-emerald-500" :
+              bot?.status === "error" ? "bg-red-400" : "bg-muted-foreground/30"
+            }`} />
+            <span className="text-sm text-foreground font-medium">
+              {bot?.status === "connected" ? `NapCat 已连接${bot.loggedInUser ? `：${bot.loggedInUser}` : ""}` :
+               bot?.status === "error" ? "NapCat / OneBot HTTP API 不可用" : "QQ 端未启用"}
+            </span>
+          </div>
+
+          <div className="space-y-2 text-xs text-muted-foreground leading-relaxed">
+            <p>QQ 端由 NapCatQQ 独立运行，Mirrai 通过 OneBot HTTP API 发消息，并通过 HTTP POST 上报接收消息。</p>
+            <p>NapCat HTTP API 地址：<span className="font-mono text-foreground">{bot?.baseUrl ?? "http://127.0.0.1:3001"}</span></p>
+            <p>NapCat 事件上报地址：<span className="font-mono text-foreground break-all">{webhookUrl}</span></p>
+            {bot?.webhookSecretConfigured && (
+              <p className="text-amber-600">已启用 webhook token 校验，上报时需要带 `?token=你的 QQ_ONEBOT_WEBHOOK_SECRET` 或 `x-mirrai-token` 请求头。</p>
+            )}
+            {!bot?.enabled && (
+              <p>要启用 QQ：在本机运行副本 `.env` 设置 `QQ_ENABLED=true`，再重启 Mirrai。</p>
+            )}
+            {bot?.lastError && (
+              <p className="text-red-500">最近错误：{bot.lastError}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="rounded-xl border-border"
+            onClick={() => qqStatus.refetch()} disabled={qqStatus.isFetching}>
+            {qqStatus.isFetching ? "刷新中..." : "刷新状态"}
+          </Button>
+        </div>
+      </section>
+
+      <section className="warm-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-primary/70" />
+          <h2 className="font-semibold text-foreground">QQ 联系人绑定</h2>
+          <span className="text-sm text-muted-foreground ml-auto">{bindings.data?.length ?? 0} 个已绑定</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
+          <div className="space-y-2">
+            <Label className="text-xs text-foreground/70">选择分身</Label>
+            <select value={selectedPersonaId} onChange={e => setSelectedPersonaId(e.target.value)}
+              className="w-full h-10 px-3 bg-muted/50 border border-border rounded-lg text-sm text-foreground">
+              {readyPersonas.length === 0 && <option value="">暂无可绑定分身</option>}
+              {readyPersonas.map((persona: any) => (
+                <option key={persona.id} value={persona.id}>{persona.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs text-foreground/70">最近 QQ 联系人</Label>
+            <div className="space-y-2">
+              {(recentContacts.data ?? []).length === 0 && (
+                <div className="p-3 bg-muted/20 rounded-lg text-sm text-muted-foreground">
+                  暂无联系人。启用 NapCat 上报后，让要绑定的 QQ 先发一条私聊消息。
+                </div>
+              )}
+
+              {(recentContacts.data ?? []).map((contact: any) => {
+                const binding = bindingByContactId.get(contact.id) as any;
+                const boundPersona = binding ? personaById.get(binding.personaId) as any : null;
+                return (
+                  <div key={contact.id} className="p-3 bg-muted/20 rounded-lg flex flex-col sm:flex-row gap-3 sm:items-center">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <MessageCircle className="w-4 h-4 text-primary/60 flex-shrink-0" />
+                        <span className="font-medium text-sm text-foreground truncate">{contact.name}</span>
+                        <span className="text-[11px] text-muted-foreground bg-muted/40 px-2 py-0.5 rounded-full">
+                          {contact.kind === "group" ? "群聊" : "私聊"}
+                        </span>
+                        {binding && (
+                          <span className="text-xs text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                            已绑定 {boundPersona?.name ?? `#${binding.personaId}`}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{new Date(contact.lastMessageAt).toLocaleString("zh-CN", { hour12: false })}</span>
+                        <span className="truncate">{contact.lastMessagePreview}</span>
+                      </div>
+                    </div>
+
+                    {binding ? (
+                      <Button size="sm" variant="outline" className="rounded-lg border-border"
+                        onClick={() => unbindContact.mutate({ id: binding.id })}
+                        disabled={unbindContact.isPending}>
+                        解除
+                      </Button>
+                    ) : (
+                      <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg"
+                        onClick={() => handleBind(contact)}
+                        disabled={bindContact.isPending || !selectedPersonaId}>
+                        绑定
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ─── DATA MANAGEMENT TAB ─────────────────────────────────────────────────────
 
 function DataManagementTab() {
@@ -801,6 +984,7 @@ export default function SettingsPage() {
         {activeTab === "profile" && <ProfileTab />}
         {activeTab === "ai" && <AISettingsTab />}
         {activeTab === "wechat" && <WeChatTab />}
+        {activeTab === "qq" && <QqTab />}
         {activeTab === "data" && <DataManagementTab />}
       </main>
     </div>

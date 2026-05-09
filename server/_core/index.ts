@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
 import { startProactiveScheduler } from "../wechat/proactive-scheduler";
+import { registerQqRoutes } from "../qq/routes";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -38,6 +39,7 @@ async function startServer() {
   const uploadsPath = path.resolve(ENV.uploadDir);
   app.use("/uploads", express.static(uploadsPath));
 
+  registerQqRoutes(app);
   registerAuthRoutes(app);
 
   app.use(
