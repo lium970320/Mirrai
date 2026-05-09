@@ -83,11 +83,12 @@ export async function sendQqText(contactId: string, text: string): Promise<boole
         message: text,
       });
     }
+    console.info(`[QQ] Sent text contact=${contactId} chars=${Array.from(text).length}`);
     lastError = null;
     return true;
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
-    console.warn("[QQ] Failed to send text:", lastError);
+    console.warn(`[QQ] Failed to send text contact=${contactId}:`, lastError);
     return false;
   }
 }
