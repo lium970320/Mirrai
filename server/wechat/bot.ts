@@ -5,11 +5,32 @@ import path from "path";
 import { ENV } from "../_core/env";
 import { handleWeChatMessage } from "./message-handler";
 import { sayWeChatReply } from "./reply-sender";
+import {
+  getWechatSyncCircuitBreakerMessage,
+  getWechatSyncCircuitBreakerReason,
+  hasUsableMemoryCard,
+  isWechat4uPuppet,
+  normalizeErrorMessage,
+  type WeChatSyncCircuitBreakerReason,
+} from "./sync-circuit-breaker";
+
+type BotStatus = "stopped" | "starting" | "scanning" | "logged_in" | "error";
+
+type BotLastError = {
+  code: string;
+  message: string;
+  detail?: string;
+  at: string;
+  circuitBreaker: boolean;
+};
 
 let bot: WechatyInterface | null = null;
 let currentQrUrl: string | null = null;
-let botStatus: "stopped" | "starting" | "scanning" | "logged_in" | "error" = "stopped";
+let botStatus: BotStatus = "stopped";
 let loggedInUser: string | null = null;
+let lastError: BotLastError | null = null;
+let syncCircuitBreakerTripped = false;
+let stopInProgress = false;
 
 function getMemoryName() {
   return path.join(ENV.wechatSessionDir, ENV.wechatBotName);
@@ -43,7 +64,7 @@ function prepareMemoryCard() {
   return {
     memoryFilePath,
     memoryName,
-    hasStoredSession: fs.existsSync(memoryFilePath),
+    hasStoredSession: hasUsableMemoryCard(memoryFilePath),
   };
 }
 
@@ -52,8 +73,64 @@ export function getBotStatus() {
     status: botStatus,
     qrCodeUrl: currentQrUrl,
     loggedInUser,
-    hasStoredSession: fs.existsSync(getMemoryFilePath()),
+    hasStoredSession: hasUsableMemoryCard(getMemoryFilePath()),
+    lastError: lastError
+      ? {
+          code: lastError.code,
+          message: lastError.message,
+          at: lastError.at,
+          circuitBreaker: lastError.circuitBreaker,
+        }
+      : null,
+    syncCircuitBreakerTripped,
   };
+}
+
+function setBotError(code: string, message: string, detail?: string, circuitBreaker = false) {
+  lastError = {
+    code,
+    message,
+    detail,
+    at: new Date().toISOString(),
+    circuitBreaker,
+  };
+}
+
+function clearBotError() {
+  lastError = null;
+  syncCircuitBreakerTripped = false;
+}
+
+async function stopCurrentBot(finalStatus: BotStatus) {
+  const targetBot = bot;
+  bot = null;
+  stopInProgress = true;
+
+  if (targetBot) {
+    try {
+      await targetBot.stop();
+    } catch (e) {
+      console.error("[WeChat] Bot stop error:", e);
+    }
+  }
+
+  stopInProgress = false;
+  botStatus = finalStatus;
+  currentQrUrl = null;
+  loggedInUser = null;
+}
+
+function tripSyncCircuitBreaker(reason: WeChatSyncCircuitBreakerReason, error: unknown) {
+  if (syncCircuitBreakerTripped) return;
+
+  const message = getWechatSyncCircuitBreakerMessage(reason);
+  syncCircuitBreakerTripped = true;
+  botStatus = "error";
+  currentQrUrl = null;
+  setBotError(reason, message, normalizeErrorMessage(error), true);
+
+  console.warn(`[WeChat] Sync circuit breaker tripped: ${message}`);
+  void stopCurrentBot("error");
 }
 
 async function prepareContact(contact: any) {
@@ -102,24 +179,27 @@ export async function sendWeChatText(contactId: string, text: string, contactNam
 }
 
 export function startWeChatBot() {
-  if (bot) return;
+  if (bot || stopInProgress) return;
 
   const CHROME_BIN = process.env.CHROME_BIN ? { endpoint: process.env.CHROME_BIN } : {};
   const { memoryName, hasStoredSession } = prepareMemoryCard();
   botStatus = "starting";
   currentQrUrl = null;
+  clearBotError();
 
   bot = WechatyBuilder.build({
     name: memoryName,
     puppet: ENV.wechatPuppet as any,
     puppetOptions: { uos: true, ...CHROME_BIN },
   });
+  const activeBot = bot;
 
   console.log(hasStoredSession
     ? "[WeChat] Stored login session found; attempting automatic login"
     : "[WeChat] No stored login session; scan is required");
 
   bot.on("scan", (qrcode: string, status: number) => {
+    if (bot !== activeBot) return;
     if (status === ScanStatus.Waiting || status === ScanStatus.Timeout) {
       currentQrUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qrcode)}`;
       botStatus = "scanning";
@@ -128,13 +208,16 @@ export function startWeChatBot() {
   });
 
   bot.on("login", (user: any) => {
+    if (bot !== activeBot) return;
     loggedInUser = user.name();
     botStatus = "logged_in";
     currentQrUrl = null;
+    lastError = null;
     console.log(`[WeChat] ${loggedInUser} logged in`);
   });
 
   bot.on("logout", (user: any) => {
+    if (bot !== activeBot) return;
     loggedInUser = null;
     botStatus = "stopped";
     currentQrUrl = null;
@@ -143,6 +226,7 @@ export function startWeChatBot() {
 
   bot.on("message", async (msg: any) => {
     try {
+      if (bot !== activeBot) return;
       if (loggedInUser && botStatus === "error") {
         botStatus = "logged_in";
       }
@@ -153,29 +237,36 @@ export function startWeChatBot() {
   });
 
   bot.on("error", (e: Error) => {
+    if (bot !== activeBot) return;
     console.error("[WeChat] Bot error:", e);
+    if (isWechat4uPuppet(ENV.wechatPuppet)) {
+      const circuitBreakerReason = getWechatSyncCircuitBreakerReason(e);
+      if (circuitBreakerReason) {
+        tripSyncCircuitBreaker(circuitBreakerReason, e);
+        return;
+      }
+    }
+    setBotError("wechat_bot_error", "微信机器人运行出错。", normalizeErrorMessage(e));
     if (!loggedInUser) {
       botStatus = "error";
     }
   });
 
   bot.start()
-    .then(() => console.log("[WeChat] Bot starting, waiting for scan..."))
+    .then(() => {
+      if (bot !== activeBot) return;
+      console.log("[WeChat] Bot starting, waiting for scan...");
+    })
     .catch((e: Error) => {
+      if (bot !== activeBot) return;
       console.error("[WeChat] Bot start failed:", e);
       botStatus = "error";
+      setBotError("wechat_bot_start_failed", "微信机器人启动失败。", normalizeErrorMessage(e));
+      void stopCurrentBot("error");
     });
 }
 
 export async function stopWeChatBot() {
-  if (!bot) return;
-  try {
-    await bot.stop();
-  } catch (e) {
-    console.error("[WeChat] Bot stop error:", e);
-  }
-  bot = null;
-  botStatus = "stopped";
-  currentQrUrl = null;
-  loggedInUser = null;
+  clearBotError();
+  await stopCurrentBot("stopped");
 }

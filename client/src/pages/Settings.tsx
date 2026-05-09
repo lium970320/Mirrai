@@ -476,9 +476,10 @@ function WeChatTab() {
           <h2 className="font-semibold text-foreground">微信机器人</h2>
           <span className="text-sm text-muted-foreground ml-auto">
             {bot?.status === "logged_in" && `已登录: ${bot.loggedInUser}`}
+            {bot?.status === "starting" && "启动中..."}
             {bot?.status === "scanning" && "等待扫码..."}
             {bot?.status === "stopped" && "未启动"}
-            {bot?.status === "error" && "出错"}
+            {bot?.status === "error" && (bot.syncCircuitBreakerTripped ? "已熔断" : "出错")}
           </span>
         </div>
 
@@ -486,18 +487,25 @@ function WeChatTab() {
           <div className="flex items-center gap-3 mb-3">
             <div className={`w-3 h-3 rounded-full ${
               bot?.status === "logged_in" ? "bg-emerald-500" :
+              bot?.status === "starting" ? "bg-amber-400 animate-pulse" :
               bot?.status === "scanning" ? "bg-blue-400 animate-pulse" :
               bot?.status === "error" ? "bg-red-400" : "bg-muted-foreground/30"
             }`} />
             <span className="text-sm text-foreground font-medium">
               {bot?.status === "logged_in" ? "在线运行中" :
+               bot?.status === "starting" ? "启动中" :
                bot?.status === "scanning" ? "等待扫码登录" :
-               bot?.status === "error" ? "运行出错" : "未启动"}
+               bot?.status === "error" ? (bot.syncCircuitBreakerTripped ? "同步异常，已停止自动重试" : "运行出错") : "未启动"}
             </span>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
             启动微信机器人后，绑定的分身可以通过微信自动回复消息。扫码登录你的微信账号即可开始使用。
           </p>
+          {bot?.lastError && (
+            <p className="mt-3 text-xs text-red-500 leading-relaxed">
+              {bot.lastError.message}
+            </p>
+          )}
         </div>
 
         {bot?.qrCodeUrl && (
@@ -510,7 +518,7 @@ function WeChatTab() {
         <div className="flex gap-2">
           <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
             onClick={() => startBot.mutate()}
-            disabled={startBot.isPending || bot?.status === "logged_in" || bot?.status === "scanning"}>
+            disabled={startBot.isPending || bot?.status === "logged_in" || bot?.status === "starting" || bot?.status === "scanning"}>
             启动
           </Button>
           <Button size="sm" variant="outline" className="rounded-xl border-border"
