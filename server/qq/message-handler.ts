@@ -1,11 +1,13 @@
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 import { ENV } from "../_core/env";
 import { enqueueWechatTextMessage, type BatchedTextMessage } from "../wechat/incoming-message-batcher";
 import { sayWeChatReply } from "../wechat/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChat, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { getQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
+import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 
 export type OneBotMessageSegment = {
@@ -206,17 +208,72 @@ function recordFileName(info: QqRecordFileInfo, fallback: string): string {
 
 async function resolveQqRecordInfo(segment: OneBotMessageSegment): Promise<QqRecordFileInfo | null> {
   const data = segment.data ?? {};
-  const file = stringData(data, "file") || stringData(data, "path");
+  const file = stringData(data, "file");
+  const localPath = stringData(data, "path");
   const fileId = stringData(data, "file_id") || stringData(data, "fileId");
   const base64 = file?.startsWith("base64://") ? file.slice("base64://".length) : undefined;
-  if (!file && !fileId) {
+  const directUrl = normalizeUrl(stringData(data, "url") || stringData(data, "file_url"));
+  if (base64) return { base64 };
+  if (localPath || directUrl) {
     return {
-      url: normalizeUrl(stringData(data, "url") || stringData(data, "file_url")),
-      base64,
+      file: localPath,
+      url: directUrl,
+      file_name: file || (localPath ? path.basename(localPath) : undefined),
     };
   }
-  if (base64) return { base64 };
-  return getQqRecordFile({ file, fileId, outFormat: "mp3" });
+  if (!file && !fileId) {
+    return null;
+  }
+  return (await getQqRecordFile({ file, fileId, outFormat: "mp3" })) ?? (file ? { file } : null);
+}
+
+async function readQqVoiceSource(
+  info: QqRecordFileInfo,
+  fallbackMimeType: string,
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  if (info.base64) {
+    return {
+      buffer: Buffer.from(info.base64, "base64"),
+      mimeType: fallbackMimeType,
+    };
+  }
+
+  if (info.file) {
+    try {
+      if (normalizeUrl(info.file)) {
+        const downloaded = await downloadImageUrl(info.file);
+        return {
+          buffer: downloaded.buffer,
+          mimeType: downloaded.mimeType?.startsWith("audio/") ? downloaded.mimeType : fallbackMimeType,
+        };
+      }
+      const localPath = info.file.startsWith("file://") ? fileURLToPath(info.file) : info.file;
+      if (path.isAbsolute(localPath) || /^[a-z]:[\\/]/i.test(localPath)) {
+        return {
+          buffer: await fs.readFile(localPath),
+          mimeType: inferAudioMimeType(localPath),
+        };
+      }
+      const resolvedPath = path.resolve(localPath);
+      return {
+        buffer: await fs.readFile(resolvedPath),
+        mimeType: inferAudioMimeType(resolvedPath),
+      };
+    } catch (err) {
+      if (!info.url) throw err;
+      console.warn("voice_in_download_failed platform=qq route=file fallback=url", err);
+    }
+  }
+
+  if (info.url) {
+    const downloaded = await downloadImageUrl(info.url);
+    return {
+      buffer: downloaded.buffer,
+      mimeType: downloaded.mimeType?.startsWith("audio/") ? downloaded.mimeType : fallbackMimeType,
+    };
+  }
+
+  return null;
 }
 
 async function extractQqVoiceFromSegment(
@@ -236,20 +293,10 @@ async function extractQqVoiceFromSegment(
   let mimeType = inferAudioMimeType(fileName);
 
   try {
-    if (info.base64) {
-      buffer = Buffer.from(info.base64, "base64");
-    } else if (info.url) {
-      const downloaded = await downloadImageUrl(info.url);
-      buffer = downloaded.buffer;
-      mimeType = downloaded.mimeType?.startsWith("audio/") ? downloaded.mimeType : mimeType;
-    } else if (info.file && (path.isAbsolute(info.file) || /^[a-z]:[\\/]/i.test(info.file))) {
-      const local = await readLocalImagePath(info.file);
-      buffer = local.buffer;
-      mimeType = inferAudioMimeType(info.file);
-    } else if (info.file) {
-      const localPath = path.resolve(info.file);
-      buffer = await fs.readFile(localPath);
-      mimeType = inferAudioMimeType(localPath);
+    const source = await readQqVoiceSource(info, mimeType);
+    if (source) {
+      buffer = source.buffer;
+      mimeType = source.mimeType;
     }
   } catch (err) {
     console.warn(`voice_in_download_failed platform=qq messageId=${event.message_id ?? ""}`, err);
@@ -453,10 +500,16 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
       return { handled: true as const, reason: "voice_download_failed" as const };
     }
 
+    const normalized = await normalizeAudioForAsr(voice.buffer, voice.fileName, voice.mimeType);
+    if (!normalized.ok) {
+      await sendVoiceFallback(contactId, "这条语音格式我暂时解析不了，你再发一次。");
+      return { handled: true as const, reason: normalized.status };
+    }
+
     const asr = await transcribeWithZhipuAsr({
-      buffer: voice.buffer,
-      fileName: voice.fileName,
-      mimeType: voice.mimeType,
+      buffer: normalized.buffer,
+      fileName: normalized.fileName,
+      mimeType: normalized.mimeType,
       hotwords: ["敏子", "王芃泽", "王玉柱", "柱子", "武汉纺织大学", "南京研究所", "老鹰峡"],
       userId: contactId,
     });
