@@ -8,6 +8,16 @@ function firstNonEmpty(...values: Array<string | undefined>): string {
   return values.find(value => value?.trim())?.trim() ?? "";
 }
 
+function envInt(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function envFloat(name: string, fallback: number): number {
+  const parsed = Number.parseFloat(process.env[name] ?? "");
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export const ENV = {
   cookieSecret: process.env.JWT_SECRET ?? "dev-secret-change-me",
   databaseUrl: process.env.DATABASE_URL ?? "",
@@ -77,6 +87,17 @@ export const ENV = {
   qqAllowGroups: process.env.QQ_ALLOW_GROUPS === "true",
   qqAutoBindSingleReadyPersona:
     process.env.QQ_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
+  qqVoiceReplyEnabled: process.env.QQ_VOICE_REPLY_ENABLED !== "false",
+  qqVoiceReplyMode: firstNonEmpty(process.env.QQ_VOICE_REPLY_MODE) || "sometimes",
+  qqVoiceReplyProbability: envFloat("QQ_VOICE_REPLY_PROBABILITY", 0.25),
+  qqVoiceReplyOnlyWhenUserSentVoice:
+    process.env.QQ_VOICE_REPLY_ONLY_WHEN_USER_SENT_VOICE !== "false",
+  qqVoiceReplyMaxTextLength: envInt("QQ_VOICE_REPLY_MAX_TEXT_LENGTH", 90),
+  qqVoiceReplyCooldownSeconds: envInt("QQ_VOICE_REPLY_COOLDOWN_SECONDS", 90),
+  qqVoiceReplyAllowGroups: process.env.QQ_VOICE_REPLY_ALLOW_GROUPS === "true",
+  qqTtsVoice: firstNonEmpty(process.env.QQ_TTS_VOICE, process.env.TTS_VOICE) || "zh-CN-YunxiNeural",
+  ttsProvider: firstNonEmpty(process.env.QQ_TTS_PROVIDER, process.env.TTS_PROVIDER)
+    || (process.platform === "win32" ? "windows-sapi" : "edge"),
 
   pythonPath: process.env.PYTHON_PATH ?? "python3",
   skillEngineDir: process.env.SKILL_ENGINE_DIR ?? "./skill-engine",

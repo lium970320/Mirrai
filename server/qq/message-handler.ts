@@ -2,13 +2,15 @@ import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ENV } from "../_core/env";
+import { generateTTSFile } from "../_core/tts";
 import { enqueueWechatTextMessage, type BatchedTextMessage } from "../wechat/incoming-message-batcher";
 import { sayWeChatReply } from "../wechat/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChat, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
-import { getQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
+import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
+import { checkVoiceReplyPolicy, markVoiceReplySent, type VoiceReplySource } from "../voice/voice-reply-policy";
 
 export type OneBotMessageSegment = {
   type: string;
@@ -440,7 +442,10 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
     batchMessages: batch.messages,
   });
   if (reply) {
-    await sayWeChatReply(batch.contact, reply);
+    await sayQqReplyWithOptionalVoice(batch.contactId, reply, {
+      source: "text",
+      inputText: batch.combinedText,
+    });
   }
 }
 
@@ -451,6 +456,55 @@ async function sayQqReply(contactId: string, reply: string): Promise<void> {
       if (!sent) throw new Error("QQ text send failed");
     },
   }, reply);
+}
+
+function voiceTextFromReply(reply: string): string {
+  return reply
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sayQqReplyWithOptionalVoice(
+  contactId: string,
+  reply: string,
+  context: { source: VoiceReplySource; inputText: string },
+): Promise<void> {
+  const voiceText = voiceTextFromReply(reply);
+  const parsed = parseQqContactId(contactId);
+  const policy = checkVoiceReplyPolicy({
+    contactId,
+    contactKind: parsed?.kind ?? "private",
+    inputText: context.inputText,
+    replyText: voiceText,
+    source: context.source,
+  });
+
+  if (!policy.shouldSendVoice || !voiceText) {
+    console.info(policy.reason);
+    await sayQqReply(contactId, reply);
+    return;
+  }
+
+  try {
+    console.info(`voice_tts_start provider=edge contact=${contactId}`);
+    const tts = await generateTTSFile(voiceText, ENV.qqTtsVoice);
+    console.info(`voice_tts_success provider=${tts.provider} voice=${tts.voice} format=${tts.format}`);
+    const sent = await sendQqRecordFile(contactId, tts.filePath);
+    if (sent) {
+      console.info(`voice_send_success platform=qq contact=${contactId}`);
+      markVoiceReplySent(contactId);
+      return;
+    }
+    console.warn(`voice_send_failed_fallback_text platform=qq contact=${contactId}`);
+  } catch (err) {
+    console.warn(`voice_tts_failed provider=edge contact=${contactId}`, err);
+  }
+
+  await sayQqReply(contactId, reply);
 }
 
 async function sendVoiceFallback(contactId: string, text = "这条语音我没听清，你再发一次。"): Promise<void> {
@@ -530,7 +584,12 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
       batchMessageCount: 1,
       batchMessages: [transcript],
     });
-    if (reply) await sayQqReply(contactId, reply);
+    if (reply) {
+      await sayQqReplyWithOptionalVoice(contactId, reply, {
+        source: "voice",
+        inputText: transcript,
+      });
+    }
     return { handled: true as const };
   }
 

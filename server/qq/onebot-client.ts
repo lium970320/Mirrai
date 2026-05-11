@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { pathToFileURL } from "url";
 
 export type QqContactKind = "private" | "group";
 
@@ -99,6 +100,47 @@ export async function sendQqText(contactId: string, text: string): Promise<boole
     lastError = err instanceof Error ? err.message : String(err);
     console.warn(`[QQ] Failed to send text contact=${contactId}:`, lastError);
     return false;
+  }
+}
+
+export async function sendQqRecordFile(contactId: string, filePath: string): Promise<boolean> {
+  const parsed = parseQqContactId(contactId);
+  if (!parsed) {
+    console.warn("[QQ] Invalid contact id:", contactId);
+    return false;
+  }
+  const target = parsed;
+
+  async function send(file: string): Promise<void> {
+    const payload = {
+      message: [{ type: "record", data: { file } }],
+      ...(target.kind === "private"
+        ? { user_id: toOnebotId(target.id) }
+        : { group_id: toOnebotId(target.id) }),
+    };
+    await onebotAction(target.kind === "private" ? "send_private_msg" : "send_group_msg", payload);
+  }
+
+  try {
+    await send(filePath);
+    console.info(`[QQ] Sent record contact=${contactId}`);
+    lastError = null;
+    return true;
+  } catch (firstErr) {
+    try {
+      await send(pathToFileURL(filePath).toString());
+      console.info(`[QQ] Sent record contact=${contactId} route=file_url`);
+      lastError = null;
+      return true;
+    } catch (secondErr) {
+      lastError = secondErr instanceof Error ? secondErr.message : String(secondErr);
+      console.warn(
+        `[QQ] Failed to send record contact=${contactId}:`,
+        firstErr instanceof Error ? firstErr.message : String(firstErr),
+        lastError,
+      );
+      return false;
+    }
   }
 }
 
