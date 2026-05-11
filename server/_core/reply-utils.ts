@@ -158,15 +158,38 @@ function packSentencesForChat(
   return chunks;
 }
 
+function compactTextLength(text: string): number {
+  return Array.from(text.replace(/\s+/g, "")).length;
+}
+
+function shouldSplitCompactParagraph(paragraph: string, sentences: string[], softLimit: number): boolean {
+  if (sentences.length <= 1) return false;
+
+  const length = compactTextLength(paragraph);
+  if (sentences.length >= 4) return true;
+  if (sentences.length >= 3 && length >= 38) return true;
+  if (sentences.length >= 2 && length >= Math.min(softLimit, 40)) return true;
+  return false;
+}
+
 function splitParagraphForChat(
   paragraph: string,
   softLimit: number,
   hardLimit: number,
   maxSentencesPerMessage: number,
 ): string[] {
-  if (paragraph.length <= hardLimit) return [paragraph];
-
   const sentences = paragraph.match(SENTENCE_PATTERN)?.map(s => s.trim()).filter(Boolean) ?? [];
+  if (paragraph.length <= hardLimit) {
+    if (!shouldSplitCompactParagraph(paragraph, sentences, softLimit)) return [paragraph];
+
+    return packSentencesForChat(
+      sentences,
+      Math.min(softLimit, 62),
+      hardLimit,
+      1,
+    );
+  }
+
   if (sentences.length > 1) {
     return packSentencesForChat(sentences, softLimit, hardLimit, maxSentencesPerMessage);
   }
@@ -199,7 +222,12 @@ export function splitAssistantReplyForChat(
   const singleParagraphText = raw.replace(/\n+/g, " ").trim();
 
   if (!hasExplicitBreaks && singleParagraphText.length <= hardLimit) {
-    return [singleParagraphText];
+    return splitParagraphForChat(
+      singleParagraphText,
+      softLimit,
+      hardLimit,
+      maxSentencesPerMessage,
+    );
   }
 
   const paragraphs = raw

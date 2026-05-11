@@ -36,6 +36,12 @@ import { runSkillPipeline } from "./skill-engine/pipeline";
 import { getEmotionalStateDesc, computeEmotionalState, buildSystemPrompt, computeIntimacy, checkGraduationEligibility } from "./_core/persona-utils";
 import { describeImage } from "./vision";
 import { cleanAssistantReply } from "./_core/reply-utils";
+import { buildPersonaSourceRecallContext } from "./social/source-recall";
+import {
+  enforceSourceGroundedReply,
+  sourceGroundedLlmOptions,
+  withSourceGroundingInstruction,
+} from "./social/source-grounding";
 
 function webImageInstruction(description: string): string {
   return [
@@ -386,24 +392,50 @@ export const appRouter = router({
         if (persona.analysisStatus !== "ready") throw new TRPCError({ code: "BAD_REQUEST", message: "分身还未准备好，请先完成 AI 解析" });
 
         const scene = persona.activeSceneId ? await getSceneById(persona.activeSceneId) : null;
-        await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "user", content: input.message, emotionalState: persona.emotionalState });
+        const userMessageId = await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "user", content: input.message, emotionalState: persona.emotionalState });
 
         const defaultConfig = await getDefaultLlmConfig(ctx.user.id);
         const extra = (defaultConfig?.extraConfig as any) || {};
         const contextLimit = extra.contextLimit || 20;
         const history = await getMessagesByPersonaId(input.personaId, contextLimit);
-        const systemPrompt = buildSystemPrompt(persona, scene?.systemPromptOverlay);
+        const sourceRecallContext = await buildPersonaSourceRecallContext({
+          personaId: input.personaId,
+          userId: ctx.user.id,
+          messageText: input.message,
+          recentMessages: history.slice(-8),
+        });
+        const systemPrompt = [
+          buildSystemPrompt(persona, scene?.systemPromptOverlay),
+          sourceRecallContext,
+        ].filter(Boolean).join("\n\n");
         const llmMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
           { role: "system", content: systemPrompt },
-          ...history.slice(-(contextLimit - 1)).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+          ...history.slice(-(contextLimit - 1)).map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.id === userMessageId
+              ? withSourceGroundingInstruction(m.content, sourceRecallContext)
+              : m.content,
+          })),
         ];
 
         const provider = (persona as any).llmProvider || undefined;
+        const baseLlmOptions = { provider, temperature: extra.temperature, maxTokens: extra.maxTokens };
         const response = await llmService.invoke({
           messages: llmMessages,
-          options: { provider, temperature: extra.temperature, maxTokens: extra.maxTokens },
+          options: sourceRecallContext
+            ? sourceGroundedLlmOptions(baseLlmOptions)
+            : baseLlmOptions,
         });
-        const replyText = cleanAssistantReply(response);
+        const draftReply = cleanAssistantReply(response);
+        const replyText = sourceRecallContext
+          ? await enforceSourceGroundedReply({
+            personaName: persona.name,
+            userQuestion: input.message,
+            sourceContext: sourceRecallContext,
+            draftReply,
+            llmOptions: baseLlmOptions,
+          })
+          : draftReply;
         const newEmotionalState = computeEmotionalState(input.message, replyText, persona.emotionalState);
 
         await createMessage({ personaId: input.personaId, userId: ctx.user.id, role: "assistant", content: replyText, emotionalState: newEmotionalState });

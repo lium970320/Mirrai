@@ -14,7 +14,7 @@ type PreparedVisionImage = {
 };
 
 function buildVisionPrompt(input: VisionImageInput): string {
-  const label = input.kind === "emoticon" ? "微信表情包" : "微信图片";
+  const label = input.kind === "emoticon" ? "表情包" : "图片";
   return [
     `请理解这张${label}，输出给后续聊天模型使用的中文描述。`,
     "要求：",
@@ -160,7 +160,7 @@ export async function describeImage(input: VisionImageInput): Promise<string | n
       messages: [
         {
           role: "system",
-          content: "你是一个微信图片和表情包理解器。你的输出会提供给另一个角色扮演聊天模型。",
+          content: "你是一个聊天图片和表情包理解器。你的输出会提供给另一个角色扮演聊天模型。",
         },
         {
           role: "user",

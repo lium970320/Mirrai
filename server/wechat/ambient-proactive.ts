@@ -1,7 +1,6 @@
 import { llmService } from "../llm";
 import {
   createMessage,
-  getActiveWechatBindingsByPersonaId,
   getDefaultLlmConfig,
   getMessagesByPersonaId,
   getPersonaById,
@@ -9,7 +8,7 @@ import {
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
 import { cleanAssistantReply } from "../_core/reply-utils";
-import { getBotStatus, sendWeChatText } from "./bot";
+import { sendProactiveTextToPreferredPlatform } from "../social/proactive-delivery";
 
 type AmbientPeriod = "day" | "evening" | "lateNight";
 
@@ -167,7 +166,7 @@ async function generateAmbientMessage(persona: any, eventText: string, period: A
         role: "user",
         content: [
           `现在是${PERIODS[period].label}，网页里刚触发了一个日常存在感事件：“${eventText}”。`,
-          "这次事件抽中了主动微信消息。请把这个动作或心情转成角色本人会发给用户的一条自然私聊。",
+          "这次事件抽中了主动私聊消息。请把这个动作或心情转成角色本人会发给用户的一条自然私聊。",
           "要求：内容要和当下动作/心情有关，不要提到网页、事件、触发、概率、系统或定时。",
           "不要写括号动作/旁白，不要剧本格式，30 到 80 个中文字符。",
           "必须延续最近对话里的时间线和空间状态；不要重复刚说过的话，不要和最近说过的行程矛盾。",
@@ -213,7 +212,6 @@ export async function maybeSendAmbientPresenceMessage(
   const personaData = ((persona.personaData as any) || {});
   const proactive = personaData.proactiveMessages || {};
   if (!proactive.enabled) return { sent: false, reason: "disabled" as const };
-  if (getBotStatus().status !== "logged_in") return { sent: false, reason: "wechat_offline" as const };
 
   const state = buildState(proactive.ambientPresence, today);
   const count = state.counts[period] || 0;
@@ -229,15 +227,11 @@ export async function maybeSendAmbientPresenceMessage(
     return { sent: false, reason: "probability_skip" as const, period, count, target, probability };
   }
 
-  const bindings = await getActiveWechatBindingsByPersonaId(persona.id, persona.userId);
-  if (bindings.length === 0) return { sent: false, reason: "no_binding" as const, period, count, target };
-
   const replyText = await generateAmbientMessage(persona, eventText, period);
-  let sent = false;
-  for (const binding of bindings) {
-    sent = (await sendWeChatText(binding.wechatContactId, replyText, binding.wechatName)) || sent;
+  const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
+  if (!delivery.sent) {
+    return { sent: false, reason: delivery.reason || "send_failed", period, count, target };
   }
-  if (!sent) return { sent: false, reason: "send_failed" as const, period, count, target };
 
   const nextState: AmbientPresenceState = {
     ...state,
@@ -258,7 +252,7 @@ export async function maybeSendAmbientPresenceMessage(
     role: "assistant",
     content: replyText,
     emotionalState: persona.emotionalState,
-    channel: "wechat",
+    channel: delivery.channel,
   });
 
   await updatePersona(persona.id, persona.userId, {
@@ -272,8 +266,8 @@ export async function maybeSendAmbientPresenceMessage(
     lastChatAt: now,
   });
 
-  console.log(`[AmbientProactive] Sent ${period} message for persona ${persona.name} (${persona.id})`);
-  return { sent: true, period, count: count + 1, target };
+  console.log(`[AmbientProactive] Sent ${period} ${delivery.platform} message for persona ${persona.name} (${persona.id})`);
+  return { sent: true, period, count: count + 1, target, platform: delivery.platform };
   } finally {
     runningAmbientSends.delete(lockKey);
   }

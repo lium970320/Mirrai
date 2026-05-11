@@ -2,6 +2,12 @@ import { llmService } from "../llm";
 import * as db from "../db";
 import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
 import { cleanAssistantReply } from "../_core/reply-utils";
+import { buildPersonaSourceRecallContext } from "./source-recall";
+import {
+  enforceSourceGroundedReply,
+  sourceGroundedLlmOptions,
+  withSourceGroundingInstruction,
+} from "./source-grounding";
 
 export type SocialPlatform = "wechat" | "qq";
 
@@ -58,6 +64,22 @@ function recentContextBlock(context: RecentConversationContext): string {
   return lines.join("\n");
 }
 
+function sleepLoopGuardInstruction(messageText: string, context: RecentConversationContext): string {
+  const previousAssistant = context.previousAssistant ?? "";
+  const userMentionsSleep = /睡|困|熬夜|晚安|休息|起床|明天|上课|上班/.test(messageText);
+  const previousPushedSleep = /睡|休息|熬夜|明天|上课|躺|困/.test(previousAssistant);
+  const userNeedsRepair = /冷漠|敷衍|不理|生气|委屈|呜呜|难过|不理你|不想理/.test(messageText);
+
+  const lines: string[] = [];
+  if (previousPushedSleep && !userMentionsSleep) {
+    lines.push("【话题防循环】上一轮已经把话题收束到睡觉、休息或明天安排，本轮不要再催睡、说“明天给我发消息”或继续关闭话题；先回应用户这句话本身。");
+  }
+  if (userNeedsRepair) {
+    lines.push("【关系修复】用户像是在撒娇、委屈或抱怨你冷漠。不要敷衍，不要把对话赶去睡觉；用一两句接住情绪，可以轻轻认错或解释关心，但保持王芃泽式克制。");
+  }
+  return lines.join("\n");
+}
+
 function shortReplyDisambiguationInstruction(messageText: string, context: RecentConversationContext): string {
   const contextText = recentContextBlock(context);
   return [
@@ -89,6 +111,7 @@ export function buildSocialTextInstruction(
 
   if (batchMessageCount > 1) {
     return [
+      sleepLoopGuardInstruction(continuousText, context),
       `${sender}刚刚连续发来 ${batchMessageCount} 条${label}消息。请把它们当成同一段连续话语：后一句通常是在补充、推进或修正前一句，不是多个独立问题。`,
       `连续话语原文：\n${continuousText}`,
       "理解规则：先在心里把这些短句连成一个完整意思，再只围绕这个完整意思回应；不要按行逐条回答，也不要逐条反驳。",
@@ -96,22 +119,24 @@ export function buildSocialTextInstruction(
       "边界规则：如果回忆发生在中考、学校时期或明显未成年阶段，涉及睡在一起、抱、摸等身体亲近内容时，只能按紧张、依赖、照顾、孩子气玩笑或记忆偏差来含蓄处理，不要色情化，不要扩写身体细节。",
       "本轮回复节奏：普通寒暄、简单提问、报平安、吃没吃这类日常问题，1-2句即可；只有对方明显需要安慰、解释或认真讨论时才多说。不要补很多无关关心。",
       `平台一致性：这只是${label}入口，语气、称呼、记忆和关系进展要和其他入口一致。`,
-    ].join("\n\n");
+    ].filter(Boolean).join("\n\n");
   }
 
   if (isAmbiguousShortReply(messageText)) {
     return [
+      sleepLoopGuardInstruction(messageText, context),
       shortReplyDisambiguationInstruction(messageText, context),
       `【平台一致性】这只是${label}入口，语气、称呼、记忆和关系进展要和其他入口一致。不要提平台，也不要像新认识的人一样重新建立关系。`,
-    ].join("\n\n");
+    ].filter(Boolean).join("\n\n");
   }
 
   return [
+    sleepLoopGuardInstruction(messageText, context),
     messageText,
     `【平台一致性】这只是${label}入口，语气、称呼、记忆和关系进展要和其他入口一致。不要提平台，也不要像新认识的人一样重新建立关系。`,
     "【短句理解】如果这句话很短，例如“没”“嗯”“好”“1”“啊”，先结合上一轮上下文理解成接话，不要另起场景，不要强行催睡、说教或补很多关心。",
     "【本轮回复节奏】根据用户这句话本身决定长短。普通寒暄、简单问题或日常报平安，短答即可；不要为了显得热情而补很多无关内容。只有需要安慰、解释或认真讨论时才展开。",
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export function getRecentConversationContext(
@@ -149,19 +174,39 @@ export async function handleSocialPersonaTextChat(options: SocialPersonaTextChat
   });
 
   const history = await db.getMessagesByPersonaId(options.binding.personaId, 20);
-  const systemPrompt = `${buildSystemPrompt(persona)}\n\n${socialSystemPromptOverlay(options.platform)}`;
+  const defaultConfig = await db.getDefaultLlmConfig(options.binding.userId);
+  const extra = (defaultConfig?.extraConfig as any) || {};
+  const provider = (persona as any).llmProvider || undefined;
+  const baseLlmOptions = {
+    provider,
+    temperature: extra.temperature,
+    maxTokens: extra.maxTokens,
+  };
+  const sourceRecallContext = await buildPersonaSourceRecallContext({
+    personaId: options.binding.personaId,
+    userId: options.binding.userId,
+    messageText: options.messageText,
+    recentMessages: history.slice(-8),
+  });
+  const systemPrompt = [
+    buildSystemPrompt(persona),
+    socialSystemPromptOverlay(options.platform),
+    sourceRecallContext,
+  ].filter(Boolean).join("\n\n");
   const recentContext = getRecentConversationContext(history, userMessageId);
   const llmHistory = history.slice(-19).map(m => {
     if (m.id === userMessageId) {
+      const baseInstruction = buildSocialTextInstruction(
+        options.platform,
+        options.contactName,
+        options.messageText,
+        options,
+        recentContext,
+      );
+
       return {
         role: "user" as const,
-        content: buildSocialTextInstruction(
-          options.platform,
-          options.contactName,
-          options.messageText,
-          options,
-          recentContext,
-        ),
+        content: withSourceGroundingInstruction(baseInstruction, sourceRecallContext),
       };
     }
 
@@ -176,8 +221,20 @@ export async function handleSocialPersonaTextChat(options: SocialPersonaTextChat
       { role: "system", content: systemPrompt },
       ...llmHistory,
     ],
+    options: sourceRecallContext
+      ? sourceGroundedLlmOptions(baseLlmOptions)
+      : baseLlmOptions,
   });
-  const replyText = cleanAssistantReply(response);
+  const draftReply = cleanAssistantReply(response);
+  const replyText = sourceRecallContext
+    ? await enforceSourceGroundedReply({
+      personaName: persona.name,
+      userQuestion: options.messageText,
+      sourceContext: sourceRecallContext,
+      draftReply,
+      llmOptions: baseLlmOptions,
+    })
+    : draftReply;
   const newState = computeEmotionalState(options.messageText, replyText, persona.emotionalState);
 
   await db.createMessage({

@@ -1,6 +1,5 @@
 import { llmService } from "../llm";
 import {
-  getActiveWechatBindingsByPersonaId,
   getDefaultLlmConfig,
   getReadyPersonasForProactiveMessages,
   getMessagesByPersonaId,
@@ -9,7 +8,7 @@ import {
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
 import { cleanAssistantReply } from "../_core/reply-utils";
-import { getBotStatus, sendWeChatText } from "./bot";
+import { sendProactiveTextToPreferredPlatform } from "../social/proactive-delivery";
 
 let scheduler: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -98,8 +97,6 @@ async function runProactiveTick() {
     const now = new Date();
     const today = currentDateKey(now);
     const hhmm = currentTimeKey(now);
-    if (getBotStatus().status !== "logged_in") return;
-
     const personas = await getReadyPersonasForProactiveMessages();
 
     for (const persona of personas) {
@@ -112,22 +109,15 @@ async function runProactiveTick() {
       const lastSent = proactive.lastSent || {};
       let nextLastSent = { ...lastSent };
 
-      const bindings = await getActiveWechatBindingsByPersonaId(persona.id, persona.userId);
-      if (bindings.length === 0) {
-        console.warn(`[Proactive] Persona ${persona.id} has no active WeChat binding`);
-        continue;
-      }
-
       for (const dueTime of dueTimes) {
         if (nextLastSent[dueTime] === today) continue;
 
         const replyText = await generateProactiveMessage(persona, dueTime);
-        let sent = false;
-        for (const binding of bindings) {
-          sent = (await sendWeChatText(binding.wechatContactId, replyText, binding.wechatName)) || sent;
+        const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
+        if (!delivery.sent) {
+          console.warn(`[Proactive] Scheduled message skipped for persona ${persona.id}: ${delivery.reason || "send_failed"}`);
+          continue;
         }
-
-        if (!sent) continue;
 
         await createMessage({
           personaId: persona.id,
@@ -135,7 +125,7 @@ async function runProactiveTick() {
           role: "assistant",
           content: replyText,
           emotionalState: persona.emotionalState,
-          channel: "wechat",
+          channel: delivery.channel,
         });
 
         nextLastSent = {
@@ -155,7 +145,7 @@ async function runProactiveTick() {
           lastChatAt: new Date(),
         });
 
-        console.log(`[Proactive] Sent scheduled message for persona ${persona.name} (${persona.id}) scheduled at ${dueTime}, tick ${hhmm}`);
+        console.log(`[Proactive] Sent scheduled ${delivery.platform} message for persona ${persona.name} (${persona.id}) scheduled at ${dueTime}, tick ${hhmm}`);
       }
     }
   } catch (error) {

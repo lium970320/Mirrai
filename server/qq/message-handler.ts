@@ -1,8 +1,10 @@
+import fs from "fs/promises";
+import path from "path";
 import { ENV } from "../_core/env";
 import { enqueueWechatTextMessage, type BatchedTextMessage } from "../wechat/incoming-message-batcher";
 import { sayWeChatReply } from "../wechat/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
-import { handleQqPersonaChat } from "./persona-bridge";
+import { handleQqPersonaChat, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { sendQqText } from "./onebot-client";
 
 export type OneBotMessageSegment = {
@@ -39,6 +41,184 @@ function normalizeMessageText(text: string): string {
     .trim();
 }
 
+function sanitizeFileName(fileName: string, fallback: string): string {
+  const safe = fileName
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return safe || fallback;
+}
+
+function inferMimeType(fileNameOrUrl: string | undefined): string {
+  const lower = (fileNameOrUrl ?? "").toLowerCase();
+  if (lower.includes(".png")) return "image/png";
+  if (lower.includes(".gif")) return "image/gif";
+  if (lower.includes(".webp")) return "image/webp";
+  if (lower.includes(".jpeg") || lower.includes(".jpg")) return "image/jpeg";
+  return "image/jpeg";
+}
+
+function detectImageMimeType(buffer: Buffer, fallback: string): string {
+  if (buffer.byteLength >= 6 && buffer.subarray(0, 6).toString("ascii").startsWith("GIF8")) return "image/gif";
+  if (buffer.byteLength >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (buffer.byteLength >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  if (buffer.byteLength >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return fallback;
+}
+
+function imageExtension(mimeType: string): string {
+  if (mimeType === "image/gif") return ".gif";
+  if (mimeType === "image/png") return ".png";
+  if (mimeType === "image/webp") return ".webp";
+  return ".jpg";
+}
+
+function stringData(data: Record<string, unknown>, key: string): string | undefined {
+  const value = data[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeUrl(url: string | undefined): string | undefined {
+  const trimmed = url?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+function parseCqParams(text: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const part of text.split(",")) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) params[key] = value;
+  }
+  return params;
+}
+
+function extractCqImageSegments(text: string): OneBotMessageSegment[] {
+  const segments: OneBotMessageSegment[] = [];
+  const regex = /\[CQ:image,([^\]]+)\]/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    segments.push({
+      type: "image",
+      data: parseCqParams(match[1]),
+    });
+  }
+  return segments;
+}
+
+export function extractQqImageSegments(message: unknown, rawMessage?: string): OneBotMessageSegment[] {
+  if (Array.isArray(message)) {
+    return (message as OneBotMessageSegment[])
+      .filter(segment => segment?.type === "image");
+  }
+  if (typeof message === "string") return extractCqImageSegments(message);
+  return rawMessage ? extractCqImageSegments(rawMessage) : [];
+}
+
+function isLikelyEmoticon(segment: OneBotMessageSegment, mimeType: string, fileName: string): boolean {
+  const data = segment.data ?? {};
+  const hint = [
+    stringData(data, "summary"),
+    stringData(data, "sub_type"),
+    stringData(data, "subType"),
+    stringData(data, "image_type"),
+    stringData(data, "type"),
+    fileName,
+    mimeType,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /表情|动画|sticker|emoticon|emoji|face|marketface|gif/.test(hint);
+}
+
+function qqMediaFetchHeaders(url: string): Record<string, string> {
+  if (!ENV.qqOnebotAccessToken) return {};
+  const base = ENV.qqOnebotBaseUrl.replace(/\/+$/, "");
+  if (!url.startsWith(base)) return {};
+  return { authorization: `Bearer ${ENV.qqOnebotAccessToken}` };
+}
+
+async function downloadImageUrl(url: string): Promise<{ buffer: Buffer; mimeType?: string }> {
+  const response = await fetch(url, { headers: qqMediaFetchHeaders(url) });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    mimeType: response.headers.get("content-type") ?? undefined,
+  };
+}
+
+async function readLocalImagePath(filePath: string): Promise<{ buffer: Buffer; mimeType?: string }> {
+  const absolutePath = path.resolve(filePath);
+  return {
+    buffer: await fs.readFile(absolutePath),
+    mimeType: inferMimeType(absolutePath),
+  };
+}
+
+async function extractQqMediaFromSegment(
+  segment: OneBotMessageSegment,
+  event: OneBotMessageEvent,
+  index: number,
+  caption?: string,
+): Promise<QqMediaInput | null> {
+  const data = segment.data ?? {};
+  const url = normalizeUrl(stringData(data, "url") || stringData(data, "file_url"));
+  const file = stringData(data, "file") || stringData(data, "path");
+  const base64 = file?.startsWith("base64://") ? file.slice("base64://".length) : undefined;
+  let buffer: Buffer = Buffer.alloc(0);
+  let sourceUrl: string | undefined;
+  const sourceName = file || url || `qq-image-${event.message_id ?? Date.now()}-${index + 1}.jpg`;
+  let mimeType = inferMimeType(sourceName);
+
+  try {
+    if (base64) {
+      buffer = Buffer.from(base64, "base64");
+    } else if (url) {
+      const downloaded = await downloadImageUrl(url);
+      buffer = downloaded.buffer;
+      mimeType = downloaded.mimeType || mimeType;
+      sourceUrl = url;
+    } else if (file && (path.isAbsolute(file) || /^[a-z]:[\\/]/i.test(file))) {
+      const local = await readLocalImagePath(file);
+      buffer = local.buffer;
+      mimeType = local.mimeType || mimeType;
+    }
+  } catch (err) {
+    console.warn(`[QQ] Failed to download image segment ${index + 1}:`, err);
+    if (url) sourceUrl = url;
+  }
+
+  const resolvedMime = detectImageMimeType(buffer, mimeType);
+  const fileName = sanitizeFileName(
+    path.basename(sourceName).replace(/\.(?:jpg|jpeg|png|gif|webp)$/i, imageExtension(resolvedMime)),
+    `qq-image-${event.message_id ?? Date.now()}-${index + 1}${imageExtension(resolvedMime)}`,
+  );
+
+  if (buffer.byteLength === 0 && !sourceUrl) {
+    console.warn(`[QQ] Image segment ${index + 1} has no usable URL, base64 data, or local file path.`);
+    return null;
+  }
+
+  const kind = isLikelyEmoticon(segment, resolvedMime, fileName) ? "emoticon" : "image";
+  console.info(
+    `[QQ] Received ${kind} media: ${fileName}, ${resolvedMime}, ${buffer.byteLength} bytes, sourceUrl=${sourceUrl ? "yes" : "no"}`,
+  );
+
+  return {
+    kind,
+    buffer,
+    fileName,
+    mimeType: resolvedMime,
+    sourceUrl,
+    caption,
+  };
+}
+
 function segmentText(segment: OneBotMessageSegment): string {
   const data = segment.data ?? {};
   switch (segment.type) {
@@ -70,6 +250,13 @@ export function extractQqPlainText(message: unknown, rawMessage?: string): strin
     return normalizeMessageText(message.map(segment => segmentText(segment as OneBotMessageSegment)).join(" "));
   }
   return normalizeMessageText(rawMessage ?? "");
+}
+
+function cleanCaptionText(content: string): string {
+  return content
+    .replace(/\[图片\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function buildQqContactKey(event: OneBotMessageEvent): string | null {
@@ -122,7 +309,8 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
   }
 
   const content = extractQqPlainText(event.message, event.raw_message);
-  if (!content) {
+  const imageSegments = extractQqImageSegments(event.message, event.raw_message);
+  if (!content && imageSegments.length === 0) {
     return { handled: false, reason: "empty_message" as const };
   }
 
@@ -136,8 +324,33 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     id: contactId,
     name: displayName,
     kind,
-    messageText: content,
+    messageText: content || "[图片]",
   });
+
+  if (imageSegments.length > 0) {
+    const caption = cleanCaptionText(content);
+    console.info(`[QQ] Handling image message contact=${contactId} messageId=${event.message_id ?? ""} images=${imageSegments.length}`);
+
+    const media = await extractQqMediaFromSegment(imageSegments[0], event, 0, caption || undefined);
+    if (media) {
+      const reply = await handleQqPersonaMediaChat(contactId, nameForPrompt, media);
+      if (reply) {
+        await sayWeChatReply({
+          say: async (text: string) => {
+            const sent = await sendQqText(contactId, text);
+            if (!sent) throw new Error("QQ text send failed");
+          },
+        }, reply);
+      }
+      return { handled: true as const };
+    }
+
+    console.warn(`[QQ] Falling back to text-only image placeholder contact=${contactId}`);
+  }
+
+  if (!content) {
+    return { handled: true as const, reason: "image_without_usable_content" as const };
+  }
 
   console.info(`[QQ] Queued message contact=${contactId} messageId=${event.message_id ?? ""}`);
   enqueueWechatTextMessage({

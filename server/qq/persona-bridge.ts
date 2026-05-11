@@ -1,11 +1,14 @@
 import * as db from "../db";
 import { ENV } from "../_core/env";
+import { handleSocialPersonaMediaChat, type SocialMediaInput } from "../social/persona-media-chat";
 import { handleSocialPersonaTextChat } from "../social/persona-text-chat";
 
 export type QqPersonaChatOptions = {
   batchMessageCount?: number;
   batchMessages?: string[];
 };
+
+export type QqMediaInput = SocialMediaInput;
 
 async function resolveQqBinding(contactId: string, contactName: string) {
   const existing = await db.getQqBindingByContactId(contactId);
@@ -44,5 +47,23 @@ export async function handleQqPersonaChat(
     batchMessageCount: options.batchMessageCount,
     batchMessages: options.batchMessages,
     channel: "web",
+  });
+}
+
+export async function handleQqPersonaMediaChat(
+  contactId: string,
+  contactName: string,
+  media: QqMediaInput,
+): Promise<string | null> {
+  const binding = await resolveQqBinding(contactId, contactName);
+  if (!binding) return null;
+
+  return handleSocialPersonaMediaChat({
+    platform: "qq",
+    binding,
+    contactName,
+    media,
+    channel: "web",
+    storagePrefix: "qq",
   });
 }

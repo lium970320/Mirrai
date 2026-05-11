@@ -81,6 +81,38 @@ export const personaFiles = pgTable("persona_files", {
 export type PersonaFile = typeof personaFiles.$inferSelect;
 export type InsertPersonaFile = typeof personaFiles.$inferInsert;
 
+export const personaSources = pgTable("persona_sources", {
+  id: serial("id").primaryKey(),
+  personaId: integer("personaId").notNull(),
+  userId: integer("userId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  sourceType: varchar("sourceType", { length: 50 }).default("epub").notNull(),
+  originalName: varchar("originalName", { length: 255 }),
+  fileHash: varchar("fileHash", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type PersonaSource = typeof personaSources.$inferSelect;
+export type InsertPersonaSource = typeof personaSources.$inferInsert;
+
+export const personaSourceChunks = pgTable("persona_source_chunks", {
+  id: serial("id").primaryKey(),
+  sourceId: integer("sourceId").notNull(),
+  personaId: integer("personaId").notNull(),
+  userId: integer("userId").notNull(),
+  chapterTitle: text("chapterTitle"),
+  chunkIndex: integer("chunkIndex").notNull(),
+  content: text("content").notNull(),
+  keywords: jsonb("keywords"),
+  tokenEstimate: integer("tokenEstimate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PersonaSourceChunk = typeof personaSourceChunks.$inferSelect;
+export type InsertPersonaSourceChunk = typeof personaSourceChunks.$inferInsert;
+
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
   personaId: integer("personaId").notNull(),

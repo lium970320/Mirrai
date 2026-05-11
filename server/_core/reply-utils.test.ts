@@ -53,6 +53,21 @@ describe("splitAssistantReplyForChat", () => {
     ]);
   });
 
+  it("splits medium multi-sentence replies even without explicit blank lines", () => {
+    expect(splitAssistantReplyForChat("我吃过了，在所里食堂随便打了点菜。你别又拿饼干凑合，武汉今天热，吃点正经饭。下课以后跟我说一声。")).toEqual([
+      "我吃过了，在所里食堂随便打了点菜。",
+      "你别又拿饼干凑合，武汉今天热，吃点正经饭。",
+      "下课以后跟我说一声。",
+    ]);
+  });
+
+  it("splits two long-enough sentences at a natural boundary", () => {
+    expect(splitAssistantReplyForChat("我刚把下午的图件看完，眼睛有点酸。你那边如果还在备课，就先把水喝了，别一直拖到很晚。")).toEqual([
+      "我刚把下午的图件看完，眼睛有点酸。",
+      "你那边如果还在备课，就先把水喝了，别一直拖到很晚。",
+    ]);
+  });
+
   it("splits long paragraph replies into shorter chat messages", () => {
     const chunks = splitAssistantReplyForChat(
       "敏子，我刚从所里出来，忽然想到你今天下午还有课。武汉最近热起来了，你别一直站着讲太久，回办公室以后先喝点水，再慢慢处理学生的事。要是晚上还有材料要看，也别硬撑到太晚，等你空下来再跟我说一声就行。我这边晚点还要把上午的图件核一遍，可能回得慢一点，但不是不理你。",

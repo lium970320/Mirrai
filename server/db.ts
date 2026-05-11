@@ -3,9 +3,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import {
   InsertUser, users,
   personas, personaFiles, messages,
+  personaSources, personaSourceChunks,
   wechatBindings, skillJobs, llmConfigs, wechatBotState,
   memories, emotionSnapshots, diaryEntries, scenes,
   InsertPersona, InsertPersonaFile, InsertMessage,
+  InsertPersonaSource, InsertPersonaSourceChunk,
   InsertWechatBinding, InsertSkillJob, InsertLlmConfig,
   InsertMemory, InsertEmotionSnapshot, InsertDiaryEntry, InsertScene,
 } from "../drizzle/schema";
@@ -122,6 +124,8 @@ export async function deleteUserAccount(id: number) {
   await db.delete(emotionSnapshots).where(eq(emotionSnapshots.userId, id));
   await db.delete(messages).where(eq(messages.userId, id));
   await db.delete(personaFiles).where(eq(personaFiles.userId, id));
+  await db.delete(personaSourceChunks).where(eq(personaSourceChunks.userId, id));
+  await db.delete(personaSources).where(eq(personaSources.userId, id));
   await db.delete(wechatBindings).where(eq(wechatBindings.userId, id));
   await db.delete(llmConfigs).where(eq(llmConfigs.userId, id));
   await db.delete(personas).where(eq(personas.userId, id));
@@ -269,6 +273,8 @@ export async function deletePersona(id: number, userId: number) {
   await db.delete(emotionSnapshots).where(eq(emotionSnapshots.personaId, id));
   await db.delete(messages).where(eq(messages.personaId, id));
   await db.delete(personaFiles).where(eq(personaFiles.personaId, id));
+  await db.delete(personaSourceChunks).where(eq(personaSourceChunks.personaId, id));
+  await db.delete(personaSources).where(eq(personaSources.personaId, id));
   await db.delete(wechatBindings).where(eq(wechatBindings.personaId, id));
   await db.delete(skillJobs).where(eq(skillJobs.personaId, id));
   await db.delete(personas).where(and(eq(personas.id, id), eq(personas.userId, userId)));
@@ -287,6 +293,348 @@ export async function getFilesByPersonaId(personaId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(personaFiles).where(eq(personaFiles.personaId, personaId)).orderBy(desc(personaFiles.createdAt));
+}
+
+// ─── Persona source library helpers ────────────────────────────────────────
+
+export type PersonaSourceRecallChunk = {
+  id: number;
+  sourceId: number;
+  sourceTitle: string;
+  chapterTitle: string | null;
+  chunkIndex: number;
+  content: string;
+  score: number;
+  matchedTerms?: string[];
+  seedRank?: number;
+  distanceFromSeed?: number;
+};
+
+let personaSourceTablesEnsured = false;
+
+export async function ensurePersonaSourceTables() {
+  if (personaSourceTablesEnsured) return;
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "persona_sources" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "personaId" integer NOT NULL,
+      "userId" integer NOT NULL,
+      "title" varchar(255) NOT NULL,
+      "sourceType" varchar(50) DEFAULT 'epub' NOT NULL,
+      "originalName" varchar(255),
+      "fileHash" varchar(128),
+      "metadata" jsonb,
+      "createdAt" timestamp DEFAULT now() NOT NULL,
+      "updatedAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "persona_source_chunks" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "sourceId" integer NOT NULL,
+      "personaId" integer NOT NULL,
+      "userId" integer NOT NULL,
+      "chapterTitle" text,
+      "chunkIndex" integer NOT NULL,
+      "content" text NOT NULL,
+      "keywords" jsonb,
+      "tokenEstimate" integer,
+      "createdAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "persona_sources_persona_user_idx" ON "persona_sources" ("personaId", "userId")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "persona_source_chunks_persona_user_idx" ON "persona_source_chunks" ("personaId", "userId")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "persona_source_chunks_source_idx" ON "persona_source_chunks" ("sourceId")`);
+
+  personaSourceTablesEnsured = true;
+}
+
+export async function createPersonaSource(data: InsertPersonaSource) {
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(personaSources).values(data).returning({ id: personaSources.id });
+  return result.id;
+}
+
+export async function createPersonaSourceChunks(chunks: InsertPersonaSourceChunk[]) {
+  if (chunks.length === 0) return;
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(personaSourceChunks).values(chunks);
+}
+
+export async function deletePersonaSourcesByOriginalName(personaId: number, userId: number, originalName: string) {
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const existing = await db.select({ id: personaSources.id })
+    .from(personaSources)
+    .where(and(
+      eq(personaSources.personaId, personaId),
+      eq(personaSources.userId, userId),
+      eq(personaSources.originalName, originalName),
+    ));
+  const ids = existing.map(row => row.id);
+  if (ids.length === 0) return;
+
+  await db.delete(personaSourceChunks).where(sql`${personaSourceChunks.sourceId} = ANY(${ids})`);
+  await db.delete(personaSources).where(sql`${personaSources.id} = ANY(${ids})`);
+}
+
+const SOURCE_STOP_WORDS = new Set([
+  "你", "我", "他", "她", "它", "我们", "你们", "他们", "这个", "那个", "什么", "怎么", "为什么",
+  "是不是", "有没有", "哪里", "哪儿", "记得", "还记得", "想起", "回忆", "原著", "小说", "里面", "内容", "时候",
+  "的时候", "当年", "以前", "后来", "现在", "一下", "一点", "那个时候", "那时候", "那会儿",
+  "你还", "那你", "还记", "那次", "这次", "次吗", "了吗", "的吗", "什么时", "么时候",
+  "就是", "明明", "根本", "不对", "不是", "这样", "真的",
+]);
+
+const COMMON_SOURCE_TERMS = new Set(["柱子", "王玉柱", "敏子", "王芃泽"]);
+
+function isNoisySourceTerm(term: string): boolean {
+  if (SOURCE_STOP_WORDS.has(term)) return true;
+  if (/^[吗呢啊吧呀嘛哦嗯的了过着和与及又还再就都很更挺真]$/.test(term)) return true;
+  if (/^(你|我|他|她|我们|你们|他们|那你).{1,2}$/.test(term) && !COMMON_SOURCE_TERMS.has(term)) return true;
+  if (/^(还记|记得|得不|不记|知道|觉得|问一|说一)/.test(term)) return true;
+  if (/(了吗|的吗|的事|这事|那事|这件|那件)$/.test(term)) return true;
+  return false;
+}
+
+function addTerm(terms: string[], seen: Set<string>, value: string) {
+  const term = value.trim();
+  if (term.length < 2 || isNoisySourceTerm(term)) return;
+  const normalized = term.slice(0, 32);
+  if (seen.has(normalized)) return;
+  seen.add(normalized);
+  terms.push(normalized);
+}
+
+export function extractPersonaSourceSearchTerms(query: string): string[] {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+
+  const expansions: Array<[RegExp, string[]]> = [
+    [/第一次|初遇|遇见|见面|见到/, ["第一次", "第一次走进", "王老师", "院子", "遇见", "西北", "湾子村"]],
+    [/老鹰峡|救|危险|向导|狼/, ["老鹰峡", "向导", "狼", "救", "危险"]],
+    [/跑出来|没回去|不在|找我|找你|闹翻|逃避|躲|躲着/, ["家人闹翻", "逃避", "不在这里", "找不到", "山洞", "老鹰峡", "小狼"]],
+    [/山洞|崖洞|洞里|洞口/, ["山洞", "洞口", "石壁", "释迦牟尼"]],
+    [/湖里|湖边|湖中|湖水|水里|洗澡|踢到|踢坏|私密/, ["湖边", "湖水", "洗澡", "水中", "私密处", "踢坏", "幸亏是在水里"]],
+    [/北京|治疗|左臂|手臂|胳膊/, ["北京", "治疗", "左臂", "林慧珍", "手术"]],
+    [/南京|读书|进城|城市/, ["南京", "读书", "进城"]],
+    [/中考|考场|考试|学校|大热天/, ["中考", "考场", "考试", "学校", "大热天"]],
+    [/睡在一起|睡一块|抱着|抱|搂/, ["睡", "一块", "抱着", "搂", "床"]],
+    [/表白|亲吻|亲|吻|爱|喜欢/, ["表白", "亲吻", "喜欢", "爱"]],
+    [/车祸|轮椅|身体/, ["车祸", "身体", "健康"]],
+    [/小川|儿子/, ["小川", "儿子"]],
+    [/姚敏|婚姻|妻子/, ["姚敏", "婚姻"]],
+    [/林慧珍|旧识/, ["林慧珍"]],
+    [/老赵|小刘|大刘|小彭|研究所|地质/, ["老赵", "小刘", "大刘", "小彭", "研究所", "地质"]],
+    [/柱子|玉柱|敏子/, ["柱子", "王玉柱", "敏子"]],
+  ];
+  for (const [pattern, values] of expansions) {
+    if (pattern.test(query)) values.forEach(value => addTerm(terms, seen, value));
+  }
+
+  const normalized = query.replace(/[^\u4e00-\u9fffA-Za-z0-9]+/g, " ");
+  for (const token of normalized.split(/\s+/).filter(Boolean)) {
+    if (/^[A-Za-z0-9]+$/.test(token)) {
+      addTerm(terms, seen, token);
+      continue;
+    }
+    const chars = Array.from(token);
+    if (chars.length <= 8) addTerm(terms, seen, token);
+    for (const size of [4, 3, 2]) {
+      if (chars.length < size) continue;
+      for (let i = 0; i <= chars.length - size; i += 1) {
+        addTerm(terms, seen, chars.slice(i, i + size).join(""));
+      }
+    }
+  }
+
+  return terms.slice(0, 24);
+}
+
+function occurrenceCount(text: string, term: string): number {
+  if (!term) return 0;
+  let count = 0;
+  let index = text.indexOf(term);
+  while (index >= 0) {
+    count += 1;
+    index = text.indexOf(term, index + term.length);
+  }
+  return count;
+}
+
+const IMPORTANT_SOURCE_TERMS = new Set([
+  "老鹰峡", "向导", "狼", "山洞", "洞口", "石壁", "家人闹翻", "逃避", "不在这里", "小狼",
+  "湖边", "湖水", "洗澡", "水中", "私密处", "踢坏", "幸亏是在水里",
+  "左臂", "北京", "治疗", "林慧珍", "手术",
+  "第一次走进", "第一次", "王老师", "院子", "车祸", "表白", "亲吻",
+  "姚敏", "小川", "研究所", "地质", "中考", "考场", "考试", "学校", "抱着",
+]);
+
+function sourceTermWeight(term: string): number {
+  if (COMMON_SOURCE_TERMS.has(term)) return 1;
+  if (IMPORTANT_SOURCE_TERMS.has(term)) return term.length + 12;
+  if (term.length >= 5) return term.length + 8;
+  if (term.length >= 3) return term.length + 3;
+  return term.length + 1;
+}
+
+function scoreSourceChunk(row: { content: string; chapterTitle: string | null }, terms: string[]): number {
+  const content = row.content || "";
+  const chapter = row.chapterTitle || "";
+  let score = 0;
+  for (const term of terms) {
+    const weight = sourceTermWeight(term);
+    const contentHits = Math.min(occurrenceCount(content, term), COMMON_SOURCE_TERMS.has(term) ? 2 : 5);
+    const chapterHits = Math.min(occurrenceCount(chapter, term), 2);
+    if (contentHits > 0) score += contentHits * weight;
+    if (chapterHits > 0) score += chapterHits * (weight + 8);
+  }
+  return score;
+}
+
+function matchedSourceTerms(row: { content: string; chapterTitle: string | null }, terms: string[]): string[] {
+  const content = row.content || "";
+  const chapter = row.chapterTitle || "";
+  const matched = terms.filter(term => content.includes(term) || chapter.includes(term));
+  return matched.filter((term) => {
+    return !matched.some(other => other !== term && other.length > term.length && other.includes(term));
+  });
+}
+
+export async function searchPersonaSourceChunks(
+  personaId: number,
+  userId: number,
+  query: string,
+  limit = 6,
+): Promise<PersonaSourceRecallChunk[]> {
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  if (!db) return [];
+
+  const terms = extractPersonaSourceSearchTerms(query);
+  if (terms.length === 0) return [];
+
+  const conditions = terms.flatMap(term => {
+    const pattern = `%${term}%`;
+    return [
+      sql`${personaSourceChunks.content} ILIKE ${pattern}`,
+      sql`${personaSourceChunks.chapterTitle} ILIKE ${pattern}`,
+    ];
+  });
+
+  const rows = await db.select({
+    id: personaSourceChunks.id,
+    sourceId: personaSourceChunks.sourceId,
+    sourceTitle: personaSources.title,
+    chapterTitle: personaSourceChunks.chapterTitle,
+    chunkIndex: personaSourceChunks.chunkIndex,
+    content: personaSourceChunks.content,
+  })
+    .from(personaSourceChunks)
+    .innerJoin(personaSources, eq(personaSourceChunks.sourceId, personaSources.id))
+    .where(and(
+      eq(personaSourceChunks.personaId, personaId),
+      eq(personaSourceChunks.userId, userId),
+      sql`(${sql.join(conditions, sql` OR `)})`,
+    ))
+    .limit(1200);
+
+  const scoredRows = rows
+    .map(row => ({
+      ...row,
+      matchedTerms: matchedSourceTerms(row, terms),
+      score: scoreSourceChunk(row, terms),
+    }))
+    .filter(row => row.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scoredRows.length === 0) return [];
+
+  const seedRows = scoredRows.slice(0, Math.max(3, Math.min(scoredRows.length, limit)));
+  const neighborConditions = seedRows.map(seed => sql`(
+    ${personaSourceChunks.sourceId} = ${seed.sourceId}
+    AND ${personaSourceChunks.chunkIndex} BETWEEN ${Math.max(0, seed.chunkIndex - 1)} AND ${seed.chunkIndex + 1}
+  )`);
+
+  const neighborRows = await db.select({
+    id: personaSourceChunks.id,
+    sourceId: personaSourceChunks.sourceId,
+    sourceTitle: personaSources.title,
+    chapterTitle: personaSourceChunks.chapterTitle,
+    chunkIndex: personaSourceChunks.chunkIndex,
+    content: personaSourceChunks.content,
+  })
+    .from(personaSourceChunks)
+    .innerJoin(personaSources, eq(personaSourceChunks.sourceId, personaSources.id))
+    .where(and(
+      eq(personaSourceChunks.personaId, personaId),
+      eq(personaSourceChunks.userId, userId),
+      sql`(${sql.join(neighborConditions, sql` OR `)})`,
+    ))
+    .limit(seedRows.length * 3 + 3);
+
+  const bestById = new Map<number, PersonaSourceRecallChunk>();
+  for (const row of neighborRows) {
+    let bestSeed: (typeof seedRows)[number] | undefined;
+    let bestSeedRank = Number.POSITIVE_INFINITY;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    seedRows.forEach((seed, index) => {
+      if (seed.sourceId !== row.sourceId) return;
+      const distance = Math.abs(seed.chunkIndex - row.chunkIndex);
+      if (distance > 1) return;
+      if (index < bestSeedRank || (index === bestSeedRank && distance < bestDistance)) {
+        bestSeed = seed;
+        bestSeedRank = index;
+        bestDistance = distance;
+      }
+    });
+
+    if (!bestSeed) continue;
+    const matchedTerms = matchedSourceTerms(row, terms);
+    const score = Math.max(
+      scoreSourceChunk(row, terms),
+      bestSeed.score - bestDistance * 4,
+    );
+    const existing = bestById.get(row.id);
+    if (!existing || score > existing.score) {
+      bestById.set(row.id, {
+        ...row,
+        matchedTerms: matchedTerms.length ? matchedTerms : bestSeed.matchedTerms,
+        score,
+        seedRank: bestSeedRank,
+        distanceFromSeed: bestDistance,
+      });
+    }
+  }
+
+  return Array.from(bestById.values())
+    .sort((a, b) => {
+      const rankDiff = (a.seedRank ?? 0) - (b.seedRank ?? 0);
+      if (rankDiff !== 0) return rankDiff;
+      if (a.sourceId !== b.sourceId) return a.sourceId - b.sourceId;
+      return a.chunkIndex - b.chunkIndex;
+    })
+    .slice(0, limit);
+}
+
+export async function getPersonaSourceLibraryStats(personaId: number, userId: number) {
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  if (!db) return { sourceCount: 0, chunkCount: 0 };
+  const [sourceCount] = await db.select({ c: count() }).from(personaSources)
+    .where(and(eq(personaSources.personaId, personaId), eq(personaSources.userId, userId)));
+  const [chunkCount] = await db.select({ c: count() }).from(personaSourceChunks)
+    .where(and(eq(personaSourceChunks.personaId, personaId), eq(personaSourceChunks.userId, userId)));
+  return { sourceCount: sourceCount?.c || 0, chunkCount: chunkCount?.c || 0 };
 }
 
 // ─── Message helpers ────────────────────────────────────────────────────────
@@ -465,6 +813,30 @@ export async function getQqBindingsByUserId(userId: number) {
     eq(wechatBindings.isActive, true),
     qqBindingFilter(),
   ));
+}
+
+export async function getActiveQqBindingsByPersonaId(personaId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(wechatBindings)
+    .where(and(
+      eq(wechatBindings.personaId, personaId),
+      eq(wechatBindings.userId, userId),
+      eq(wechatBindings.isActive, true),
+      qqBindingFilter(),
+    ))
+    .orderBy(desc(wechatBindings.createdAt));
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = row.wechatContactId?.trim();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function getQqBindingByContactId(contactId: string) {
