@@ -10,7 +10,14 @@ const UPLOAD_DIR = ENV.uploadDir || "./uploads";
 const TTS_DIR = path.resolve(UPLOAD_DIR, "tts");
 const DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
 const MAX_TEXT_LENGTH = 500;
-type TTSProvider = "edge" | "windows-sapi" | "auto";
+type TTSProvider = "edge" | "windows-sapi" | "voxcpm" | "auto";
+type TTSResult = {
+  filePath: string;
+  urlPath: string;
+  voice: string;
+  provider: "edge" | "windows-sapi" | "voxcpm";
+  format: "mp3" | "wav";
+};
 
 function getCacheKey(text: string, voice: string, provider: string): string {
   return createHash("sha256").update(text + voice + provider).digest("hex").slice(0, 16);
@@ -28,10 +35,23 @@ export async function generateTTSFile(
   text: string,
   voice: string = DEFAULT_VOICE,
   provider: TTSProvider = normalizeProvider(ENV.ttsProvider),
-): Promise<{ filePath: string; urlPath: string; voice: string; provider: "edge" | "windows-sapi"; format: "mp3" | "wav" }> {
+): Promise<TTSResult> {
   const trimmed = text.slice(0, MAX_TEXT_LENGTH);
   if (provider === "windows-sapi") {
     return generateWindowsSapiTTSFile(trimmed, voice);
+  }
+  if (provider === "voxcpm") {
+    try {
+      return await generateVoxcpmTTSFile(trimmed, voice);
+    } catch (err) {
+      console.warn(`tts_voxcpm_failed fallback=${ENV.ttsFallbackProvider}`, err);
+      const fallbackProvider = normalizeProvider(ENV.ttsFallbackProvider);
+      return generateTTSFile(
+        trimmed,
+        voice,
+        fallbackProvider === "voxcpm" ? (process.platform === "win32" ? "windows-sapi" : "edge") : fallbackProvider,
+      );
+    }
   }
 
   try {
@@ -44,14 +64,14 @@ export async function generateTTSFile(
 }
 
 function normalizeProvider(provider: string): TTSProvider {
-  if (provider === "edge" || provider === "windows-sapi" || provider === "auto") return provider;
+  if (provider === "edge" || provider === "windows-sapi" || provider === "voxcpm" || provider === "auto") return provider;
   return "auto";
 }
 
 async function generateEdgeTTSFile(
   text: string,
   voice: string,
-): Promise<{ filePath: string; urlPath: string; voice: string; provider: "edge"; format: "mp3" }> {
+): Promise<TTSResult> {
   const hash = getCacheKey(text, voice, "edge");
   const fileName = `${hash}.mp3`;
   const filePath = path.join(TTS_DIR, fileName);
@@ -66,6 +86,65 @@ async function generateEdgeTTSFile(
   await writeFile(filePath, audioBuffer);
 
   return { filePath, urlPath, voice, provider: "edge", format: "mp3" };
+}
+
+function voxcpmCacheKey(text: string, voice: string): string {
+  return [
+    text,
+    voice,
+    ENV.voxcpmControl,
+    ENV.voxcpmReferenceAudioPath,
+    ENV.voxcpmPromptText,
+    String(ENV.voxcpmCfgValue),
+    String(ENV.voxcpmInferenceSteps),
+    String(ENV.voxcpmNormalize),
+    String(ENV.voxcpmDenoise),
+  ].join("\n");
+}
+
+async function generateVoxcpmTTSFile(text: string, voice: string): Promise<TTSResult> {
+  const hash = getCacheKey(voxcpmCacheKey(text, voice), "voxcpm", "voxcpm");
+  const fileName = `${hash}.wav`;
+  const filePath = path.join(TTS_DIR, fileName);
+  const urlPath = `/uploads/tts/${fileName}`;
+
+  if (existsSync(filePath)) return { filePath, urlPath, voice, provider: "voxcpm", format: "wav" };
+  if (!existsSync(TTS_DIR)) mkdirSync(TTS_DIR, { recursive: true });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ENV.voxcpmTimeoutMs);
+  try {
+    const response = await fetch(`${ENV.voxcpmServiceUrl.replace(/\/+$/, "")}/tts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text,
+        outputPath: filePath,
+        control: ENV.voxcpmControl,
+        referenceAudioPath: ENV.voxcpmReferenceAudioPath || null,
+        promptText: ENV.voxcpmPromptText || null,
+        cfgValue: ENV.voxcpmCfgValue,
+        inferenceTimesteps: ENV.voxcpmInferenceSteps,
+        normalize: ENV.voxcpmNormalize,
+        denoise: ENV.voxcpmDenoise,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`VoxCPM HTTP ${response.status}: ${body.slice(0, 500)}`);
+    }
+    const body = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
+    if (!body.ok) {
+      throw new Error(body.error || "VoxCPM service returned an unsuccessful response");
+    }
+    if (!existsSync(filePath)) {
+      throw new Error("VoxCPM service did not create an audio file");
+    }
+    return { filePath, urlPath, voice, provider: "voxcpm", format: "wav" };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function runWindowsSapi(textPath: string, outputPath: string, voice: string): Promise<void> {
@@ -122,7 +201,7 @@ $synth.Dispose()
 async function generateWindowsSapiTTSFile(
   text: string,
   voice: string,
-): Promise<{ filePath: string; urlPath: string; voice: string; provider: "windows-sapi"; format: "wav" }> {
+): Promise<TTSResult> {
   const hash = getCacheKey(text, voice, "windows-sapi");
   const fileName = `${hash}.wav`;
   const filePath = path.join(TTS_DIR, fileName);

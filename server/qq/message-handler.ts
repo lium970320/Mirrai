@@ -490,7 +490,7 @@ async function sayQqReplyWithOptionalVoice(
   }
 
   try {
-    console.info(`voice_tts_start provider=edge contact=${contactId}`);
+    console.info(`voice_tts_start provider=${ENV.ttsProvider} contact=${contactId}`);
     const tts = await generateTTSFile(voiceText, ENV.qqTtsVoice);
     console.info(`voice_tts_success provider=${tts.provider} voice=${tts.voice} format=${tts.format}`);
     const sent = await sendQqRecordFile(contactId, tts.filePath);
@@ -501,7 +501,7 @@ async function sayQqReplyWithOptionalVoice(
     }
     console.warn(`voice_send_failed_fallback_text platform=qq contact=${contactId}`);
   } catch (err) {
-    console.warn(`voice_tts_failed provider=edge contact=${contactId}`, err);
+    console.warn(`voice_tts_failed provider=${ENV.ttsProvider} contact=${contactId}`, err);
   }
 
   await sayQqReply(contactId, reply);

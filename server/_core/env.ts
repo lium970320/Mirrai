@@ -98,6 +98,18 @@ export const ENV = {
   qqTtsVoice: firstNonEmpty(process.env.QQ_TTS_VOICE, process.env.TTS_VOICE) || "zh-CN-YunxiNeural",
   ttsProvider: firstNonEmpty(process.env.QQ_TTS_PROVIDER, process.env.TTS_PROVIDER)
     || (process.platform === "win32" ? "windows-sapi" : "edge"),
+  ttsFallbackProvider: firstNonEmpty(process.env.QQ_TTS_FALLBACK_PROVIDER, process.env.TTS_FALLBACK_PROVIDER)
+    || (process.platform === "win32" ? "windows-sapi" : "edge"),
+  voxcpmServiceUrl: firstNonEmpty(process.env.VOXCPM_SERVICE_URL) || "http://127.0.0.1:8818",
+  voxcpmControl: firstNonEmpty(process.env.VOXCPM_CONTROL)
+    || "年轻男性，声音温和低沉，克制自然，语速中等，像近距离日常聊天",
+  voxcpmReferenceAudioPath: firstNonEmpty(process.env.VOXCPM_REFERENCE_AUDIO_PATH),
+  voxcpmPromptText: firstNonEmpty(process.env.VOXCPM_PROMPT_TEXT),
+  voxcpmCfgValue: envFloat("VOXCPM_CFG_VALUE", 2.0),
+  voxcpmInferenceSteps: envInt("VOXCPM_INFERENCE_STEPS", 10),
+  voxcpmNormalize: process.env.VOXCPM_NORMALIZE !== "false",
+  voxcpmDenoise: process.env.VOXCPM_DENOISE === "true",
+  voxcpmTimeoutMs: envInt("VOXCPM_TIMEOUT_MS", 600_000),
 
   pythonPath: process.env.PYTHON_PATH ?? "python3",
   skillEngineDir: process.env.SKILL_ENGINE_DIR ?? "./skill-engine",
