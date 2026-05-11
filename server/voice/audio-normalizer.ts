@@ -1,3 +1,9 @@
+import { spawn } from "child_process";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import os from "os";
+import path from "path";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+
 export type AudioFormat = "wav" | "mp3" | "m4a" | "ogg" | "flac" | "silk" | "amr" | "unknown";
 
 export type AudioNormalizeSuccess = {
@@ -68,6 +74,77 @@ function outputFileName(inputName: string, outputExt: string): string {
   return inputName.replace(/\.[^.\\/]+$/i, "") + outputExt;
 }
 
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegInstaller.path, args, {
+      windowsHide: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("ffmpeg timed out"));
+    }, 20_000);
+
+    child.stderr.on("data", chunk => {
+      stderr += String(chunk);
+    });
+    child.on("error", err => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", code => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(stderr.trim() || `ffmpeg exited with code ${code}`));
+    });
+  });
+}
+
+async function transcodeWithFfmpegToWav(
+  buffer: Buffer<ArrayBufferLike>,
+  fileName: string,
+  inputFormat: AudioFormat,
+): Promise<AudioNormalizeSuccess> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "mirrai-voice-"));
+  const inputPath = path.join(tempDir, `input.${inputFormat === "unknown" ? "bin" : inputFormat}`);
+  const outputPath = path.join(tempDir, "output.wav");
+
+  try {
+    await writeFile(inputPath, buffer);
+    await runFfmpeg([
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      inputPath,
+      "-ac",
+      "1",
+      "-ar",
+      String(DEFAULT_SILK_SAMPLE_RATE),
+      "-acodec",
+      "pcm_s16le",
+      outputPath,
+    ]);
+    const wav = await readFile(outputPath);
+    console.info(`voice_transcode_success input=${inputFormat} output=wav bytes=${wav.byteLength}`);
+    return {
+      ok: true,
+      buffer: wav,
+      fileName: outputFileName(fileName, ".wav"),
+      mimeType: "audio/wav",
+      inputFormat,
+      outputFormat: "wav",
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
 export async function normalizeAudioForAsr(
   buffer: Buffer<ArrayBufferLike>,
   fileName: string,
@@ -84,6 +161,20 @@ export async function normalizeAudioForAsr(
   }
   if (inputFormat === "m4a") {
     return { ok: true, buffer, fileName, mimeType: "audio/mp4", inputFormat, outputFormat: "m4a" };
+  }
+  if (inputFormat === "amr" || inputFormat === "ogg" || inputFormat === "flac") {
+    try {
+      return await transcodeWithFfmpegToWav(buffer, fileName, inputFormat);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`voice_transcode_failed input=${inputFormat}`, reason);
+      return {
+        ok: false,
+        status: "voice_transcode_failed",
+        inputFormat,
+        reason,
+      };
+    }
   }
   if (inputFormat === "silk") {
     try {
