@@ -7,6 +7,15 @@ export type ParsedQqContactId = {
   id: string;
 };
 
+export type QqRecordFileInfo = {
+  file?: string;
+  file_id?: string;
+  url?: string;
+  file_size?: string | number;
+  file_name?: string;
+  base64?: string;
+};
+
 type OneBotResponse<T = unknown> = {
   status?: string;
   retcode?: number;
@@ -90,6 +99,28 @@ export async function sendQqText(contactId: string, text: string): Promise<boole
     lastError = err instanceof Error ? err.message : String(err);
     console.warn(`[QQ] Failed to send text contact=${contactId}:`, lastError);
     return false;
+  }
+}
+
+export async function getQqRecordFile(
+  options: { file?: string; fileId?: string; outFormat?: string },
+): Promise<QqRecordFileInfo | null> {
+  const file = options.file?.trim();
+  const fileId = options.fileId?.trim();
+  if (!file && !fileId) return null;
+
+  try {
+    const data = await onebotAction<QqRecordFileInfo>("get_record", {
+      ...(file ? { file } : {}),
+      ...(fileId ? { file_id: fileId } : {}),
+      out_format: options.outFormat ?? "mp3",
+    });
+    lastError = null;
+    return data ?? null;
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+    console.warn("[QQ] Failed to get record file:", lastError);
+    return null;
   }
 }
 

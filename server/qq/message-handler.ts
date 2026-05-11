@@ -5,7 +5,8 @@ import { enqueueWechatTextMessage, type BatchedTextMessage } from "../wechat/inc
 import { sayWeChatReply } from "../wechat/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChat, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
-import { sendQqText } from "./onebot-client";
+import { getQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
+import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 
 export type OneBotMessageSegment = {
   type: string;
@@ -56,6 +57,17 @@ function inferMimeType(fileNameOrUrl: string | undefined): string {
   if (lower.includes(".webp")) return "image/webp";
   if (lower.includes(".jpeg") || lower.includes(".jpg")) return "image/jpeg";
   return "image/jpeg";
+}
+
+function inferAudioMimeType(fileNameOrUrl: string | undefined): string {
+  const lower = (fileNameOrUrl ?? "").toLowerCase();
+  if (lower.includes(".wav")) return "audio/wav";
+  if (lower.includes(".mp3")) return "audio/mpeg";
+  if (lower.includes(".m4a")) return "audio/mp4";
+  if (lower.includes(".ogg")) return "audio/ogg";
+  if (lower.includes(".flac")) return "audio/flac";
+  if (lower.includes(".amr")) return "audio/amr";
+  return "audio/mpeg";
 }
 
 function detectImageMimeType(buffer: Buffer, fallback: string): string {
@@ -111,6 +123,19 @@ function extractCqImageSegments(text: string): OneBotMessageSegment[] {
   return segments;
 }
 
+function extractCqRecordSegments(text: string): OneBotMessageSegment[] {
+  const segments: OneBotMessageSegment[] = [];
+  const regex = /\[CQ:record,([^\]]+)\]/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    segments.push({
+      type: "record",
+      data: parseCqParams(match[1]),
+    });
+  }
+  return segments;
+}
+
 export function extractQqImageSegments(message: unknown, rawMessage?: string): OneBotMessageSegment[] {
   if (Array.isArray(message)) {
     return (message as OneBotMessageSegment[])
@@ -118,6 +143,15 @@ export function extractQqImageSegments(message: unknown, rawMessage?: string): O
   }
   if (typeof message === "string") return extractCqImageSegments(message);
   return rawMessage ? extractCqImageSegments(rawMessage) : [];
+}
+
+export function extractQqRecordSegments(message: unknown, rawMessage?: string): OneBotMessageSegment[] {
+  if (Array.isArray(message)) {
+    return (message as OneBotMessageSegment[])
+      .filter(segment => segment?.type === "record");
+  }
+  if (typeof message === "string") return extractCqRecordSegments(message);
+  return rawMessage ? extractCqRecordSegments(rawMessage) : [];
 }
 
 function isLikelyEmoticon(segment: OneBotMessageSegment, mimeType: string, fileName: string): boolean {
@@ -158,6 +192,77 @@ async function readLocalImagePath(filePath: string): Promise<{ buffer: Buffer; m
     buffer: await fs.readFile(absolutePath),
     mimeType: inferMimeType(absolutePath),
   };
+}
+
+function recordFileName(info: QqRecordFileInfo, fallback: string): string {
+  return sanitizeFileName(
+    info.file_name
+      || (info.file ? path.basename(info.file) : "")
+      || (info.url ? path.basename(new URL(info.url).pathname) : "")
+      || fallback,
+    fallback,
+  );
+}
+
+async function resolveQqRecordInfo(segment: OneBotMessageSegment): Promise<QqRecordFileInfo | null> {
+  const data = segment.data ?? {};
+  const file = stringData(data, "file") || stringData(data, "path");
+  const fileId = stringData(data, "file_id") || stringData(data, "fileId");
+  const base64 = file?.startsWith("base64://") ? file.slice("base64://".length) : undefined;
+  if (!file && !fileId) {
+    return {
+      url: normalizeUrl(stringData(data, "url") || stringData(data, "file_url")),
+      base64,
+    };
+  }
+  if (base64) return { base64 };
+  return getQqRecordFile({ file, fileId, outFormat: "mp3" });
+}
+
+async function extractQqVoiceFromSegment(
+  segment: OneBotMessageSegment,
+  event: OneBotMessageEvent,
+): Promise<{ buffer: Buffer; fileName: string; mimeType: string } | null> {
+  console.info(`voice_in_received platform=qq messageId=${event.message_id ?? ""}`);
+  const info = await resolveQqRecordInfo(segment);
+  if (!info) {
+    console.warn(`voice_in_download_failed platform=qq messageId=${event.message_id ?? ""} reason=no_record_info`);
+    return null;
+  }
+
+  const fallbackName = `qq-voice-${event.message_id ?? Date.now()}.mp3`;
+  const fileName = recordFileName(info, fallbackName);
+  let buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let mimeType = inferAudioMimeType(fileName);
+
+  try {
+    if (info.base64) {
+      buffer = Buffer.from(info.base64, "base64");
+    } else if (info.url) {
+      const downloaded = await downloadImageUrl(info.url);
+      buffer = downloaded.buffer;
+      mimeType = downloaded.mimeType?.startsWith("audio/") ? downloaded.mimeType : mimeType;
+    } else if (info.file && (path.isAbsolute(info.file) || /^[a-z]:[\\/]/i.test(info.file))) {
+      const local = await readLocalImagePath(info.file);
+      buffer = local.buffer;
+      mimeType = inferAudioMimeType(info.file);
+    } else if (info.file) {
+      const localPath = path.resolve(info.file);
+      buffer = await fs.readFile(localPath);
+      mimeType = inferAudioMimeType(localPath);
+    }
+  } catch (err) {
+    console.warn(`voice_in_download_failed platform=qq messageId=${event.message_id ?? ""}`, err);
+    return null;
+  }
+
+  if (buffer.byteLength === 0) {
+    console.warn(`voice_in_download_failed platform=qq messageId=${event.message_id ?? ""} reason=empty_audio`);
+    return null;
+  }
+
+  console.info(`voice_in_download_success platform=qq messageId=${event.message_id ?? ""} bytes=${buffer.byteLength}`);
+  return { buffer, fileName, mimeType };
 }
 
 async function extractQqMediaFromSegment(
@@ -292,6 +397,19 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
   }
 }
 
+async function sayQqReply(contactId: string, reply: string): Promise<void> {
+  await sayWeChatReply({
+    say: async (text: string) => {
+      const sent = await sendQqText(contactId, text);
+      if (!sent) throw new Error("QQ text send failed");
+    },
+  }, reply);
+}
+
+async function sendVoiceFallback(contactId: string, text = "这条语音我没听清，你再发一次。"): Promise<void> {
+  await sayQqReply(contactId, text);
+}
+
 export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
   if (event.post_type && event.post_type !== "message") {
     return { handled: false, reason: "ignored_post_type" as const };
@@ -310,7 +428,8 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
 
   const content = extractQqPlainText(event.message, event.raw_message);
   const imageSegments = extractQqImageSegments(event.message, event.raw_message);
-  if (!content && imageSegments.length === 0) {
+  const recordSegments = extractQqRecordSegments(event.message, event.raw_message);
+  if (!content && imageSegments.length === 0 && recordSegments.length === 0) {
     return { handled: false, reason: "empty_message" as const };
   }
 
@@ -324,8 +443,43 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     id: contactId,
     name: displayName,
     kind,
-    messageText: content || "[图片]",
+    messageText: content || (recordSegments.length > 0 ? "[语音]" : "[图片]"),
   });
+
+  if (recordSegments.length > 0) {
+    const voice = await extractQqVoiceFromSegment(recordSegments[0], event);
+    if (!voice) {
+      await sendVoiceFallback(contactId);
+      return { handled: true as const, reason: "voice_download_failed" as const };
+    }
+
+    const asr = await transcribeWithZhipuAsr({
+      buffer: voice.buffer,
+      fileName: voice.fileName,
+      mimeType: voice.mimeType,
+      hotwords: ["敏子", "王芃泽", "王玉柱", "柱子", "武汉纺织大学", "南京研究所", "老鹰峡"],
+      userId: contactId,
+    });
+    if (!asr.ok) {
+      await sendVoiceFallback(contactId);
+      return { handled: true as const, reason: asr.status };
+    }
+
+    const transcript = asr.transcript.trim();
+    recordRecentQqContact({
+      id: contactId,
+      name: displayName,
+      kind,
+      messageText: `[语音] ${transcript}`,
+    });
+
+    const reply = await handleQqPersonaChat(contactId, nameForPrompt, transcript, {
+      batchMessageCount: 1,
+      batchMessages: [transcript],
+    });
+    if (reply) await sayQqReply(contactId, reply);
+    return { handled: true as const };
+  }
 
   if (imageSegments.length > 0) {
     const caption = cleanCaptionText(content);
@@ -335,12 +489,7 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     if (media) {
       const reply = await handleQqPersonaMediaChat(contactId, nameForPrompt, media);
       if (reply) {
-        await sayWeChatReply({
-          say: async (text: string) => {
-            const sent = await sendQqText(contactId, text);
-            if (!sent) throw new Error("QQ text send failed");
-          },
-        }, reply);
+        await sayQqReply(contactId, reply);
       }
       return { handled: true as const };
     }

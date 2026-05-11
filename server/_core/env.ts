@@ -58,6 +58,11 @@ export const ENV = {
   visionModel: firstNonEmpty(process.env.VISION_MODEL) || "qwen3-vl-flash",
   visionMaxInlineBytes: Number.parseInt(process.env.VISION_MAX_INLINE_BYTES ?? "", 10) || 7 * 1024 * 1024,
 
+  zhipuApiKey: firstNonEmpty(process.env.ZHIPU_API_KEY, process.env.BIGMODEL_API_KEY, process.env.VISION_API_KEY),
+  zhipuBaseUrl: firstNonEmpty(process.env.ZHIPU_BASE_URL, process.env.BIGMODEL_BASE_URL, process.env.VISION_BASE_URL)
+    || "https://open.bigmodel.cn/api/paas/v4",
+  zhipuAsrModel: firstNonEmpty(process.env.ZHIPU_ASR_MODEL) || "glm-asr-2512",
+
   wechatEnabled: process.env.WECHAT_ENABLED === "true",
   wechatPuppet: process.env.WECHAT_PUPPET ?? "wechaty-puppet-wechat4u",
   wechatBotName: process.env.WECHAT_BOT_NAME ?? "Girlfriend",

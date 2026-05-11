@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildQqContactKey, extractQqImageSegments, extractQqPlainText } from "./message-handler";
+import {
+  buildQqContactKey,
+  extractQqImageSegments,
+  extractQqPlainText,
+  extractQqRecordSegments,
+} from "./message-handler";
 
 describe("QQ OneBot message handling helpers", () => {
   it("builds private and group contact keys", () => {
@@ -12,7 +17,8 @@ describe("QQ OneBot message handling helpers", () => {
       { type: "text", data: { text: "中考的时候" } },
       { type: "image", data: { file: "a.jpg" } },
       { type: "face", data: { id: "14" } },
-    ])).toBe("中考的时候 [图片] [表情]");
+      { type: "record", data: { file: "voice.silk" } },
+    ])).toBe("中考的时候 [图片] [表情] [语音]");
   });
 
   it("normalizes CQ-code string messages", () => {
@@ -27,5 +33,14 @@ describe("QQ OneBot message handling helpers", () => {
     ])).toHaveLength(1);
     expect(extractQqImageSegments("看这个[CQ:image,file=a.jpg,url=https://example.test/a.jpg]"))
       .toEqual([{ type: "image", data: { file: "a.jpg", url: "https://example.test/a.jpg" } }]);
+  });
+
+  it("extracts QQ record segments from array and CQ-code messages", () => {
+    expect(extractQqRecordSegments([
+      { type: "text", data: { text: "听一下" } },
+      { type: "record", data: { file: "voice.silk", file_id: "abc" } },
+    ])).toEqual([{ type: "record", data: { file: "voice.silk", file_id: "abc" } }]);
+    expect(extractQqRecordSegments("[CQ:record,file=voice.silk,file_id=abc]"))
+      .toEqual([{ type: "record", data: { file: "voice.silk", file_id: "abc" } }]);
   });
 });
