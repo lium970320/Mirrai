@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ENV } from "../_core/env";
 import { generateTTSFile } from "../_core/tts";
+import { splitAssistantReplyForChat } from "../_core/reply-utils";
 import { enqueueWechatTextMessage, type BatchedTextMessage } from "../wechat/incoming-message-batcher";
 import { sayWeChatReply } from "../wechat/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
@@ -11,6 +12,10 @@ import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type Q
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 import { checkVoiceReplyPolicy, markVoiceReplySent, type VoiceReplySource } from "../voice/voice-reply-policy";
+import { detectStickerIntent } from "../stickers/sticker-intent";
+import { checkStickerReplyPolicy, markStickerReplySent } from "../stickers/sticker-policy";
+import { selectSticker } from "../stickers/sticker-selector";
+import { sendQqSticker } from "../stickers/sticker-sender";
 
 export type OneBotMessageSegment = {
   type: string;
@@ -440,22 +445,83 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
   const reply = await handleQqPersonaChat(batch.contactId, batch.contactName, batch.combinedText, {
     batchMessageCount: batch.messageCount,
     batchMessages: batch.messages,
+    shouldAbortReply: batch.isStale,
   });
   if (reply) {
+    if (batch.isStale()) {
+      console.info(`[QQ] Discarded stale text reply contact=${batch.contactId}; newer message is pending.`);
+      return;
+    }
     await sayQqReplyWithOptionalVoice(batch.contactId, reply, {
       source: "text",
       inputText: batch.combinedText,
+      shouldAbort: batch.isStale,
     });
   }
 }
 
-async function sayQqReply(contactId: string, reply: string): Promise<void> {
+async function sayQqReply(
+  contactId: string,
+  reply: string,
+  options: { shouldAbort?: () => boolean } = {},
+): Promise<void> {
   await sayWeChatReply({
     say: async (text: string) => {
       const sent = await sendQqText(contactId, text);
       if (!sent) throw new Error("QQ text send failed");
     },
-  }, reply);
+  }, reply, options);
+}
+
+async function sayQqReplyWithOptionalSticker(
+  contactId: string,
+  reply: string,
+  context: { inputText: string; userSentSticker?: boolean; shouldAbort?: () => boolean },
+): Promise<void> {
+  await sayQqReply(contactId, reply, { shouldAbort: context.shouldAbort });
+  if (context.shouldAbort?.()) {
+    console.info(`[QQ] Discarded stale sticker reply contact=${contactId}; newer message is pending.`);
+    return;
+  }
+
+  const parsed = parseQqContactId(contactId);
+  const stickerIntent = detectStickerIntent({
+    inputText: context.inputText,
+    replyText: reply,
+    userSentSticker: context.userSentSticker,
+  });
+  const policy = checkStickerReplyPolicy({
+    contactId,
+    contactKind: parsed?.kind ?? "private",
+    inputText: context.inputText,
+    replyText: reply,
+    userSentSticker: context.userSentSticker,
+    stickerIntent,
+  });
+
+  if (!policy.shouldSendSticker) {
+    console.info(policy.reason);
+    return;
+  }
+
+  const selected = selectSticker({ contactId, stickerIntent });
+  if (!selected.ok) {
+    console.warn(`sticker_not_found platform=qq contact=${contactId} reason=${selected.reason}`);
+    return;
+  }
+
+  if (context.shouldAbort?.()) {
+    console.info(`[QQ] Discarded stale sticker reply before send contact=${contactId}; newer message is pending.`);
+    return;
+  }
+
+  const sent = await sendQqSticker(contactId, selected.sticker);
+  if (!sent.ok) {
+    console.warn(`sticker_send_failed_fallback_text platform=qq contact=${contactId} reason=${sent.reason}`);
+    return;
+  }
+
+  markStickerReplySent(contactId);
 }
 
 function voiceTextFromReply(reply: string): string {
@@ -471,40 +537,64 @@ function voiceTextFromReply(reply: string): string {
 async function sayQqReplyWithOptionalVoice(
   contactId: string,
   reply: string,
-  context: { source: VoiceReplySource; inputText: string },
+  context: { source: VoiceReplySource; inputText: string; shouldAbort?: () => boolean },
 ): Promise<void> {
+  const replyChunks = splitAssistantReplyForChat(reply);
+  const voiceChunks = replyChunks.map(voiceTextFromReply).filter(Boolean);
   const voiceText = voiceTextFromReply(reply);
   const parsed = parseQqContactId(contactId);
-  const policy = checkVoiceReplyPolicy({
+  const policy = await checkVoiceReplyPolicy({
     contactId,
     contactKind: parsed?.kind ?? "private",
     inputText: context.inputText,
     replyText: voiceText,
+    replyChunks: voiceChunks,
     source: context.source,
   });
 
   if (!policy.shouldSendVoice || !voiceText) {
     console.info(policy.reason);
-    await sayQqReply(contactId, reply);
+    await sayQqReplyWithOptionalSticker(contactId, reply, {
+      inputText: context.inputText,
+      shouldAbort: context.shouldAbort,
+    });
+    return;
+  }
+
+  if (context.shouldAbort?.()) {
+    console.info(`[QQ] Discarded stale voice reply before TTS contact=${contactId}; newer message is pending.`);
     return;
   }
 
   try {
-    console.info(`voice_tts_start provider=${ENV.ttsProvider} contact=${contactId}`);
+    console.info(`voice_tts_start provider=${ENV.ttsProvider} contact=${contactId} textChunks=${voiceChunks.length} outputChunks=1`);
     const tts = await generateTTSFile(voiceText, ENV.qqTtsVoice);
-    console.info(`voice_tts_success provider=${tts.provider} voice=${tts.voice} format=${tts.format}`);
-    const sent = await sendQqRecordFile(contactId, tts.filePath);
-    if (sent) {
-      console.info(`voice_send_success platform=qq contact=${contactId}`);
-      markVoiceReplySent(contactId);
+    console.info(`voice_tts_success provider=${tts.provider} voice=${tts.voice} outputChunks=1`);
+    if (context.shouldAbort?.()) {
+      console.info(`[QQ] Discarded stale voice reply before send contact=${contactId}; newer message is pending.`);
       return;
     }
-    console.warn(`voice_send_failed_fallback_text platform=qq contact=${contactId}`);
+    const sent = await sendQqRecordFile(contactId, tts.filePath);
+    if (!sent) {
+      console.warn(`voice_send_failed_fallback_text platform=qq contact=${contactId} outputChunks=1`);
+      await sayQqReplyWithOptionalSticker(contactId, reply, {
+        inputText: context.inputText,
+        shouldAbort: context.shouldAbort,
+      });
+      return;
+    }
+
+    console.info(`voice_send_success platform=qq contact=${contactId} outputChunks=1`);
+    markVoiceReplySent(contactId);
+    return;
   } catch (err) {
     console.warn(`voice_tts_failed provider=${ENV.ttsProvider} contact=${contactId}`, err);
   }
 
-  await sayQqReply(contactId, reply);
+  await sayQqReplyWithOptionalSticker(contactId, reply, {
+    inputText: context.inputText,
+    shouldAbort: context.shouldAbort,
+  });
 }
 
 async function sendVoiceFallback(contactId: string, text = "这条语音我没听清，你再发一次。"): Promise<void> {
@@ -601,7 +691,10 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     if (media) {
       const reply = await handleQqPersonaMediaChat(contactId, nameForPrompt, media);
       if (reply) {
-        await sayQqReply(contactId, reply);
+        await sayQqReplyWithOptionalSticker(contactId, reply, {
+          inputText: caption || (media.kind === "emoticon" ? "[表情]" : "[图片]"),
+          userSentSticker: media.kind === "emoticon",
+        });
       }
       return { handled: true as const };
     }

@@ -12,7 +12,10 @@ const registry = new ProviderRegistry();
 registry.register(new OpenAIProvider("OpenAI", ENV.openaiApiKey, ENV.openaiBaseUrl, ENV.openaiModel, ENV.openaiSystemMessage || undefined));
 registry.register(new OpenAIProvider("Kimi", ENV.kimiApiKey, ENV.kimiBaseUrl, ENV.kimiModel));
 registry.register(new OpenAIProvider("Qwen", ENV.tongyiApiKey, ENV.tongyiUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1", ENV.tongyiModel));
-registry.register(new OpenAIProvider("DeepSeek", ENV.deepseekApiKey, ENV.deepseekBaseUrl, ENV.deepseekModel));
+registry.register(new OpenAIProvider("DeepSeek", ENV.deepseekApiKey, ENV.deepseekBaseUrl, ENV.deepseekModel, undefined, {
+  thinking: ENV.deepseekThinking === "disabled" ? "disabled" : "enabled",
+  reasoningEffort: ENV.deepseekReasoningEffort,
+}));
 registry.register(new OpenAIProvider("Doubao", ENV.doubaoApiKey, ENV.doubaoBaseUrl, ENV.doubaoModel));
 registry.register(new OpenAIProvider("302AI", ENV._302aiApiKey, "https://api.302.ai/v1", ""));
 registry.register(new ClaudeProvider(ENV.claudeApiKey, ENV.claudeModel, ENV.claudeBaseUrl));

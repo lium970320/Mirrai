@@ -472,8 +472,13 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
   const reply = await handlePersonaChat(batch.contactId, batch.contactName, batch.combinedText, {
     batchMessageCount: batch.messageCount,
     batchMessages: batch.messages,
+    shouldAbortReply: batch.isStale,
   });
   if (reply) {
-    await sayWeChatReply(batch.contact, reply);
+    if (batch.isStale()) {
+      console.info(`[WeChat] Discarded stale text reply contact=${batch.contactId}; newer message is pending.`);
+      return;
+    }
+    await sayWeChatReply(batch.contact, reply, { shouldAbort: batch.isStale });
   }
 }

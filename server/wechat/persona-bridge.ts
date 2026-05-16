@@ -7,6 +7,7 @@ export type WeChatMediaInput = SocialMediaInput;
 export type WeChatPersonaChatOptions = {
   batchMessageCount?: number;
   batchMessages?: string[];
+  shouldAbortReply?: () => boolean;
 };
 
 export async function handlePersonaChat(
@@ -25,6 +26,7 @@ export async function handlePersonaChat(
     messageText,
     batchMessageCount: options.batchMessageCount,
     batchMessages: options.batchMessages,
+    shouldAbortReply: options.shouldAbortReply,
     channel: "wechat",
   });
 }

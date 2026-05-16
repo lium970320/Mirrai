@@ -11,6 +11,7 @@ QQ_ENABLED=true
 QQ_ONEBOT_BASE_URL=http://127.0.0.1:3001
 QQ_ONEBOT_ACCESS_TOKEN=
 QQ_ONEBOT_WEBHOOK_SECRET=
+QQ_QUICK_LOGIN_UIN=
 QQ_ALLOW_GROUPS=false
 QQ_AUTO_BIND_SINGLE_READY_PERSONA=true
 ```
@@ -29,6 +30,8 @@ http://localhost:3000/api/qq/onebot/event
 ```text
 http://localhost:3000/api/qq/onebot/event?token=你的 QQ_ONEBOT_WEBHOOK_SECRET
 ```
+
+如果 NapCat 里保存了多个 QQ 的快速登录记录，建议在本机 `.env` 里设置 `QQ_QUICK_LOGIN_UIN`。一键启动脚本会优先登录这个 QQ；如果为空，会尝试从 NapCat 的 `onebot11_*.json` 配置文件推断。
 
 ## 绑定角色
 
@@ -57,3 +60,5 @@ VISION_MODEL=
 - 群聊默认关闭，需显式设置 `QQ_ALLOW_GROUPS=true`。
 - 为了避免立即迁移 Neon 数据库，QQ 消息暂时仍使用现有 `web` 渠道保存；QQ 联系人用 `qq:` 前缀区分，不影响微信联系人。
 - 主动消息支持 QQ：如果人物存在 QQ 绑定，固定时间主动消息和随机日常存在感消息会优先发到 QQ；只有没有 QQ 绑定时才回退到微信，避免同一条主动消息在两个平台重复发送。
+- QQ/微信社交端会遵守角色日程：王芃泽睡眠时段收到普通消息默认不立即回复；明确叫醒、急事、难受或需要陪伴的消息仍会回复。被叫醒后会进入约 20 分钟的半睡半醒临时状态，这段时间继续发消息会继续回复，而不是下一条又重新静默。
+- QQ/微信文本消息会短时间合并处理。用户连续发多条时只生成一轮综合回复；如果生成期间又收到新消息，旧回复会被丢弃，等待下一轮结合所有未回应内容重新组织，避免“积压消息突然爆发式补答”。

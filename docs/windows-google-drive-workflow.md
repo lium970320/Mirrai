@@ -60,6 +60,36 @@ corepack pnpm run dev
 
 日常可以直接用脚本，不需要手动记 `pnpm` 命令。
 
+总启动入口，会先同步源码到本机运行目录，再启动 VoxCPM、Mirrai 和 QQ/NapCat，最后打印状态：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1
+```
+
+也可以双击 `scripts/start-all.cmd`。如果只想启动网页和 QQ 文本、不启动本地 VoxCPM，可以运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1 -SkipVoxCPM
+```
+
+如果暂时不想启动 QQ/NapCat，可以运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1 -SkipQQ
+```
+
+如果想强制重启已运行的服务，可以加 `-Restart`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1 -Restart
+```
+
+`-Restart` 只重启 Mirrai/VoxCPM。QQ/NapCat 为了避免影响登录态，需要明确加 `-RestartQQ` 才会重启：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1 -RestartQQ
+```
+
 启动 Mirrai：
 
 ```powershell
@@ -79,6 +109,23 @@ powershell -ExecutionPolicy Bypass -File scripts/stop-mirrai.ps1
 ```
 
 也可以双击 `scripts/start-mirrai.cmd`、`scripts/status-mirrai.cmd`、`scripts/stop-mirrai.cmd`。这些脚本默认都会操作本机运行目录 `F:/Code/Mirrai`，不会在 Google Drive 源码目录里安装依赖或启动服务。
+
+启动或查看 QQ/NapCat：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-qq.ps1
+powershell -ExecutionPolicy Bypass -File scripts/status-qq.ps1
+```
+
+QQ/NapCat 脚本默认只管理 `F:/.mirrai-local/Mirrai/tools/napcat/onekey-v4.18.1` 下面的 NapCat 专用 QQ，不会操作普通安装目录里的 QQ。如果 QQ/NapCat 弹出登录窗口，需要先在窗口里完成登录，再运行状态脚本确认 `OneBot: OK`。
+
+如果 NapCat 保存了多个 QQ 的快速登录记录，本机 `.env` 可以设置：
+
+```dotenv
+QQ_QUICK_LOGIN_UIN=机器人 QQ 号
+```
+
+未设置时，启动脚本会尝试从 NapCat 的 `onebot11_*.json` 配置文件推断要登录的 QQ。
 
 判断是否在线看三件事：
 
@@ -110,6 +157,10 @@ powershell -ExecutionPolicy Bypass -File scripts/stop-mirrai.ps1
 DATABASE_URL=你的 Neon PostgreSQL 连接串
 DEFAULT_LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=你的 DeepSeek Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_THINKING=enabled
+DEEPSEEK_REASONING_EFFORT=max
 ```
 
 本机 PostgreSQL 只是备用方案。只有运行 `corepack pnpm run dev:local` 时，项目才会使用嵌入式 PostgreSQL，并把数据放到 `F:/.mirrai-local/Mirrai/postgres`。

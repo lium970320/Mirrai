@@ -1,5 +1,7 @@
 const LEADING_ASIDE_PATTERN =
   /^\s*(?:[（(【\[][^）)\]】]{1,80}[）)\]】]\s*)+/;
+const LEADING_SPEAKER_LABEL_PATTERN =
+  /^\s*(王芃泽|王鹏泽|叔|柱子|敏子|敏|Minzi|AI|助手|角色|机器人)\s*[：:]\s*/i;
 const SENTENCE_PATTERN = /[^。！？!?…；;\n]+[。！？!?…；;]*/g;
 const CLAUSE_PATTERN = /[^，,、\n]+[，,、]*/g;
 
@@ -27,6 +29,19 @@ export function stripLeadingAsides(text: string): string {
   return result.trim() || text.trim();
 }
 
+function stripLeadingSpeakerLabel(text: string): string {
+  let result = text.trimStart();
+  for (let i = 0; i < 3; i++) {
+    const match = result.match(LEADING_SPEAKER_LABEL_PATTERN);
+    if (!match) break;
+    const name = match[1];
+    const rest = result.slice(match[0].length).trimStart();
+    if (!rest) return "";
+    result = /^(敏子|敏|Minzi)$/i.test(name) ? `${name}，${rest}` : rest;
+  }
+  return result.trim();
+}
+
 export function cleanAssistantReply(
   text: string | null | undefined,
   fallback = "我在。",
@@ -34,8 +49,8 @@ export function cleanAssistantReply(
   const raw = (text ?? "").trim();
   if (!raw) return fallback;
 
-  const stripped = stripLeadingAsides(raw).trim();
-  const strippedAgain = raw.replace(LEADING_ASIDE_PATTERN, "").trim();
+  const stripped = stripLeadingSpeakerLabel(stripLeadingAsides(raw)).trim();
+  const strippedAgain = stripLeadingSpeakerLabel(raw.replace(LEADING_ASIDE_PATTERN, "").trim()).trim();
 
   return strippedAgain ? stripped : fallback;
 }

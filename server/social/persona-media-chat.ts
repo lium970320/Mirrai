@@ -1,10 +1,12 @@
 import { nanoid } from "nanoid";
+import { applyIncomingLifeState } from "../_core/life-schedule";
 import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import * as db from "../db";
 import { llmService } from "../llm";
 import { storagePut } from "../storage";
 import { describeImage, type VisionImageInput } from "../vision";
+import { buildConversationContinuityInstruction } from "./conversation-continuity";
 import type { SocialPlatform } from "./persona-text-chat";
 
 export type SocialMediaInput = VisionImageInput & {
@@ -126,7 +128,28 @@ export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaCh
   });
 
   const history = await db.getMessagesByPersonaId(options.binding.personaId, 20);
-  const systemPrompt = `${buildSystemPrompt(persona)}\n\n${socialSystemPromptOverlay(options.platform)}`;
+  const lifeGate = applyIncomingLifeState(
+    persona.personaData,
+    [mediaLabel(options.media), caption || ""].filter(Boolean).join(" "),
+  );
+  if (lifeGate.changed) {
+    await db.updatePersona(options.binding.personaId, options.binding.userId, {
+      personaData: lifeGate.personaData,
+    });
+  }
+  if (lifeGate.suppress) {
+    console.info(`[SocialMediaChat] Suppressed immediate reply for persona ${persona.id}: ${lifeGate.reason} (${lifeGate.state.start}-${lifeGate.state.end} ${lifeGate.state.label})`);
+    return null;
+  }
+  const personaForPrompt = lifeGate.changed
+    ? { ...persona, personaData: lifeGate.personaData }
+    : persona;
+
+  const systemPrompt = [
+    buildSystemPrompt(personaForPrompt),
+    socialSystemPromptOverlay(options.platform),
+    buildConversationContinuityInstruction(history, persona.name, "reply"),
+  ].join("\n\n");
   const currentMediaInstruction = visionDescription
     ? mediaInstruction(options.platform, options.contactName, options.media, visionDescription)
     : noVisionInstruction(options.platform, options.contactName, options.media);

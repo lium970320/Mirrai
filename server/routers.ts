@@ -42,6 +42,7 @@ import {
   sourceGroundedLlmOptions,
   withSourceGroundingInstruction,
 } from "./social/source-grounding";
+import { buildConversationContinuityInstruction } from "./social/conversation-continuity";
 
 function webImageInstruction(description: string): string {
   return [
@@ -406,6 +407,7 @@ export const appRouter = router({
         });
         const systemPrompt = [
           buildSystemPrompt(persona, scene?.systemPromptOverlay),
+          buildConversationContinuityInstruction(history, persona.name, "reply"),
           sourceRecallContext,
         ].filter(Boolean).join("\n\n");
         const llmMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -502,7 +504,10 @@ export const appRouter = router({
         const extra = (defaultConfig?.extraConfig as any) || {};
         const contextLimit = extra.contextLimit || 20;
         const history = await getMessagesByPersonaId(input.personaId, contextLimit);
-        const systemPrompt = buildSystemPrompt(persona, scene?.systemPromptOverlay);
+        const systemPrompt = [
+          buildSystemPrompt(persona, scene?.systemPromptOverlay),
+          buildConversationContinuityInstruction(history, persona.name, "reply"),
+        ].join("\n\n");
         const currentImageInstruction = visionDescription
           ? webImageInstruction(visionDescription)
           : noWebImageVisionInstruction();
@@ -550,7 +555,10 @@ export const appRouter = router({
         const extra = (defaultConfig?.extraConfig as any) || {};
         const contextLimit = extra.contextLimit || 20;
         const history = await getMessagesByPersonaId(input.personaId, contextLimit);
-        const systemPrompt = buildSystemPrompt(persona, scene?.systemPromptOverlay);
+        const systemPrompt = [
+          buildSystemPrompt(persona, scene?.systemPromptOverlay),
+          buildConversationContinuityInstruction(history, persona.name, "reply"),
+        ].join("\n\n");
         const llmMessages = [
           { role: "system" as const, content: systemPrompt },
           ...history.slice(-(contextLimit - 1)).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),

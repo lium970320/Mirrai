@@ -144,6 +144,47 @@ export async function sendQqRecordFile(contactId: string, filePath: string): Pro
   }
 }
 
+export async function sendQqImageFile(contactId: string, filePath: string): Promise<boolean> {
+  const parsed = parseQqContactId(contactId);
+  if (!parsed) {
+    console.warn("[QQ] Invalid contact id:", contactId);
+    return false;
+  }
+  const target = parsed;
+
+  async function send(file: string): Promise<void> {
+    const payload = {
+      message: [{ type: "image", data: { file } }],
+      ...(target.kind === "private"
+        ? { user_id: toOnebotId(target.id) }
+        : { group_id: toOnebotId(target.id) }),
+    };
+    await onebotAction(target.kind === "private" ? "send_private_msg" : "send_group_msg", payload);
+  }
+
+  try {
+    await send(filePath);
+    console.info(`[QQ] Sent image contact=${contactId}`);
+    lastError = null;
+    return true;
+  } catch (firstErr) {
+    try {
+      await send(pathToFileURL(filePath).toString());
+      console.info(`[QQ] Sent image contact=${contactId} route=file_url`);
+      lastError = null;
+      return true;
+    } catch (secondErr) {
+      lastError = secondErr instanceof Error ? secondErr.message : String(secondErr);
+      console.warn(
+        `[QQ] Failed to send image contact=${contactId}:`,
+        firstErr instanceof Error ? firstErr.message : String(firstErr),
+        lastError,
+      );
+      return false;
+    }
+  }
+}
+
 export async function getQqRecordFile(
   options: { file?: string; fileId?: string; outFormat?: string },
 ): Promise<QqRecordFileInfo | null> {

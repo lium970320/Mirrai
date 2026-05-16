@@ -9,6 +9,8 @@ export type BatchedTextMessage = {
   messages: string[];
   combinedText: string;
   messageCount: number;
+  batchRevision: number;
+  isStale: () => boolean;
 };
 
 type BatchState = {
@@ -18,6 +20,7 @@ type BatchState = {
   messages: string[];
   processing: boolean;
   timer: NodeJS.Timeout | null;
+  revision: number;
 };
 
 type EnqueueOptions = {
@@ -64,6 +67,12 @@ function clearStateTimer(state: BatchState): void {
   state.timer = null;
 }
 
+function isTextBatchStale(contactId: string, batchRevision: number): boolean {
+  const state = states.get(contactId);
+  if (!state) return false;
+  return state.revision !== batchRevision || state.messages.length > 0;
+}
+
 function scheduleFlush(contactId: string, onBatch: (batch: BatchedTextMessage) => Promise<void>): void {
   const state = states.get(contactId);
   if (!state || state.processing) return;
@@ -85,6 +94,7 @@ async function flushTextBatch(contactId: string, onBatch: (batch: BatchedTextMes
   clearStateTimer(state);
   const messages = state.messages.splice(0);
   state.processing = true;
+  const batchRevision = state.revision;
 
   const batch: BatchedTextMessage = {
     contact: state.contact,
@@ -93,6 +103,8 @@ async function flushTextBatch(contactId: string, onBatch: (batch: BatchedTextMes
     messages,
     combinedText: buildBatchedWechatInput(messages),
     messageCount: messages.length,
+    batchRevision,
+    isStale: () => isTextBatchStale(contactId, batchRevision),
   };
 
   console.info(
@@ -127,6 +139,7 @@ export function enqueueWechatTextMessage(options: EnqueueOptions): void {
     messages: [],
     processing: false,
     timer: null,
+    revision: 0,
   };
 
   state.contact = options.contact;
@@ -135,6 +148,7 @@ export function enqueueWechatTextMessage(options: EnqueueOptions): void {
     state.firstMessageAt = Date.now();
   }
   state.messages.push(text);
+  state.revision += 1;
   states.set(options.contactId, state);
 
   console.info(

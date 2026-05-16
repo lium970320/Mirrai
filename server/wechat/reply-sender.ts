@@ -4,6 +4,10 @@ type WeChatContactLike = {
   say(text: string): Promise<void> | void;
 };
 
+type SendReplyOptions = {
+  shouldAbort?: () => boolean;
+};
+
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -16,13 +20,21 @@ function nextMessageDelayMs(nextChunk: string, index: number): number {
   return Math.min(12_000, Math.max(1_200, typingDelay + indexedPause + jitter));
 }
 
-export async function sayWeChatReply(contact: WeChatContactLike, text: string): Promise<number> {
+export async function sayWeChatReply(
+  contact: WeChatContactLike,
+  text: string,
+  options: SendReplyOptions = {},
+): Promise<number> {
   const chunks = splitAssistantReplyForChat(text);
+  let sent = 0;
   for (let index = 0; index < chunks.length; index += 1) {
+    if (options.shouldAbort?.()) break;
     if (index > 0) {
       await wait(nextMessageDelayMs(chunks[index], index));
+      if (options.shouldAbort?.()) break;
     }
     await contact.say(chunks[index]);
+    sent += 1;
   }
-  return chunks.length;
+  return sent;
 }

@@ -6,6 +6,7 @@ import { handleSocialPersonaTextChat } from "../social/persona-text-chat";
 export type QqPersonaChatOptions = {
   batchMessageCount?: number;
   batchMessages?: string[];
+  shouldAbortReply?: () => boolean;
 };
 
 export type QqMediaInput = SocialMediaInput;
@@ -46,6 +47,7 @@ export async function handleQqPersonaChat(
     messageText,
     batchMessageCount: options.batchMessageCount,
     batchMessages: options.batchMessages,
+    shouldAbortReply: options.shouldAbortReply,
     channel: "web",
   });
 }

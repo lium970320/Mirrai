@@ -43,4 +43,12 @@ describe("social persona text chat", () => {
     expect(instruction).toContain("不要把对话赶去睡觉");
     expect(instruction).toContain("关系修复");
   });
+
+  it("constrains explicit voice replies to a short single audio message", () => {
+    const instruction = buildSocialTextInstruction("qq", "敏子", "用语音回我", {});
+
+    expect(instruction).toContain("10 秒内能说完");
+    expect(instruction).toContain("45 字以内");
+    expect(instruction).toContain("一条语音");
+  });
 });

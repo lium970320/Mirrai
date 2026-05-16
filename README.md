@@ -242,7 +242,7 @@
 |--------|------|---------|
 | OpenAI | REST | gpt-4o |
 | Claude | REST | claude-sonnet-4-6 |
-| DeepSeek | OpenAI 兼容 | deepseek-chat |
+| DeepSeek | OpenAI 兼容 | deepseek-v4-flash / deepseek-v4-pro |
 | Kimi (月之暗面) | OpenAI 兼容 | moonshot-v1-8k |
 | 通义千问 | OpenAI 兼容 | qwen-turbo |
 | 豆包 | OpenAI 兼容 | 自定义 |
@@ -462,6 +462,9 @@ bash scripts/build-macos-app.sh
 | `CLAUDE_API_KEY` | Anthropic API Key |
 | `CLAUDE_MODEL` | Claude 模型 (默认 `claude-sonnet-4-6`) |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key |
+| `DEEPSEEK_BASE_URL` | DeepSeek 接口地址 (默认 `https://api.deepseek.com`) |
+| `DEEPSEEK_MODEL` | DeepSeek 模型，建议使用 `deepseek-v4-flash` 或 `deepseek-v4-pro` |
+| `DEEPSEEK_THINKING` / `DEEPSEEK_REASONING_EFFORT` | V4 思考模式配置，例如 `enabled` / `max` |
 | `KIMI_API_KEY` | 月之暗面 API Key |
 | `OLLAMA_URL` | Ollama 地址 (默认 `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Ollama 模型 (默认 `llama3`) |

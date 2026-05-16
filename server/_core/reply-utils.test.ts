@@ -25,6 +25,11 @@ describe("cleanAssistantReply", () => {
   it("removes leading narration before storing assistant replies", () => {
     expect(cleanAssistantReply("（他低头看了看茶杯）敏子，先吃饭。")).toBe("敏子，先吃饭。");
   });
+
+  it("removes leading speaker labels from assistant replies", () => {
+    expect(cleanAssistantReply("王芃泽：我在。")).toBe("我在。");
+    expect(cleanAssistantReply("敏子：爱。")).toBe("敏子，爱。");
+  });
 });
 
 describe("splitAssistantReplyForChat", () => {
