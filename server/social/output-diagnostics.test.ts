@@ -211,32 +211,17 @@ describe("output strategy diagnostics", () => {
           lastError: "fetch failed ECONNREFUSED 127.0.0.1:3001 token=secret-token",
         },
       },
-      wechat: {
-        config: {
-          enabled: true,
-        },
-        live: {
-          status: "error",
-          syncCircuitBreakerTripped: true,
-          lastError: {
-            code: "WECHAT_SYNC_CIRCUIT_BREAKER",
-            message: "HTTP 400 login failed",
-            detail: "session password=secret",
-          },
-        },
-      },
     });
 
     expect(diagnostics.summary).toMatchObject({
-      total: 4,
-      errors: 3,
+      total: 3,
+      errors: 2,
       warnings: 1,
     });
     expect(diagnostics.items.map(item => item.id)).toEqual([
       "database.invalid_url",
       "llm.usage_database_read_failed",
       "qq.onebot_unreachable",
-      "wechat.sync_circuit_breaker",
     ]);
     expect(diagnostics.items.find(item => item.id === "qq.onebot_unreachable")?.actions.length).toBeGreaterThan(0);
     expect(diagnostics.platforms.qq).toMatchObject({
@@ -247,7 +232,6 @@ describe("output strategy diagnostics", () => {
     const serialized = JSON.stringify(diagnostics);
     expect(serialized).not.toContain("top-secret");
     expect(serialized).not.toContain("secret-token");
-    expect(serialized).not.toContain("password=secret");
   });
 
   it("keeps healthy platform states out of the actionable checklist", () => {
@@ -257,15 +241,10 @@ describe("output strategy diagnostics", () => {
         config: { enabled: true },
         live: { enabled: true, status: "connected", loggedInUser: "Mirrai" },
       },
-      wechat: {
-        config: { enabled: true },
-        live: { status: "logged_in", loggedInUser: "Mirrai" },
-      },
     });
 
     expect(diagnostics.items).toEqual([]);
     expect(diagnostics.platforms.qq).toMatchObject({ tone: "ok" });
-    expect(diagnostics.platforms.wechat).toMatchObject({ tone: "ok" });
   });
 
   it("turns recent voice and sticker runtime failures into sanitized troubleshooting items", () => {
@@ -293,10 +272,6 @@ describe("output strategy diagnostics", () => {
       qq: {
         config: { enabled: true },
         live: { enabled: true, status: "connected" },
-      },
-      wechat: {
-        config: { enabled: true },
-        live: { status: "logged_in" },
       },
     });
 

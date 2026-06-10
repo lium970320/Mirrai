@@ -18,16 +18,16 @@ import { cleanAssistantReply } from "../_core/reply-utils";
 import {
   resolveProactivePreferredTarget,
   sendProactiveTextToPreferredPlatform,
-} from "../social/proactive-delivery";
+} from "./proactive-delivery";
 import {
   buildProactiveRuntimeDiagnostics,
   buildProactiveRuntimePlan,
   type ProactiveRuntimePlan,
-} from "../social/proactive-runtime";
+} from "./proactive-runtime";
 import {
   buildConversationContinuityInstruction,
   formatRecentConversationTimeline,
-} from "../social/conversation-continuity";
+} from "./conversation-continuity";
 import {
   getBeijingDateKey,
   getBeijingMinuteOfDay,

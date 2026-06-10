@@ -1,9 +1,5 @@
 import path from "path";
 
-const defaultLocalDataDir = process.platform === "win32"
-  ? path.join(path.parse(process.cwd()).root, ".mirrai-local", "Mirrai")
-  : path.join(process.cwd(), ".mirrai-local");
-
 function firstNonEmpty(...values: Array<string | undefined>): string {
   return values.find(value => value?.trim())?.trim() ?? "";
 }
@@ -79,13 +75,6 @@ export const ENV = {
   zhipuBaseUrl: firstNonEmpty(process.env.ZHIPU_BASE_URL, process.env.BIGMODEL_BASE_URL, process.env.VISION_BASE_URL)
     || "https://open.bigmodel.cn/api/paas/v4",
   zhipuAsrModel: firstNonEmpty(process.env.ZHIPU_ASR_MODEL) || "glm-asr-2512",
-
-  wechatEnabled: process.env.WECHAT_ENABLED === "true",
-  wechatPuppet: process.env.WECHAT_PUPPET ?? "wechaty-puppet-wechat4u",
-  wechatBotName: process.env.WECHAT_BOT_NAME ?? "Girlfriend",
-  wechatSessionDir: process.env.WECHAT_SESSION_DIR ?? path.join(defaultLocalDataDir, "wechat"),
-  wechatAutoBindSingleReadyPersona:
-    process.env.WECHAT_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
 
   qqEnabled: process.env.QQ_ENABLED === "true",
   qqOnebotBaseUrl: firstNonEmpty(process.env.QQ_ONEBOT_BASE_URL, process.env.ONEBOT_BASE_URL) || "http://127.0.0.1:3001",

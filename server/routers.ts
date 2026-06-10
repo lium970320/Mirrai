@@ -13,7 +13,6 @@ import {
   getPersonasWithStats, getUserStats, getRecentActivity, getDailyChatCounts,
   createPersonaFile, getFilesByPersonaId,
   createMessage, getMessagesByPersonaId, clearMessagesByPersonaId, searchMessages,
-  createWechatBinding, getWechatBindingsByUserId, deleteWechatBinding,
   createQqBinding, getQqBindingsByUserId, deleteQqBinding,
   getSkillJobById, getLlmConfigsByUserId, upsertLlmConfig, setDefaultLlmConfig, getDefaultLlmConfig,
   updateUserProfile, updateUserPassword, deleteUserAccount, getAccountStats, exportUserData,
@@ -30,9 +29,7 @@ import {
   getRoleplayChannelMessages, createRoleplayMessage, deleteRoleplayChannel,
 } from "./db";
 import { nanoid } from "nanoid";
-import { getBotStatus, startWeChatBot, stopWeChatBot } from "./wechat/bot";
-import { listRecentContacts as listRecentWeChatContacts } from "./wechat/contact-registry";
-import { maybeSendAmbientPresenceMessage } from "./wechat/ambient-proactive";
+import { maybeSendAmbientPresenceMessage } from "./social/ambient-proactive";
 import { getQqBotStatus, parseQqContactId } from "./qq/onebot-client";
 import { listRecentQqContacts } from "./qq/contact-registry";
 import { runSkillPipeline } from "./skill-engine/pipeline";
@@ -628,10 +625,8 @@ export const appRouter = router({
       }),
   }),
 
-  wechat: router({
-    getStatus: protectedProcedure.query(() => getBotStatus()),
-
-    recentContacts: protectedProcedure.query(() => listRecentWeChatContacts()),
+  qq: router({
+    getStatus: protectedProcedure.query(() => getQqBotStatus()),
 
     maybeSendAmbientPresence: protectedProcedure
       .input(z.object({
@@ -644,47 +639,6 @@ export const appRouter = router({
           force: input.force,
         });
       }),
-
-    start: protectedProcedure.mutation(() => {
-      startWeChatBot();
-      return { success: true };
-    }),
-
-    stop: protectedProcedure.mutation(async () => {
-      await stopWeChatBot();
-      return { success: true };
-    }),
-
-    bindContact: protectedProcedure
-      .input(z.object({
-        personaId: z.number(),
-        wechatContactId: z.string().min(1),
-        wechatName: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const id = await createWechatBinding({
-          personaId: input.personaId,
-          userId: ctx.user.id,
-          wechatContactId: input.wechatContactId,
-          wechatName: input.wechatName ?? null,
-        });
-        return { id };
-      }),
-
-    unbindContact: protectedProcedure
-      .input(z.object({ id: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        await deleteWechatBinding(input.id, ctx.user.id);
-        return { success: true };
-      }),
-
-    listBindings: protectedProcedure.query(async ({ ctx }) =>
-      getWechatBindingsByUserId(ctx.user.id)
-    ),
-  }),
-
-  qq: router({
-    getStatus: protectedProcedure.query(() => getQqBotStatus()),
 
     recentContacts: protectedProcedure.query(async ({ ctx }) => {
       const recent = listRecentQqContacts();

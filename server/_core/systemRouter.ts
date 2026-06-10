@@ -4,7 +4,6 @@ import { buildLlmEconomyPolicy } from "../llm/economy";
 import { getLlmUsageDetails, getLlmUsageSnapshot } from "../llm/usage";
 import { getQqBotStatus } from "../qq/onebot-client";
 import { getLlmBudgetDiagnostics, getOperationsDiagnostics, getOperationsTroubleshootingDiagnostics } from "../social/output-diagnostics";
-import { getBotStatus } from "../wechat/bot";
 import { notifyOwner } from "./notification";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./trpc";
 
@@ -70,7 +69,6 @@ export const systemRouter = router({
         return null;
       }),
     ]);
-    const wechatStatus = getBotStatus();
     const diagnostics = getOperationsDiagnostics({
       personas,
       cwd: process.cwd(),
@@ -90,12 +88,10 @@ export const systemRouter = router({
       },
       live: {
         qq: qqStatus,
-        wechat: wechatStatus,
       },
       troubleshooting: getOperationsTroubleshootingDiagnostics({
         database: diagnostics.database,
         qq: { config: diagnostics.qq, live: qqStatus },
-        wechat: { config: diagnostics.wechat, live: wechatStatus },
         llmUsageReadError: persistentUsageError,
       }),
     };

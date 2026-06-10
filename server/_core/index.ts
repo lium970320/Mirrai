@@ -9,7 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
-import { startProactiveScheduler } from "../wechat/proactive-scheduler";
+import { startProactiveScheduler } from "../social/proactive-scheduler";
 import { startDailyMemoryScheduler } from "../social/daily-memory";
 import { registerQqRoutes } from "../qq/routes";
 
@@ -67,16 +67,6 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
-
-  if (ENV.wechatEnabled) {
-    try {
-      const { startWeChatBot } = await import("../wechat/bot");
-      startWeChatBot();
-      console.log("[WeChat] Bot service started");
-    } catch (e) {
-      console.warn("[WeChat] Bot failed to start:", e);
-    }
-  }
 
   startProactiveScheduler();
   startDailyMemoryScheduler();

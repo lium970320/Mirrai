@@ -472,94 +472,6 @@ function buildQqTroubleshootingAdvice(options: { config?: any; live?: any }): Tr
   return null;
 }
 
-function buildWechatTroubleshootingAdvice(options: { config?: any; live?: any }): TroubleshootingAdvice | null {
-  const { live } = options;
-  const rawError = sanitizeDiagnosticError(live?.lastError);
-  const status = live?.status;
-
-  if (!live || status === "stopped") {
-    return {
-      id: "wechat.stopped",
-      scope: "wechat",
-      title: "微信机器人未启动",
-      detail: "微信入口当前停止；这不影响网页和 QQ 主链路。",
-      tone: "muted",
-      evidence: "status=stopped",
-      actions: [
-        "需要验证微信时，从设置页微信页签启动服务。",
-        "微信 Web 登录稳定性受账号和运行环境影响，失败时优先保留 QQ 主链路。",
-      ],
-    };
-  }
-
-  if (status === "logged_in") {
-    return {
-      id: "wechat.logged_in",
-      scope: "wechat",
-      title: "微信已登录",
-      detail: "微信 bot 已登录；如收发异常，优先检查联系人绑定和主动消息策略。",
-      tone: "ok",
-      evidence: live.loggedInUser || "status=logged_in",
-      actions: [
-        "确认联系人已绑定到 ready 状态角色。",
-        "确认主动消息配置中的时间槽和角色状态。",
-      ],
-    };
-  }
-
-  if (status === "starting" || status === "scanning") {
-    return {
-      id: `wechat.${status}`,
-      scope: "wechat",
-      title: status === "starting" ? "微信机器人启动中" : "微信等待扫码",
-      detail: "微信 bot 尚未进入已登录状态，当前只能等待或重新扫码。",
-      tone: "warn",
-      evidence: `status=${status}`,
-      actions: [
-        "等待二维码出现并扫码。",
-        "扫码后刷新运维诊断，确认状态变成已登录。",
-        "如果长期停留在该状态，先停止服务再重新启动。",
-      ],
-    };
-  }
-
-  if (live?.syncCircuitBreakerTripped || /circuit|熔断|400|login|memory|session|puppet/i.test(rawError)) {
-    return {
-      id: "wechat.sync_circuit_breaker",
-      scope: "wechat",
-      title: "微信 Web 登录 / 同步已熔断",
-      detail: "微信同步链路触发保护，系统已停止自动重试，避免持续刷错误。",
-      tone: "error",
-      rawError,
-      evidence: live?.lastError?.code || "syncCircuitBreakerTripped=true",
-      actions: [
-        "在微信页签停止 bot，再重新启动。",
-        "确认 WECHAT_PUPPET、WECHAT_SESSION_DIR 和登录态文件可用。",
-        "如果账号环境不支持 Web 登录，先不要把微信作为主验收入口。",
-      ],
-    };
-  }
-
-  if (rawError) {
-    return {
-      id: "wechat.unknown_error",
-      scope: "wechat",
-      title: "微信接入异常",
-      detail: "微信 bot 返回未分类错误，需要结合 wechaty 日志继续排查。",
-      tone: "error",
-      rawError,
-      evidence: live?.lastError?.code || `status=${status || "unknown"}`,
-      actions: [
-        "查看本机服务日志里的 [WeChat] 错误。",
-        "停止 bot 后重新启动，观察是否再次出现同一错误。",
-        "如重复熔断，暂时回到 QQ 主链路验证。",
-      ],
-    };
-  }
-
-  return null;
-}
-
 function buildDatabaseTroubleshootingAdvice(database: ReturnType<typeof getDatabaseRuntimeDiagnostics>): TroubleshootingAdvice | null {
   if (database.mode === "unconfigured") {
     return {
@@ -599,7 +511,6 @@ function buildDatabaseTroubleshootingAdvice(database: ReturnType<typeof getDatab
 export function getOperationsTroubleshootingDiagnostics(options: {
   database: ReturnType<typeof getDatabaseRuntimeDiagnostics>;
   qq?: { config?: any; live?: any };
-  wechat?: { config?: any; live?: any };
   llmUsageReadError?: unknown;
   recentEvents?: OperationsEvent[];
 }) {
@@ -622,14 +533,13 @@ export function getOperationsTroubleshootingDiagnostics(options: {
       }
     : null;
   const qq = buildQqTroubleshootingAdvice(options.qq ?? {});
-  const wechat = buildWechatTroubleshootingAdvice(options.wechat ?? {});
   const configItems = [
     ...buildVoiceConfigTroubleshootingAdvice(),
     ...buildStickerConfigTroubleshootingAdvice(),
   ];
   const eventItems = (options.recentEvents ?? getRecentOperationsEvents())
     .map(eventToTroubleshootingAdvice);
-  const items = [database, llm, qq, wechat, ...configItems, ...eventItems].filter(
+  const items = [database, llm, qq, ...configItems, ...eventItems].filter(
     (item): item is TroubleshootingAdvice => Boolean(item && item.tone !== "ok" && item.tone !== "muted")
   );
 
@@ -642,7 +552,6 @@ export function getOperationsTroubleshootingDiagnostics(options: {
     items,
     platforms: {
       qq,
-      wechat,
     },
     recentEvents: (options.recentEvents ?? getRecentOperationsEvents()).map(event => ({
       ...event,
@@ -874,11 +783,6 @@ export function getOutputStrategyDiagnostics(personaData: unknown) {
         stickers: stickerPolicy.enabled,
         proactiveMessages: proactiveConfig.enabled,
       },
-      wechat: {
-        enabled: ENV.wechatEnabled,
-        proactiveMessages: proactiveConfig.enabled,
-        autoBindSingleReadyPersona: ENV.wechatAutoBindSingleReadyPersona,
-      },
     },
   };
 }
@@ -901,7 +805,6 @@ export function getOperationsDiagnostics(options: {
       nodeEnv: ENV.isProduction ? "production" : "development",
       cwd: options.cwd ?? process.cwd(),
       uploadDir: ENV.uploadDir,
-      wechatSessionDir: ENV.wechatSessionDir,
       stickerBaseDir: ENV.qqStickerBaseDir,
       localWorktree: "F:/Code/Mirrai",
       localDataRoot: "F:/.mirrai-local/Mirrai",
@@ -927,13 +830,6 @@ export function getOperationsDiagnostics(options: {
       webhookSecretConfigured: configured(ENV.qqOnebotWebhookSecret),
       allowGroups: ENV.qqAllowGroups,
       autoBindSingleReadyPersona: ENV.qqAutoBindSingleReadyPersona,
-    },
-    wechat: {
-      enabled: ENV.wechatEnabled,
-      puppet: ENV.wechatPuppet,
-      botName: ENV.wechatBotName,
-      sessionDir: ENV.wechatSessionDir,
-      autoBindSingleReadyPersona: ENV.wechatAutoBindSingleReadyPersona,
     },
     voice: {
       policy: voicePolicy,
@@ -995,12 +891,6 @@ export function getOperationsDiagnostics(options: {
         stickers: stickerPolicy.enabled,
         proactiveMessages: proactive.enabledPersonas > 0,
       },
-      wechat: {
-        enabled: ENV.wechatEnabled,
-        text: true,
-        proactiveMessages: proactive.enabledPersonas > 0,
-        autoBindSingleReadyPersona: ENV.wechatAutoBindSingleReadyPersona,
-      },
     },
     architecture: {
       textRuntime: "server/social/persona-text-chat.ts",
@@ -1008,7 +898,6 @@ export function getOperationsDiagnostics(options: {
       runtimeRequest: "server/social/runtime-request.ts",
       proactiveRuntime: "server/social/proactive-runtime.ts",
       qqBridge: "server/qq/persona-bridge.ts",
-      wechatBridge: "server/wechat/persona-bridge.ts",
     },
   };
 }

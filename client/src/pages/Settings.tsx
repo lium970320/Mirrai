@@ -23,7 +23,6 @@ import { toast } from "sonner";
 const TABS = [
   { key: "profile", label: "个人资料", icon: User },
   { key: "ai", label: "AI 设置", icon: Settings2 },
-  { key: "wechat", label: "微信", icon: Wifi },
   { key: "qq", label: "QQ", icon: MessageCircle },
   { key: "diagnostics", label: "运维诊断", icon: Activity },
   { key: "data", label: "数据管理", icon: Database },
@@ -226,23 +225,11 @@ function formatDiagnosticTime(value: string | undefined) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-function platformStatusLabel(platform: "qq" | "wechat", status: string | undefined) {
-  if (platform === "qq") {
-    const labels: Record<string, string> = {
-      connected: "已连接",
-      error: "连接异常",
-      disabled: "未启用",
-      unknown: "未知",
-    };
-    return labels[status || "unknown"] || status || "未知";
-  }
-
+function platformStatusLabel(platform: "qq", status: string | undefined) {
   const labels: Record<string, string> = {
-    logged_in: "已登录",
-    starting: "启动中",
-    scanning: "等待扫码",
-    stopped: "未启动",
-    error: "运行异常",
+    connected: "已连接",
+    error: "连接异常",
+    disabled: "未启用",
     unknown: "未知",
   };
   return labels[status || "unknown"] || status || "未知";
@@ -398,11 +385,8 @@ function usageRecordMeta(record: any) {
   return parts.join(" · ");
 }
 
-function platformDiagnosticAdvice(platform: "qq" | "wechat", status: any): DiagnosticAdvice | null {
-  const raw = platform === "wechat"
-    ? status?.lastError?.message || status?.lastError?.code || ""
-    : status?.lastError || "";
-  const message = String(raw || "").trim();
+function platformDiagnosticAdvice(platform: "qq", status: any): DiagnosticAdvice | null {
+  const message = String(status?.lastError || "").trim();
 
   if (platform === "qq") {
     if (!status?.enabled || status?.status === "disabled") {
@@ -436,44 +420,6 @@ function platformDiagnosticAdvice(platform: "qq" | "wechat", status: any): Diagn
     if (message) {
       return {
         title: "QQ 接入异常",
-        detail: message,
-        tone: "error",
-      };
-    }
-  }
-
-  if (platform === "wechat") {
-    if (!status || status.status === "stopped") {
-      return {
-        title: "微信机器人未启动",
-        detail: "需要使用微信页签启动服务；微信 Web 登录稳定性受账号和环境影响。",
-        tone: "muted",
-      };
-    }
-    if (status.status === "logged_in") {
-      return {
-        title: "微信已登录",
-        detail: "微信收发可用，后续重点检查联系人绑定和主动消息策略。",
-        tone: "ok",
-      };
-    }
-    if (status.syncCircuitBreakerTripped || /400|熔断|停止自动重试|login/i.test(message)) {
-      return {
-        title: "微信 Web 登录已熔断",
-        detail: "当前账号或环境可能无法获取扫码会话；先在微信页签停止服务，再确认 puppet / 登录态后重试。",
-        tone: "error",
-      };
-    }
-    if (status.status === "starting" || status.status === "scanning") {
-      return {
-        title: platformStatusLabel("wechat", status.status),
-        detail: "等待服务进入已登录状态；扫码二维码后再刷新诊断。",
-        tone: "warn",
-      };
-    }
-    if (message) {
-      return {
-        title: "微信接入异常",
         detail: message,
         tone: "error",
       };
@@ -797,200 +743,6 @@ function AISettingsTab() {
   );
 }
 
-// ─── WECHAT TAB ──────────────────────────────────────────────────────────────
-
-function WeChatTab() {
-  const [selectedPersonaId, setSelectedPersonaId] = useState("");
-  const wechatStatus = trpc.wechat.getStatus.useQuery(undefined, { refetchInterval: 3000 });
-  const recentContacts = trpc.wechat.recentContacts.useQuery(undefined, { refetchInterval: 3000 });
-  const bindings = trpc.wechat.listBindings.useQuery(undefined, { refetchInterval: 3000 });
-  const personas = trpc.persona.list.useQuery();
-  const bot = wechatStatus.data;
-  const readyPersonas = useMemo(
-    () => (personas.data ?? []).filter((p: any) => p.analysisStatus === "ready"),
-    [personas.data],
-  );
-  const personaById = useMemo(
-    () => new Map((personas.data ?? []).map((p: any) => [p.id, p])),
-    [personas.data],
-  );
-  const bindingByContactId = useMemo(
-    () => new Map((bindings.data ?? []).map((b: any) => [b.wechatContactId, b])),
-    [bindings.data],
-  );
-
-  useEffect(() => {
-    if (!selectedPersonaId && readyPersonas.length > 0) {
-      setSelectedPersonaId(String(readyPersonas[0].id));
-    }
-  }, [readyPersonas, selectedPersonaId]);
-
-  const startBot = trpc.wechat.start.useMutation({
-    onSuccess: () => { toast.success("微信机器人启动中..."); wechatStatus.refetch(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-  const stopBot = trpc.wechat.stop.useMutation({
-    onSuccess: () => { toast.success("微信机器人已停止"); wechatStatus.refetch(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-  const bindContact = trpc.wechat.bindContact.useMutation({
-    onSuccess: () => { toast.success("微信联系人已绑定"); bindings.refetch(); personas.refetch(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-  const unbindContact = trpc.wechat.unbindContact.useMutation({
-    onSuccess: () => { toast.success("已解除绑定"); bindings.refetch(); personas.refetch(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const handleBind = (contact: { id: string; name: string }) => {
-    const personaId = Number(selectedPersonaId);
-    if (!personaId) {
-      toast.error("请先选择分身");
-      return;
-    }
-    bindContact.mutate({
-      personaId,
-      wechatContactId: contact.id,
-      wechatName: contact.name,
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <section className="warm-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          {bot?.status === "logged_in"
-            ? <Wifi className="w-5 h-5 text-emerald-500" />
-            : <WifiOff className="w-5 h-5 text-muted-foreground" />}
-          <h2 className="font-semibold text-foreground">微信机器人</h2>
-          <span className="text-sm text-muted-foreground ml-auto">
-            {bot?.status === "logged_in" && `已登录: ${bot.loggedInUser}`}
-            {bot?.status === "starting" && "启动中..."}
-            {bot?.status === "scanning" && "等待扫码..."}
-            {bot?.status === "stopped" && "未启动"}
-            {bot?.status === "error" && (bot.syncCircuitBreakerTripped ? "已熔断" : "出错")}
-          </span>
-        </div>
-
-        <div className="p-4 bg-muted/20 rounded-xl">
-          <div className="flex items-center gap-3 mb-3">
-            <div className={`w-3 h-3 rounded-full ${
-              bot?.status === "logged_in" ? "bg-emerald-500" :
-              bot?.status === "starting" ? "bg-amber-400 animate-pulse" :
-              bot?.status === "scanning" ? "bg-blue-400 animate-pulse" :
-              bot?.status === "error" ? "bg-red-400" : "bg-muted-foreground/30"
-            }`} />
-            <span className="text-sm text-foreground font-medium">
-              {bot?.status === "logged_in" ? "在线运行中" :
-               bot?.status === "starting" ? "启动中" :
-               bot?.status === "scanning" ? "等待扫码登录" :
-               bot?.status === "error" ? (bot.syncCircuitBreakerTripped ? "同步异常，已停止自动重试" : "运行出错") : "未启动"}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            启动微信机器人后，绑定的分身可以通过微信自动回复消息。扫码登录你的微信账号即可开始使用。
-          </p>
-          {bot?.lastError && (
-            <p className="mt-3 text-xs text-red-500 leading-relaxed">
-              {bot.lastError.message}
-            </p>
-          )}
-        </div>
-
-        {bot?.qrCodeUrl && (
-          <div className="flex flex-col items-center gap-3 py-4">
-            <img src={bot.qrCodeUrl} alt="WeChat QR" className="w-48 h-48 rounded-xl border border-border" />
-            <p className="text-xs text-muted-foreground">请使用微信扫描二维码登录</p>
-          </div>
-        )}
-
-        <div className="flex gap-2.5">
-          <Button size="sm" className="bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl shadow-xs hover:shadow-md active:scale-[0.98] transition-all"
-            onClick={() => startBot.mutate()}
-            disabled={startBot.isPending || bot?.status === "logged_in" || bot?.status === "starting" || bot?.status === "scanning"}>
-            启动服务
-          </Button>
-          <Button size="sm" variant="outline" className="rounded-xl border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 active:scale-[0.98] transition-all"
-            onClick={() => stopBot.mutate()} disabled={stopBot.isPending || bot?.status === "stopped"}>
-            停止服务
-          </Button>
-        </div>
-      </section>
-
-      <section className="warm-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-primary/70" />
-          <h2 className="font-semibold text-foreground">联系人绑定</h2>
-          <span className="text-sm text-muted-foreground ml-auto">{bindings.data?.length ?? 0} 个已绑定</span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
-          <div className="space-y-2">
-            <Label className="text-xs text-foreground/70">选择分身</Label>
-            <select value={selectedPersonaId} onChange={e => setSelectedPersonaId(e.target.value)}
-              className="w-full h-10 px-3 bg-muted/50 border border-border rounded-lg text-sm text-foreground">
-              {readyPersonas.length === 0 && <option value="">暂无可绑定分身</option>}
-              {readyPersonas.map((persona: any) => (
-                <option key={persona.id} value={persona.id}>{persona.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs text-foreground/70">最近私聊联系人</Label>
-            <div className="space-y-2">
-              {(recentContacts.data ?? []).length === 0 && (
-                <div className="p-3 bg-muted/20 rounded-lg text-sm text-muted-foreground">
-                  暂无联系人。扫码登录后，让要绑定的微信先发一条私聊消息。
-                </div>
-              )}
-
-              {(recentContacts.data ?? []).map((contact: any) => {
-                const binding = bindingByContactId.get(contact.id) as any;
-                const boundPersona = binding ? personaById.get(binding.personaId) as any : null;
-                return (
-                  <div key={contact.id} className="p-3 bg-muted/20 rounded-lg flex flex-col sm:flex-row gap-3 sm:items-center">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <MessageCircle className="w-4 h-4 text-primary/60 flex-shrink-0" />
-                        <span className="font-medium text-sm text-foreground truncate">{contact.name}</span>
-                        {binding && (
-                          <span className="text-xs text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                            已绑定 {boundPersona?.name ?? `#${binding.personaId}`}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{new Date(contact.lastMessageAt).toLocaleString("zh-CN", { hour12: false })}</span>
-                        <span className="truncate">{contact.lastMessagePreview}</span>
-                      </div>
-                    </div>
-
-                    {binding ? (
-                      <Button size="sm" variant="outline" className="rounded-xl border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 active:scale-[0.98] transition-all"
-                        onClick={() => unbindContact.mutate({ id: binding.id })}
-                        disabled={unbindContact.isPending}>
-                        解除绑定
-                      </Button>
-                    ) : (
-                      <Button size="sm" className="bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl shadow-xs hover:shadow-md active:scale-[0.98] transition-all"
-                        onClick={() => handleBind(contact)}
-                        disabled={bindContact.isPending || !selectedPersonaId}>
-                        进行绑定
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 // ─── QQ TAB ──────────────────────────────────────────────────────────────────
 
 function QqTab() {
@@ -1243,12 +995,9 @@ function OperationsDiagnosticsTab() {
     invalid: "error",
   };
   const qqLive = data.live?.qq;
-  const wechatLive = data.live?.wechat;
   const qqStatusTone: StatusTone = qqLive?.status === "connected" ? "ok" : qqLive?.status === "error" ? "error" : "muted";
-  const wechatStatusTone: StatusTone = wechatLive?.status === "logged_in" ? "ok" : wechatLive?.status === "error" ? "error" : wechatLive?.status === "starting" || wechatLive?.status === "scanning" ? "warn" : "muted";
   const troubleshootingItems = data.troubleshooting?.items ?? [];
   const qqAdvice = data.troubleshooting?.platforms?.qq ?? platformDiagnosticAdvice("qq", qqLive);
-  const wechatAdvice = data.troubleshooting?.platforms?.wechat ?? platformDiagnosticAdvice("wechat", wechatLive);
   const configuredProviders = (data.llm?.providers ?? []).filter((provider: any) => provider.configured);
   const enabledStickerTypes = Object.entries(data.stickers?.enabledByType ?? {})
     .map(([type, count]) => `${type} ${count}`)
@@ -1540,7 +1289,7 @@ function OperationsDiagnosticsTab() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <DiagnosticCard icon={MessageCircle} title="平台接入"
-          subtitle="QQ / 微信实时状态与绑定策略">
+          subtitle="QQ 实时状态与绑定策略">
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
             <DiagnosticRow label="QQ 开关" value=""
               badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
@@ -1554,21 +1303,10 @@ function OperationsDiagnosticsTab() {
             {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
             <AdvisoryBox advice={qqAdvice} />
           </div>
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="微信开关" value=""
-              badge={<BoolBadge value={Boolean(data.wechat?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
-            <DiagnosticRow label="微信实时状态" value=""
-              badge={<StatusBadge label={platformStatusLabel("wechat", wechatLive?.status)} tone={wechatStatusTone} />} />
-            <DiagnosticRow label="Puppet" value={data.wechat?.puppet || "未配置"} />
-            <DiagnosticRow label="Bot 名称" value={data.wechat?.botName || "未配置"} />
-            <DiagnosticRow label="Session" value={data.wechat?.sessionDir || "未配置"} mono />
-            {wechatLive?.lastError?.message && <DiagnosticRow label="微信原始错误" value={wechatLive.lastError.message} />}
-            <AdvisoryBox advice={wechatAdvice} />
-          </div>
         </DiagnosticCard>
 
         <DiagnosticCard icon={Radio} title="Runtime 收敛"
-          subtitle="Web / QQ / 微信的人物运行时能力">
+          subtitle="Web / QQ 的人物运行时能力">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
               <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
@@ -1892,7 +1630,6 @@ export default function SettingsPage() {
           <div className="space-y-6 min-w-0">
             {activeTab === "profile" && <ProfileTab />}
             {activeTab === "ai" && <AISettingsTab />}
-            {activeTab === "wechat" && <WeChatTab />}
             {activeTab === "qq" && <QqTab />}
             {activeTab === "diagnostics" && <OperationsDiagnosticsTab />}
             {activeTab === "data" && <DataManagementTab />}
