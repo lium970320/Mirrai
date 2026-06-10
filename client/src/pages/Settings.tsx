@@ -275,6 +275,23 @@ function StatTile({ value, label, sub, tone }: { value: ReactNode; label: string
   );
 }
 
+function KpiTile({ value, text, label, sub, tone }: {
+  value?: number; text?: string; label: string; sub?: string; tone?: StatusTone;
+}) {
+  const display = text ?? formatCompact(value ?? 0);
+  const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
+    : tone === "warn" ? "text-amber-600 dark:text-amber-400"
+    : "stat-tile-number";
+  return (
+    <div className="stat-tile px-4 py-3.5 min-w-0"
+      title={typeof value === "number" ? value.toLocaleString("zh-CN") : undefined}>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums leading-tight truncate ${numberClass}`}>{display}</div>
+      {sub && <div className="mt-1 text-[11px] text-muted-foreground/80 truncate">{sub}</div>}
+    </div>
+  );
+}
+
 function compactList(items: string[] | undefined, empty = "无") {
   if (!items || items.length === 0) return empty;
   return items.join("、");
@@ -1069,6 +1086,19 @@ function OperationsDiagnosticsTab() {
           } />
       </section>
 
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiTile value={data.llm?.usage?.today?.totalTokens ?? 0} label="今日 tokens"
+          sub={`${data.llm?.usage?.today?.calls ?? 0} 次调用${(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? ` · 失败 ${data.llm?.usage?.today?.failedCalls}` : ""}`}
+          tone={(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? "warn" : undefined} />
+        <KpiTile value={data.llm?.usage?.week?.totalTokens ?? 0} label="本周 tokens"
+          sub={`${data.llm?.usage?.week?.calls ?? 0} 次调用`} />
+        <KpiTile value={data.llm?.usage?.month?.totalTokens ?? 0} label="本月 tokens"
+          sub={`${data.llm?.usage?.month?.calls ?? 0} 次调用`} />
+        <KpiTile text={llmBudgetStatusLabel(data.llm?.budget?.status)} label="软额度状态"
+          sub={data.llm?.budget?.recommendation ?? "未配置软额度"}
+          tone={llmBudgetTone(data.llm?.budget?.status) === "ok" ? undefined : llmBudgetTone(data.llm?.budget?.status)} />
+      </div>
+
       <DiagnosticCard icon={AlertTriangle} title="运维排障清单" hue="amber"
         subtitle={`${data.troubleshooting?.summary?.errors ?? 0} 个错误 · ${data.troubleshooting?.summary?.warnings ?? 0} 个提醒`}>
         {troubleshootingItems.length > 0 ? (
@@ -1085,6 +1115,7 @@ function OperationsDiagnosticsTab() {
       </DiagnosticCard>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <div className="space-y-6 min-w-0">
         <DiagnosticCard icon={Server} title="运行与数据库" hue="sky"
           subtitle={<span className="font-mono break-all">{data.runtime?.cwd}</span>}>
           <div className="space-y-3">
@@ -1103,29 +1134,62 @@ function OperationsDiagnosticsTab() {
           </div>
         </DiagnosticCard>
 
+        <DiagnosticCard icon={MessageCircle} title="平台接入" hue="teal"
+          subtitle="QQ 实时状态与绑定策略">
+          <DiagGroup title="QQ / OneBot"
+            hint={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />}>
+            <DiagnosticRow label="QQ 开关" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
+            <DiagnosticRow label="OneBot" value={data.qq?.onebotEndpoint?.origin || "未配置"} mono />
+            <DiagnosticRow label="Webhook token" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.webhookSecretConfigured)} />} />
+            <DiagnosticRow label="群聊" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.allowGroups)} trueLabel="允许" falseLabel="关闭" />} />
+            {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
+            <div className="mt-2">
+              <AdvisoryBox advice={qqAdvice} />
+            </div>
+          </DiagGroup>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Volume2} title="语音" hue="emerald">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="回复策略" value=""
+              badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.voice?.policy?.probability ?? 0} · ${data.voice?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="ASR" value={`${data.voice?.asr?.provider ?? "未知"} · ${data.voice?.asr?.model ?? "未知"}`} />
+            <DiagnosticRow label="TTS" value={`${ttsProviderLabel(data.voice?.tts?.provider)} -> ${ttsProviderLabel(data.voice?.tts?.fallbackProvider)}`} />
+            <DiagnosticRow label="VoxCPM" value={data.voice?.tts?.voxcpmEndpoint?.origin ?? "未配置"} mono />
+            <DiagnosticRow label="MiniMax" value=""
+              badge={<BoolBadge value={Boolean(data.voice?.tts?.minimaxConfigured)} />} />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={ImageIcon} title="表情包" hue="pink">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="策略" value=""
+              badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
+            <DiagnosticRow label="总量 / 启用" value={`${data.stickers?.total ?? 0} / ${data.stickers?.enabled ?? 0}`} />
+            <DiagnosticRow label="类型" value={enabledStickerTypes} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.stickers?.policy?.probability ?? 0} · ${data.stickers?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="目录" value={data.stickers?.baseDir ?? "未配置"} mono />
+          </div>
+        </DiagnosticCard>
+        </div>
+
+        <div className="space-y-6 min-w-0">
         <DiagnosticCard icon={Cpu} title="LLM 路由" hue="violet"
-          subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个提供商已配置`}>
+          subtitle="动态路由、成本归属与额度策略">
           <DiagGroup title="路由">
             <DiagnosticRow label="默认提供商" value={data.llm?.defaultProvider || "未设置"} />
             <DiagnosticRow label="DeepSeek 动态路由" value=""
               badge={<BoolBadge value={Boolean(data.llm?.dynamicDeepSeekRouting)} trueLabel="启用" falseLabel="未启用" />} />
           </DiagGroup>
 
-          <DiagGroup title="用量" hint={llmUsageSourceLabel(data.llm?.usage?.source)}>
-            <div className="grid grid-cols-3 gap-2 pt-1">
-              <StatTile value={data.llm?.usage?.today?.totalTokens ?? 0} label="今日 tokens"
-                sub={`${data.llm?.usage?.today?.calls ?? 0} 次${(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? ` / 失败 ${data.llm?.usage?.today?.failedCalls}` : ""}`}
-                tone={(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? "warn" : undefined} />
-              <StatTile value={data.llm?.usage?.week?.totalTokens ?? 0} label="本周"
-                sub={`${data.llm?.usage?.week?.calls ?? 0} 次`} />
-              <StatTile value={data.llm?.usage?.month?.totalTokens ?? 0} label="本月"
-                sub={`${data.llm?.usage?.month?.calls ?? 0} 次`} />
-            </div>
-            <div className="mt-2">
-              <DiagnosticRow label="今日用户归属" value={llmUsageBucketText(data.llm?.usage?.byUser, "userId")} />
-              <DiagnosticRow label="今日角色归属" value={llmUsageBucketText(data.llm?.usage?.byPersona, "personaId")} />
-              <DiagnosticRow label="今日入口归属" value={llmUsageBucketText(data.llm?.usage?.byRoute, "route")} />
-            </div>
+          <DiagGroup title="今日成本归属" hint={llmUsageSourceLabel(data.llm?.usage?.source)}>
+            <DiagnosticRow label="用户" value={llmUsageBucketText(data.llm?.usage?.byUser, "userId")} />
+            <DiagnosticRow label="角色" value={llmUsageBucketText(data.llm?.usage?.byPersona, "personaId")} />
+            <DiagnosticRow label="入口" value={llmUsageBucketText(data.llm?.usage?.byRoute, "route")} />
           </DiagGroup>
 
           <DiagGroup title="软额度"
@@ -1144,21 +1208,63 @@ function OperationsDiagnosticsTab() {
             <DiagnosticRow label="执行建议" value={data.llm?.economy?.recommendation ?? "省额度模式未启用。"} />
             <DiagnosticRow label="上限说明" value={data.llm?.economy?.limitsSummary?.safeguards?.[0] ?? "这些数字是每轮保护上限，不是质量目标。"} />
           </DiagGroup>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {(data.llm?.providers ?? []).map((provider: any) => (
-              <div key={provider.name} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2 min-w-0">
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Radio} title="Runtime 收敛" hue="indigo"
+          subtitle="Web / QQ 的人物运行时能力">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
+              <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground truncate">{provider.name}</span>
-                  <BoolBadge value={provider.configured} />
+                  <span className="text-sm font-semibold uppercase text-foreground">{platform}</span>
+                  <BoolBadge value={Boolean(runtime.enabled)} trueLabel="启用" falseLabel="关闭" />
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground font-mono break-all">
-                  {provider.model || provider.endpoint?.origin || "未设置模型"}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(runtime)
+                    .filter(([key]) => key !== "enabled")
+                    .map(([key, value]) => (
+                      <StatusBadge key={key} label={runtimeCapabilityLabel(key)} tone={value ? "ok" : "muted"} />
+                    ))}
                 </div>
               </div>
             ))}
           </div>
+          <DiagGroup title="运行时模块">
+            <DiagnosticRow label="文本 runtime" value={data.architecture?.textRuntime} mono />
+            <DiagnosticRow label="媒体 runtime" value={data.architecture?.mediaRuntime} mono />
+            <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
+          </DiagGroup>
         </DiagnosticCard>
+
+        <DiagnosticCard icon={Terminal} title="主动消息" hue="amber">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
+            <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
+            <DiagnosticRow label="定时槽位" value={data.proactiveMessages?.configuredSlotCount ?? 0} />
+            <DiagnosticRow label="时间" value={compactList(data.proactiveMessages?.uniqueTimes)} />
+            <DiagnosticRow label="风格提示" value={`${data.proactiveMessages?.stylePromptConfiguredPersonas ?? 0} 个角色`} />
+            <DiagnosticRow label="角色模型覆盖" value={providerOverrideText} />
+          </div>
+        </DiagnosticCard>
+        </div>
       </div>
+
+      <DiagnosticCard icon={Cpu} title="AI 提供商" hue="sky"
+        subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个已配置`}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {(data.llm?.providers ?? []).map((provider: any) => (
+            <div key={provider.name} className="stat-tile px-3 py-2.5 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-foreground truncate">{provider.name}</span>
+                <BoolBadge value={provider.configured} />
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground font-mono truncate">
+                {provider.model || provider.endpoint?.origin || "未设置模型"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </DiagnosticCard>
 
       <DiagnosticCard icon={Activity} title="用量明细" hue="violet"
         subtitle={usageDetailsData
@@ -1335,52 +1441,6 @@ function OperationsDiagnosticsTab() {
         </div>
       </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <DiagnosticCard icon={MessageCircle} title="平台接入" hue="teal"
-          subtitle="QQ 实时状态与绑定策略">
-          <DiagGroup title="QQ / OneBot"
-            hint={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />}>
-            <DiagnosticRow label="QQ 开关" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
-            <DiagnosticRow label="OneBot" value={data.qq?.onebotEndpoint?.origin || "未配置"} mono />
-            <DiagnosticRow label="Webhook token" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.webhookSecretConfigured)} />} />
-            <DiagnosticRow label="群聊" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.allowGroups)} trueLabel="允许" falseLabel="关闭" />} />
-            {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
-            <div className="mt-2">
-              <AdvisoryBox advice={qqAdvice} />
-            </div>
-          </DiagGroup>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={Radio} title="Runtime 收敛" hue="indigo"
-          subtitle="Web / QQ 的人物运行时能力">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
-              <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold uppercase text-foreground">{platform}</span>
-                  <BoolBadge value={Boolean(runtime.enabled)} trueLabel="启用" falseLabel="关闭" />
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {Object.entries(runtime)
-                    .filter(([key]) => key !== "enabled")
-                    .map(([key, value]) => (
-                      <StatusBadge key={key} label={runtimeCapabilityLabel(key)} tone={value ? "ok" : "muted"} />
-                    ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <DiagGroup title="运行时模块">
-            <DiagnosticRow label="文本 runtime" value={data.architecture?.textRuntime} mono />
-            <DiagnosticRow label="媒体 runtime" value={data.architecture?.mediaRuntime} mono />
-            <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
-          </DiagGroup>
-        </DiagnosticCard>
-      </div>
-
       <DiagnosticCard icon={Database} title="持久化与数据安全" hue="rose"
         subtitle="运行态、导出、删除和迁移覆盖">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
@@ -1413,42 +1473,6 @@ function OperationsDiagnosticsTab() {
           </div>
       </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        <DiagnosticCard icon={Volume2} title="语音" hue="emerald">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="回复策略" value=""
-              badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
-            <DiagnosticRow label="概率 / 冷却" value={`${data.voice?.policy?.probability ?? 0} · ${data.voice?.policy?.cooldownSeconds ?? 0}s`} />
-            <DiagnosticRow label="ASR" value={`${data.voice?.asr?.provider ?? "未知"} · ${data.voice?.asr?.model ?? "未知"}`} />
-            <DiagnosticRow label="TTS" value={`${ttsProviderLabel(data.voice?.tts?.provider)} -> ${ttsProviderLabel(data.voice?.tts?.fallbackProvider)}`} />
-            <DiagnosticRow label="VoxCPM" value={data.voice?.tts?.voxcpmEndpoint?.origin ?? "未配置"} mono />
-            <DiagnosticRow label="MiniMax" value=""
-              badge={<BoolBadge value={Boolean(data.voice?.tts?.minimaxConfigured)} />} />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={ImageIcon} title="表情包" hue="pink">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="策略" value=""
-              badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
-            <DiagnosticRow label="总量 / 启用" value={`${data.stickers?.total ?? 0} / ${data.stickers?.enabled ?? 0}`} />
-            <DiagnosticRow label="类型" value={enabledStickerTypes} />
-            <DiagnosticRow label="概率 / 冷却" value={`${data.stickers?.policy?.probability ?? 0} · ${data.stickers?.policy?.cooldownSeconds ?? 0}s`} />
-            <DiagnosticRow label="目录" value={data.stickers?.baseDir ?? "未配置"} mono />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={Terminal} title="主动消息" hue="amber">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
-            <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
-            <DiagnosticRow label="定时槽位" value={data.proactiveMessages?.configuredSlotCount ?? 0} />
-            <DiagnosticRow label="时间" value={compactList(data.proactiveMessages?.uniqueTimes)} />
-            <DiagnosticRow label="风格提示" value={`${data.proactiveMessages?.stylePromptConfiguredPersonas ?? 0} 个角色`} />
-            <DiagnosticRow label="角色模型覆盖" value={providerOverrideText} />
-          </div>
-        </DiagnosticCard>
-      </div>
     </div>
   );
 }
