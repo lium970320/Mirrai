@@ -170,21 +170,33 @@ function BoolBadge({ value, trueLabel = "已配置", falseLabel = "未配置" }:
   return <StatusBadge label={value ? trueLabel : falseLabel} tone={toneForEnabled(value)} />;
 }
 
-function SectionHeader({ icon: Icon, title, subtitle, action, tone = "default" }: {
+const SECTION_HUES = {
+  emerald: "oklch(0.54 0.12 164)",
+  sky: "oklch(0.55 0.13 235)",
+  violet: "oklch(0.55 0.15 290)",
+  amber: "oklch(0.62 0.13 70)",
+  rose: "oklch(0.60 0.15 15)",
+  teal: "oklch(0.55 0.12 195)",
+  indigo: "oklch(0.52 0.14 265)",
+  pink: "oklch(0.62 0.15 340)",
+} as const;
+type SectionHue = keyof typeof SECTION_HUES;
+
+function SectionHeader({ icon: Icon, title, subtitle, action, tone = "default", hue }: {
   icon: any;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
   tone?: "default" | "danger";
+  hue?: SectionHue;
 }) {
-  const chipClass = tone === "danger" ? "bg-destructive/10" : "bg-primary/10";
-  const iconClass = tone === "danger" ? "text-destructive" : "text-primary";
+  const chipColor = tone === "danger" ? "var(--color-destructive)" : hue ? SECTION_HUES[hue] : undefined;
   const titleClass = tone === "danger" ? "text-destructive" : "text-foreground";
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex items-start gap-3 min-w-0">
-        <div className={`w-9 h-9 rounded-xl ${chipClass} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-4.5 h-4.5 ${iconClass}`} />
+        <div className="section-chip" style={chipColor ? ({ "--chip-color": chipColor } as any) : undefined}>
+          <Icon className="w-4.5 h-4.5" />
         </div>
         <div className="min-w-0">
           <h2 className={`font-semibold leading-tight ${titleClass}`}>{title}</h2>
@@ -196,19 +208,28 @@ function SectionHeader({ icon: Icon, title, subtitle, action, tone = "default" }
   );
 }
 
-function DiagnosticCard({ icon, title, subtitle, action, children }: {
+function DiagnosticCard({ icon, title, subtitle, action, hue, children }: {
   icon: any;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
+  hue?: SectionHue;
   children: ReactNode;
 }) {
   return (
     <section className="warm-card p-5 space-y-4">
-      <SectionHeader icon={icon} title={title} subtitle={subtitle} action={action} />
+      <SectionHeader icon={icon} title={title} subtitle={subtitle} action={action} hue={hue} />
       {children}
     </section>
   );
+}
+
+function formatCompact(value: number | undefined | null): string {
+  const num = Number(value ?? 0);
+  if (!Number.isFinite(num)) return "0";
+  if (Math.abs(num) >= 100000000) return `${(num / 100000000).toFixed(1)} 亿`;
+  if (Math.abs(num) >= 10000) return `${(num / 10000).toFixed(1)} 万`;
+  return num.toLocaleString("zh-CN");
 }
 
 function DiagnosticRow({ label, value, mono = false, badge }: {
@@ -240,13 +261,16 @@ function DiagGroup({ title, hint, children }: { title: string; hint?: ReactNode;
 }
 
 function StatTile({ value, label, sub, tone }: { value: ReactNode; label: string; sub?: string; tone?: StatusTone }) {
-  const valueColor = tone === "error" ? "text-red-600 dark:text-red-400"
+  const display = typeof value === "number" ? formatCompact(value) : value;
+  const fullValue = typeof value === "number" ? value.toLocaleString("zh-CN") : undefined;
+  const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
     : tone === "warn" ? "text-amber-600 dark:text-amber-400"
-    : "text-foreground";
+    : "stat-tile-number";
   return (
-    <div className="rounded-lg border border-border/40 bg-background/50 px-3 py-2.5 min-w-0">
-      <div className={`text-base font-bold tabular-nums truncate ${valueColor}`}>{value}</div>
-      <div className="mt-0.5 text-[11px] text-muted-foreground truncate">{label}{sub ? ` · ${sub}` : ""}</div>
+    <div className="stat-tile px-3 py-2.5 min-w-0" title={fullValue}>
+      <div className={`text-lg font-bold tabular-nums truncate leading-tight ${numberClass}`}>{display}</div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground leading-tight">{label}</div>
+      {sub && <div className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -1045,7 +1069,7 @@ function OperationsDiagnosticsTab() {
           } />
       </section>
 
-      <DiagnosticCard icon={AlertTriangle} title="运维排障清单"
+      <DiagnosticCard icon={AlertTriangle} title="运维排障清单" hue="amber"
         subtitle={`${data.troubleshooting?.summary?.errors ?? 0} 个错误 · ${data.troubleshooting?.summary?.warnings ?? 0} 个提醒`}>
         {troubleshootingItems.length > 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -1060,10 +1084,10 @@ function OperationsDiagnosticsTab() {
         )}
       </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DiagnosticCard icon={Server} title="运行与数据库"
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <DiagnosticCard icon={Server} title="运行与数据库" hue="sky"
           subtitle={<span className="font-mono break-all">{data.runtime?.cwd}</span>}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-3">
             <DiagGroup title="数据库"
               hint={<StatusBadge label={databaseModeLabel[data.database?.mode] ?? data.database?.mode ?? "未知"} tone={databaseTone[data.database?.mode] ?? "muted"} />}>
               <DiagnosticRow label="Host" value={data.database?.host || "未配置"} mono />
@@ -1079,7 +1103,7 @@ function OperationsDiagnosticsTab() {
           </div>
         </DiagnosticCard>
 
-        <DiagnosticCard icon={Cpu} title="LLM 路由"
+        <DiagnosticCard icon={Cpu} title="LLM 路由" hue="violet"
           subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个提供商已配置`}>
           <DiagGroup title="路由">
             <DiagnosticRow label="默认提供商" value={data.llm?.defaultProvider || "未设置"} />
@@ -1133,40 +1157,39 @@ function OperationsDiagnosticsTab() {
               </div>
             ))}
           </div>
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">用量明细</h3>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {usageDetailsData
-                    ? `${llmUsageSourceLabel(usageDetailsData.source)} · ${usageDetailsData.summary?.calls ?? 0} 次 · ${usageDetailsData.summary?.totalTokens ?? 0} tokens`
-                    : "读取中..."}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
-                  onClick={() => usageDetails.refetch()} disabled={usageDetails.isFetching}>
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${usageDetails.isFetching ? "animate-spin" : ""}`} />
-                  刷新
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
-                  onClick={() => setUsageFilters({
-                    from: "",
-                    to: "",
-                    userId: "",
-                    personaId: "",
-                    route: "",
-                    provider: "",
-                    purpose: "",
-                    success: "all",
-                    limit: "50",
-                  })}>
-                  清空
-                </Button>
-              </div>
-            </div>
+        </DiagnosticCard>
+      </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <DiagnosticCard icon={Activity} title="用量明细" hue="violet"
+        subtitle={usageDetailsData
+          ? `${llmUsageSourceLabel(usageDetailsData.source)} · ${usageDetailsData.summary?.calls ?? 0} 次 · ${formatCompact(usageDetailsData.summary?.totalTokens ?? 0)} tokens`
+          : "读取中..."}
+        action={
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+              onClick={() => usageDetails.refetch()} disabled={usageDetails.isFetching}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${usageDetails.isFetching ? "animate-spin" : ""}`} />
+              刷新
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+              onClick={() => setUsageFilters({
+                from: "",
+                to: "",
+                userId: "",
+                personaId: "",
+                route: "",
+                provider: "",
+                purpose: "",
+                success: "all",
+                limit: "50",
+              })}>
+              清空
+            </Button>
+          </div>
+        }>
+        <div className="space-y-3">
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
               <div className="space-y-1">
                 <Label className="text-[11px] text-muted-foreground">开始时间</Label>
                 <Input type="datetime-local" value={usageFilters.from}
@@ -1269,7 +1292,7 @@ function OperationsDiagnosticsTab() {
             )}
 
             {usageRecords.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
                 {usageRecords.map((record: any) => (
                   <div key={record.id} className="rounded-lg border border-border/50 bg-background/45 px-3 py-2.5 min-w-0">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1309,12 +1332,11 @@ function OperationsDiagnosticsTab() {
                 ))}
               </div>
             )}
-          </div>
-        </DiagnosticCard>
-      </div>
+        </div>
+      </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DiagnosticCard icon={MessageCircle} title="平台接入"
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <DiagnosticCard icon={MessageCircle} title="平台接入" hue="teal"
           subtitle="QQ 实时状态与绑定策略">
           <DiagGroup title="QQ / OneBot"
             hint={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />}>
@@ -1332,7 +1354,7 @@ function OperationsDiagnosticsTab() {
           </DiagGroup>
         </DiagnosticCard>
 
-        <DiagnosticCard icon={Radio} title="Runtime 收敛"
+        <DiagnosticCard icon={Radio} title="Runtime 收敛" hue="indigo"
           subtitle="Web / QQ 的人物运行时能力">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
@@ -1357,27 +1379,30 @@ function OperationsDiagnosticsTab() {
             <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
           </DiagGroup>
         </DiagnosticCard>
+      </div>
 
-        <DiagnosticCard icon={Database} title="持久化与数据安全"
-          subtitle="运行态、导出、删除和迁移覆盖">
-          <DiagGroup title="存储与脚本">
-            <DiagnosticRow label="角色运行态" value={data.persistence?.runtimeStorage?.personaRuntime ?? "persona_runtime_states"} mono />
-            <DiagnosticRow label="LLM 用量" value={data.persistence?.runtimeStorage?.llmUsage ?? "llm_usage_records"} mono />
-            <DiagnosticRow label="本机清理脚本" value={data.persistence?.localRuntimeCleanupScript ?? "scripts/cleanup-local-runtime.ps1"} mono />
-            <DiagnosticRow label="同步脚本" value={data.persistence?.syncScript ?? "scripts/sync-local-worktree.ps1"} mono />
-            <DiagnosticRow label="正式迁移" value={compactList(data.persistence?.requiredMigrations, "暂无")} mono />
-          </DiagGroup>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <DiagGroup title="导出覆盖">
-              <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
-                {compactList(data.persistence?.exportSections)}
-              </p>
+      <DiagnosticCard icon={Database} title="持久化与数据安全" hue="rose"
+        subtitle="运行态、导出、删除和迁移覆盖">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            <DiagGroup title="存储与脚本">
+              <DiagnosticRow label="角色运行态" value={data.persistence?.runtimeStorage?.personaRuntime ?? "persona_runtime_states"} mono />
+              <DiagnosticRow label="LLM 用量" value={data.persistence?.runtimeStorage?.llmUsage ?? "llm_usage_records"} mono />
+              <DiagnosticRow label="本机清理脚本" value={data.persistence?.localRuntimeCleanupScript ?? "scripts/cleanup-local-runtime.ps1"} mono />
+              <DiagnosticRow label="同步脚本" value={data.persistence?.syncScript ?? "scripts/sync-local-worktree.ps1"} mono />
+              <DiagnosticRow label="正式迁移" value={compactList(data.persistence?.requiredMigrations, "暂无")} mono />
             </DiagGroup>
-            <DiagGroup title="删除覆盖">
-              <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
-                {compactList(data.persistence?.deleteSections)}
-              </p>
-            </DiagGroup>
+            <div className="space-y-3">
+              <DiagGroup title="导出覆盖">
+                <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
+                  {compactList(data.persistence?.exportSections)}
+                </p>
+              </DiagGroup>
+              <DiagGroup title="删除覆盖">
+                <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
+                  {compactList(data.persistence?.deleteSections)}
+                </p>
+              </DiagGroup>
+            </div>
           </div>
           <div className="space-y-2">
             {(data.persistence?.notes ?? []).map((note: string, index: number) => (
@@ -1386,11 +1411,10 @@ function OperationsDiagnosticsTab() {
               </div>
             ))}
           </div>
-        </DiagnosticCard>
-      </div>
+      </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <DiagnosticCard icon={Volume2} title="语音">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        <DiagnosticCard icon={Volume2} title="语音" hue="emerald">
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
             <DiagnosticRow label="回复策略" value=""
               badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
@@ -1403,7 +1427,7 @@ function OperationsDiagnosticsTab() {
           </div>
         </DiagnosticCard>
 
-        <DiagnosticCard icon={ImageIcon} title="表情包">
+        <DiagnosticCard icon={ImageIcon} title="表情包" hue="pink">
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
             <DiagnosticRow label="策略" value=""
               badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
@@ -1414,7 +1438,7 @@ function OperationsDiagnosticsTab() {
           </div>
         </DiagnosticCard>
 
-        <DiagnosticCard icon={Terminal} title="主动消息">
+        <DiagnosticCard icon={Terminal} title="主动消息" hue="amber">
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
             <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
             <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
@@ -1568,7 +1592,16 @@ function DataManagementTab() {
 export default function SettingsPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth({ redirectOnUnauthenticated: true });
-  const [activeTab, setActiveTab] = useState<TabKey>("profile");
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some(tab => tab.key === fromUrl) ? (fromUrl as TabKey) : "profile";
+  });
+  const setActiveTab = (key: TabKey) => {
+    setActiveTabState(key);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", key);
+    window.history.replaceState({}, "", url);
+  };
 
   if (!user) return null;
 
@@ -1593,7 +1626,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="container py-6 max-w-5xl mx-auto px-4">
+      <main className="container py-6 max-w-6xl mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-8 items-start">
           {/* 左侧侧边栏 (大屏常驻，移动端横向滚动) */}
           <aside className="flex md:flex-col gap-1 p-1.5 bg-card/60 backdrop-blur-md border border-border/40 rounded-2xl md:sticky md:top-20 overflow-x-auto scrollbar-hide">
@@ -1604,8 +1637,8 @@ export default function SettingsPage() {
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                   className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all flex-shrink-0 md:w-full relative ${
                     isActive
-                      ? "bg-primary/8 text-primary font-semibold"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                      ? "bg-gradient-to-r from-primary/15 to-primary/5 text-primary font-semibold shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30 hover:translate-x-0.5"
                   }`}>
                   {isActive && (
                     <span className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full hidden md:block" />

@@ -85,8 +85,20 @@ html.dark {
     @apply bg-background text-foreground font-sans antialiased;
     min-height: 100vh;
     background:
-      linear-gradient(180deg, color-mix(in oklab, var(--color-primary) 5%, transparent), transparent 340px),
+      radial-gradient(1000px 560px at 6% -8%, color-mix(in oklab, var(--color-primary) 22%, transparent), transparent 62%),
+      radial-gradient(860px 500px at 98% -4%, color-mix(in oklab, var(--color-chart-2) 18%, transparent), transparent 58%),
+      radial-gradient(700px 420px at 88% 82%, color-mix(in oklab, var(--color-chart-3) 10%, transparent), transparent 60%),
+      radial-gradient(620px 380px at 4% 92%, color-mix(in oklab, var(--color-chart-5) 9%, transparent), transparent 58%),
       var(--color-background);
+    background-attachment: fixed;
+  }
+  html.dark body {
+    background:
+      radial-gradient(1000px 560px at 6% -8%, oklch(0.36 0.06 168 / 0.35), transparent 62%),
+      radial-gradient(860px 500px at 98% -4%, oklch(0.38 0.05 50 / 0.22), transparent 58%),
+      radial-gradient(1100px 640px at 50% 118%, oklch(0.34 0.05 265 / 0.25), transparent 62%),
+      var(--color-background);
+    background-attachment: fixed;
   }
   button,
   input,
@@ -156,27 +168,94 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: oklch(0.42 0.005 260); }
 
 /* ─── Cards ────────────────────────────────────────────────────────────────── */
 .warm-card {
-  background: color-mix(in oklab, var(--color-card) 90%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-foreground) 4%, transparent);
+  position: relative;
+  background: color-mix(in oklab, var(--color-card) 94%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in oklab, var(--color-border) 90%, transparent);
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--color-foreground) 4%, transparent),
+    0 14px 36px -18px color-mix(in oklab, var(--color-primary) 22%, transparent),
+    0 8px 20px -14px color-mix(in oklab, var(--color-foreground) 10%, transparent);
   transition: border-color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+.warm-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: 1rem 1rem 0 0;
+  background: linear-gradient(90deg,
+    transparent 8%,
+    color-mix(in oklab, var(--color-primary) 45%, transparent) 50%,
+    transparent 92%);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.warm-card:nth-child(2) { animation-delay: 60ms; }
+.warm-card:nth-child(3) { animation-delay: 120ms; }
+.warm-card:nth-child(4) { animation-delay: 180ms; }
+.warm-card:nth-child(5) { animation-delay: 240ms; }
+.warm-card:nth-child(6) { animation-delay: 300ms; }
 .warm-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-primary);
+  transform: translateY(-3px);
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
   box-shadow:
-    0 6px 20px -4px color-mix(in oklab, var(--color-primary) 12%, transparent),
-    0 2px 4px -1px color-mix(in oklab, var(--color-foreground) 4%, transparent);
+    0 10px 32px -8px color-mix(in oklab, var(--color-primary) 22%, transparent),
+    0 2px 6px -1px color-mix(in oklab, var(--color-foreground) 6%, transparent);
+}
+html.dark .warm-card {
+  background: color-mix(in oklab, var(--color-card) 92%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0.05 0.01 240 / 0.4),
+    0 16px 40px -18px oklch(0.05 0.01 240 / 0.55);
 }
 html.dark .warm-card:hover {
   box-shadow:
     0 12px 30px -4px color-mix(in oklab, var(--color-primary) 18%, transparent),
     0 4px 10px -2px color-mix(in oklab, black 40%, transparent);
+}
+
+/* ─── Section Chip (彩色图标徽章) ──────────────────────────────────────────── */
+.section-chip {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--chip-color, var(--color-primary));
+  background: linear-gradient(135deg,
+    color-mix(in oklab, var(--chip-color, var(--color-primary)) 20%, var(--color-card)),
+    color-mix(in oklab, var(--chip-color, var(--color-primary)) 8%, var(--color-card)));
+  border: 1px solid color-mix(in oklab, var(--chip-color, var(--color-primary)) 26%, transparent);
+  box-shadow: 0 3px 10px -3px color-mix(in oklab, var(--chip-color, var(--color-primary)) 45%, transparent);
+}
+
+/* ─── Stat Tile (统计瓷砖) ─────────────────────────────────────────────────── */
+.stat-tile {
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--color-border) 55%, transparent);
+  background: linear-gradient(160deg,
+    color-mix(in oklab, var(--color-primary) 5%, var(--color-card)),
+    var(--color-card) 70%);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.stat-tile:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  box-shadow: 0 6px 18px -8px color-mix(in oklab, var(--color-primary) 35%, transparent);
+}
+.stat-tile-number {
+  background: linear-gradient(135deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 55%, var(--color-chart-3)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ─── Header ───────────────────────────────────────────────────────────────── */
@@ -440,12 +519,42 @@ html.dark .bubble-ai {
 
 /* ─── Lobby Hero Banner ────────────────────────────────────────────────────── */
 .lobby-hero {
-  background: var(--color-card) !important;
-  border: 1px solid var(--color-border) !important;
+  background: linear-gradient(135deg,
+    color-mix(in oklab, var(--color-primary) 7%, var(--color-card)),
+    var(--color-card) 45%,
+    color-mix(in oklab, var(--color-chart-2) 6%, var(--color-card))) !important;
+  border: 1px solid color-mix(in oklab, var(--color-primary) 16%, var(--color-border)) !important;
   position: relative;
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--color-foreground) 4%, transparent),
+    0 18px 44px -20px color-mix(in oklab, var(--color-primary) 30%, transparent);
 }
 .lobby-hero-dots {
   display: none !important;
+}
+.hero-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(46px);
+  pointer-events: none;
+  animation: float 7s ease-in-out infinite;
+}
+.hero-orb-1 {
+  width: 230px; height: 230px;
+  right: -70px; top: -90px;
+  background: color-mix(in oklab, var(--color-primary) 30%, transparent);
+}
+.hero-orb-2 {
+  width: 170px; height: 170px;
+  right: 130px; bottom: -100px;
+  background: color-mix(in oklab, var(--color-chart-2) 24%, transparent);
+  animation-delay: 1.6s;
+}
+.hero-orb-3 {
+  width: 120px; height: 120px;
+  left: -50px; bottom: -60px;
+  background: color-mix(in oklab, var(--color-chart-3) 18%, transparent);
+  animation-delay: 3s;
 }
 
 /* ─── Mood Ring (avatar border glow) ───────────────────────────────────────── */

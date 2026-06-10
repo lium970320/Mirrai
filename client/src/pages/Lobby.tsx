@@ -275,12 +275,14 @@ function HeroBanner({ username, stats, readyCount = 0 }: { username?: string; st
   const animatedToday = useAnimatedCounter(stats?.todayChats || 0);
 
   return (
-    <div className="lobby-hero rounded-xl p-5 sm:p-6 mb-6 relative overflow-hidden">
-      <div className="lobby-hero-dots" />
+    <div className="lobby-hero rounded-2xl p-5 sm:p-7 mb-6 relative overflow-hidden">
+      <div className="hero-orb hero-orb-1" />
+      <div className="hero-orb hero-orb-2" />
+      <div className="hero-orb hero-orb-3" />
       <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-2xl">{greeting.emoji}</span>
-          <h1 className="text-xl font-semibold text-foreground">
+        <div className="flex items-center gap-2.5 mb-1.5">
+          <span className="text-3xl animate-float">{greeting.emoji}</span>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             {username ? `${username}，${greeting.text}` : greeting.text}
           </h1>
         </div>
