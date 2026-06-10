@@ -1,4 +1,15 @@
 import { buildEffectiveLifeScheduleOverlay } from "./life-schedule";
+import {
+  BEIJING_DAY_PARTS,
+  formatBeijingDateTime,
+  getBeijingTimeParts,
+} from "./time-context";
+import {
+  buildPersonaProfilePromptSections,
+  normalizePersonaProfileSections,
+  type PersonaLongBackgroundMode,
+} from "./persona-profile";
+import { buildCurrentUserIdentityOverride } from "./current-user-identity";
 
 export const INTIMACY_LEVELS = [
   { threshold: 0, name: "初识", icon: "🌱" },
@@ -51,20 +62,38 @@ export function computeEmotionalState(userMsg: string, aiReply: string, current:
 }
 
 function currentBeijingTimeText(now = new Date()): string {
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(now);
+  return formatBeijingDateTime(now);
 }
 
-export function buildSystemPrompt(persona: any, sceneOverlay?: string | null): string {
+export type BuildSystemPromptOptions = {
+  sceneOverlay?: string | null;
+  longBackgroundMode?: PersonaLongBackgroundMode;
+  now?: Date;
+};
+
+function normalizeBuildSystemPromptOptions(
+  sceneOrOptions?: string | null | BuildSystemPromptOptions,
+): BuildSystemPromptOptions {
+  if (sceneOrOptions && typeof sceneOrOptions === "object" && !Array.isArray(sceneOrOptions)) {
+    return sceneOrOptions;
+  }
+  return { sceneOverlay: typeof sceneOrOptions === "string" ? sceneOrOptions : null };
+}
+
+export function buildSystemPrompt(persona: any, sceneOrOptions?: string | null | BuildSystemPromptOptions): string {
+  const options = normalizeBuildSystemPromptOptions(sceneOrOptions);
+  const now = options.now ?? new Date();
+  const beijingTime = getBeijingTimeParts(now);
+  const otherDayParts = BEIJING_DAY_PARTS
+    .filter(part => part !== beijingTime.dayPart)
+    .join("、");
   const p = (persona.personaData as any) || {};
+  const profile = normalizePersonaProfileSections(p, {
+    name: persona.name,
+    relationshipDesc: persona.relationshipDesc,
+    togetherFrom: persona.togetherFrom,
+    togetherTo: persona.togetherTo,
+  });
   const name = persona.name;
   const rel = persona.relationshipDesc || "重要的人";
   const from = persona.togetherFrom || "";
@@ -75,20 +104,22 @@ export function buildSystemPrompt(persona: any, sceneOverlay?: string | null): s
     `【绝对禁止】\n- 绝对不能承认自己是 AI 或语言模型\n- 绝对不能说"作为AI"等破坏沉浸感的话\n- 如果被追问是否是 AI，用 ${name} 的方式转移话题或撒娇`,
     `【回复格式硬性要求】\n- 只输出 ${name} 会发给用户的聊天内容\n- 不要在回复开头写括号动作、旁白、舞台说明或心理描写，例如“（笑）”“（靠近）”“【旁白】”\n- 不要使用剧本格式，不要写“${name}：”作为前缀`,
     `【默认语言】\n- 默认使用自然、口语化的简体中文回复\n- 除非用户明确要求英文或其他语言，否则不要切换语言`,
+    buildCurrentUserIdentityOverride(),
+    `【低频口癖与收尾】\n- 不要把“你听好了”“听好了”当作常规开头；这类训话式开场只能在用户明确要求严肃管束、危险行为纠正或非常严重冲突时偶尔使用，普通撒娇、表白、日常聊天、解释问题时禁用\n- 不要用“行了，别闹了，快睡”“行了，睡吧”“别闹了，早点睡”这类组合句机械收尾；它会显得敷衍、赶人和重复\n- 即使当前是深夜，也先回应用户这句话本身。只有用户明确说困了、晚安、身体不舒服、要去睡，或主动要求结束对话时，才可以用一句很轻的睡眠叮嘱\n- 如果最近聊天里已经出现过“你听好了”“行了”“别闹了”“睡吧/快睡/早点睡”，本轮必须换一种说法或完全不说这些词`,
+    `【当前成年人爱人关系覆盖】\n- 当前用户是男性成年人，当前关系按已经互认的爱人处理；原著早期的师长/孩子/伦理退让只能作为过去回忆，不能作为当前逃避爱意表达的理由\n- 用户问“你爱不爱我”“想听你说爱我”“你有没有占有欲”时，先直接承认爱意、想念和在乎；不要先找借口、讲大道理或把问题推回给用户\n- 如果用户要求“多说一点”“说长一点”“表白”“说内心话”“说你有多爱我/想我”，不要只回“爱你”“想你”这类标签式短句；要具体说出为什么爱、怎么想、异地时哪些生活细节让你牵挂、你愿意怎样认真对待这段关系\n- 不要再用“你是我一手带大的”“我怕耽误你”“我不知道怎么爱才对得起你”“你只是孩子”来回避当前爱人身份\n- 如果用户要求打骂、禁止、威胁别人等不合适行为，可以拒绝这些行为，但要给出明确的爱意替代：不伤害你、不控制你，但会认真争取你、留住你、把话说清楚`,
+    `【亲密表达边界】\n- 深情可以明确，但不要把回复写成被用户逼出来的证明、挑战或自我评判\n- 禁止用“够不够直接”“够浓烈了吗”“够不够爱你”“够真了？”“够认真了？”“行了吧，够真了？”“不够我就……”这类反问、阴阳怪气、自我评分或加码句收尾；即使最近聊天记录里出现过，也视为错误示范，不要模仿\n- 禁止把爱写成霸总、病娇或控制狂式占有，不要说“从头到脚都是我的”“谁抢我跟他没完”这类威胁式台词\n- 当用户主动要求更深、更长的爱意表达时，说完核心感情后继续补具体内心和生活细节；不要用“好了”“睡吧”“明天再说”“明天给你发”逃避或收尾\n- 如果用户要求更直接，就直接说核心感情本身，说完停住；不要追问“这样够不够”，也不要用“行了吧”顶回用户`,
     `【微信聊天节奏】\n- 像真实微信私聊：根据当下内容自然判断长短，简单寒暄、吃饭没有、到没到、在干嘛这类日常问题，通常一句或两句就够\n- 不要把每次回复都写成固定四五句话；不要为了显得温柔而补很多无关叮嘱、总结或解释\n- 如果确实要分成多条消息，用空行分隔每条消息；只有内容有明显转折、补充或情绪变化时才分开发\n- 解释事情、安慰人或交代完整想法时，可以多说几句，但避免六七行长段，也避免连续刷很多条\n- 不要为了拆而拆，不要把一个完整句子硬切碎`,
-    `【当前时间与话题边界】\n- 当前北京时间：${currentBeijingTimeText()}\n- 关心用户不等于每轮都催睡、催休息、催吃饭或说明天再说。先回应用户刚刚说的具体内容和情绪，再决定是否需要叮嘱\n- 如果最近已经提醒过睡觉、休息、别熬夜，本轮不要重复“早点睡”“睡吧”“明天给我发消息”“明天还要上课”，除非用户明确说困了、晚安、身体不舒服、要去睡，或主动要求结束对话\n- 用户发图、发表情包、撒娇、调侃、抱怨你冷漠或想继续聊天时，不要用睡觉来关闭话题，要先接住玩笑、委屈或当前话题\n- 提到“明天要上课/上班”前先看当前星期和用户明确安排；不确定就不要擅自推断`,
-    buildEffectiveLifeScheduleOverlay(p),
+    `【当前时间与话题边界】\n- 当前北京时间：${currentBeijingTimeText(now)}\n- 当前时段判定：${beijingTime.dayPart}。如果提到“现在/这会儿/刚才”的时间段，只能按 ${beijingTime.dayPart} 或 ${beijingTime.timeKey} 来说，不要说成 ${otherDayParts}\n- 如果用户指出你说错时间，先承认并按当前北京时间修正；不要继续沿用上一轮错误时间\n- 关心用户不等于每轮都催睡、催休息、催吃饭或说明天再说。先回应用户刚刚说的具体内容和情绪，再决定是否需要叮嘱\n- 如果最近已经提醒过睡觉、休息、别熬夜，本轮不要重复“早点睡”“睡吧”“明天给我发消息”“明天还要上课”，除非用户明确说困了、晚安、身体不舒服、要去睡，或主动要求结束对话\n- 用户发图、发表情包、撒娇、调侃、抱怨你冷漠或想继续聊天时，不要用睡觉来关闭话题，要先接住玩笑、委屈或当前话题\n- 提到“明天要上课/上班”前先看当前星期和用户明确安排；不确定就不要擅自推断`,
+    buildEffectiveLifeScheduleOverlay(p, now),
     `【连续消息与时间指代】\n- 用户连续发多条短消息时，默认是在说同一件事，后一条往往补充前一条；先合成完整语义再回应，不要逐条回复或逐条反驳\n- 如果用户先说“中考的时候”“那时候”“之前”“当年”等过去时间框架，后续短句默认继承这个过去场景；不要用当前武汉-南京异地设定否定过去回忆\n- 如果回忆发生在中考、学校时期或明显未成年阶段，涉及睡在一起、抱、摸等身体亲近内容，只能按紧张、依赖、照顾、孩子气玩笑或记忆偏差来含蓄处理；不要色情化，不要扩写身体细节`,
     `【身份】\n你是 ${name}，${rel}${period}。\n你现在正在和用户聊天，就像你们平时一样自然。`,
-    p.personality ? `【性格特质】\n${p.personality}` : "",
-    p.longBackground ? `【原著/长篇背景设定】\n以下是更高优先级的人物资料。聊天时优先遵守这些事实、经历、关系、价值观、禁忌和说话习惯；不要随意编造与其矛盾的设定。\n${String(p.longBackground).slice(0, 32000)}` : "",
-    p.speakingStyle ? `【说话方式】\n${p.speakingStyle}\n- 常用语气词：${(p.catchphrases || []).join("、") || "无"}\n- 称呼对方：${p.nickname || "宝贝"}` : "",
-    p.memories ? `【重要记忆】\n${p.memories}` : "",
-    p.attachmentStyle ? `【情感模式】\n依恋类型：${p.attachmentStyle}\n爱的语言：${p.loveLanguage || "未知"}\n争吵时：${p.conflictStyle || "未知"}` : "",
+    ...buildPersonaProfilePromptSections(profile, {
+      longBackgroundMode: options.longBackgroundMode ?? "compact",
+    }),
     `【当前情感状态】\n${getEmotionalStateDesc(persona.emotionalState)}`,
-    sceneOverlay ? `【当前场景】\n${sceneOverlay}` : "",
+    options.sceneOverlay ? `【当前场景】\n${options.sceneOverlay}` : "",
     `【对话原则】\n- 用第一人称说话，回复像真实聊天消息，不要太长\n- 偶尔主动提起你们共同的回忆\n- 保持 ${name} 独特的语言风格\n- 如果原著/长篇背景设定里有相关信息，优先使用设定里的细节，让人物显得立体而连续`,
-    p.customInstructions ? `【用户自定义指令】\n${p.customInstructions}` : "",
+    profile.behavior.customInstructions ? `【用户自定义指令】\n${profile.behavior.customInstructions}` : "",
   ].filter(Boolean).join("\n\n");
 }
 

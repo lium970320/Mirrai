@@ -1,17 +1,27 @@
-import { eq, desc, and, sql, count, sum, gte, ilike, asc } from "drizzle-orm";
+import { eq, desc, and, or, sql, count, sum, gte, ilike, asc, inArray, lte, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   InsertUser, users,
   personas, personaFiles, messages,
+  roleplayChannels, roleplayChannelMembers, roleplayMessages,
+  personaRuntimeStates,
   personaSources, personaSourceChunks,
   wechatBindings, skillJobs, llmConfigs, wechatBotState,
-  memories, emotionSnapshots, diaryEntries, scenes,
+  llmUsageRecords, memories, emotionSnapshots, diaryEntries, scenes,
   InsertPersona, InsertPersonaFile, InsertMessage,
+  InsertRoleplayChannel, InsertRoleplayChannelMember, InsertRoleplayMessage,
   InsertPersonaSource, InsertPersonaSourceChunk,
   InsertWechatBinding, InsertSkillJob, InsertLlmConfig,
+  InsertLlmUsageRecordRow,
   InsertMemory, InsertEmotionSnapshot, InsertDiaryEntry, InsertScene,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import {
+  extractPersonaRuntimeForStorage,
+  getProactiveMessageConfig,
+  mergePersonaRuntimeIntoPersonaData,
+} from "./_core/persona-runtime";
+import { shouldDeactivateRoleplayChannelAfterMemberRemoval } from "./social/roleplay-channel-policy";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -62,6 +72,501 @@ export async function withRetry<T>(operation: () => Promise<T>, maxRetries = 2):
     }
   }
   throw lastError;
+}
+
+// ─── LLM usage helpers ─────────────────────────────────────────────────────
+
+let llmUsageTableEnsured = false;
+
+export async function ensureLlmUsageTable() {
+  if (llmUsageTableEnsured) return;
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "llm_usage_records" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "startedAt" timestamp NOT NULL,
+      "durationMs" integer DEFAULT 0 NOT NULL,
+      "provider" varchar(64) NOT NULL,
+      "requestedProvider" varchar(64),
+      "model" varchar(128),
+      "purpose" varchar(64),
+      "userId" integer,
+      "personaId" integer,
+      "route" varchar(128),
+      "success" boolean DEFAULT true NOT NULL,
+      "inputTokens" integer DEFAULT 0 NOT NULL,
+      "outputTokens" integer DEFAULT 0 NOT NULL,
+      "totalTokens" integer DEFAULT 0 NOT NULL,
+      "inputChars" integer DEFAULT 0 NOT NULL,
+      "outputChars" integer DEFAULT 0 NOT NULL,
+      "error" text,
+      "createdAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`ALTER TABLE "llm_usage_records" ADD COLUMN IF NOT EXISTS "userId" integer`);
+  await db.execute(sql`ALTER TABLE "llm_usage_records" ADD COLUMN IF NOT EXISTS "personaId" integer`);
+  await db.execute(sql`ALTER TABLE "llm_usage_records" ADD COLUMN IF NOT EXISTS "route" varchar(128)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_started_at_idx" ON "llm_usage_records" ("startedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_provider_started_idx" ON "llm_usage_records" ("provider", "startedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_purpose_started_idx" ON "llm_usage_records" ("purpose", "startedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_user_started_idx" ON "llm_usage_records" ("userId", "startedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_persona_started_idx" ON "llm_usage_records" ("personaId", "startedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "llm_usage_route_started_idx" ON "llm_usage_records" ("route", "startedAt")`);
+
+  llmUsageTableEnsured = true;
+}
+
+export async function createLlmUsageRecord(data: InsertLlmUsageRecordRow) {
+  await ensureLlmUsageTable();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(llmUsageRecords).values(data);
+}
+
+// ─── Persona runtime state helpers ─────────────────────────────────────────
+
+let personaRuntimeStatesTableEnsured = false;
+
+export async function ensurePersonaRuntimeStatesTable() {
+  if (personaRuntimeStatesTableEnsured) return;
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "persona_runtime_states" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "personaId" integer NOT NULL,
+      "userId" integer NOT NULL,
+      "runtimeLifeState" jsonb,
+      "runtimeDiagnostics" jsonb,
+      "proactiveRuntime" jsonb,
+      "createdAt" timestamp DEFAULT now() NOT NULL,
+      "updatedAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "persona_runtime_states_persona_user_idx" ON "persona_runtime_states" ("personaId", "userId")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "persona_runtime_states_user_idx" ON "persona_runtime_states" ("userId")`);
+  personaRuntimeStatesTableEnsured = true;
+}
+
+async function getPersonaRuntimeStateRow(personaId: number, userId: number) {
+  await ensurePersonaRuntimeStatesTable();
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(personaRuntimeStates)
+    .where(and(eq(personaRuntimeStates.personaId, personaId), eq(personaRuntimeStates.userId, userId)))
+    .limit(1);
+  return row;
+}
+
+async function upsertPersonaRuntimeState(
+  personaId: number,
+  userId: number,
+  runtime: {
+    runtimeLifeState?: unknown | null;
+    runtimeDiagnostics?: unknown | null;
+    proactiveRuntime?: unknown | null;
+  },
+) {
+  await ensurePersonaRuntimeStatesTable();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const existing = await getPersonaRuntimeStateRow(personaId, userId);
+  const data = {
+    personaId,
+    userId,
+    runtimeLifeState: runtime.runtimeLifeState ?? null,
+    runtimeDiagnostics: runtime.runtimeDiagnostics ?? null,
+    proactiveRuntime: runtime.proactiveRuntime ?? null,
+    updatedAt: new Date(),
+  };
+  if (existing) {
+    await db.update(personaRuntimeStates)
+      .set(data)
+      .where(and(eq(personaRuntimeStates.personaId, personaId), eq(personaRuntimeStates.userId, userId)));
+  } else {
+    await db.insert(personaRuntimeStates).values(data as any);
+  }
+}
+
+function mergePersonaRuntimeRow<T extends { personaData: unknown; id: number; userId: number }>(
+  persona: T,
+  runtime: Awaited<ReturnType<typeof getPersonaRuntimeStateRow>>,
+): T {
+  if (!runtime) return persona;
+  return {
+    ...persona,
+    personaData: mergePersonaRuntimeIntoPersonaData(persona.personaData, {
+      runtimeLifeState: runtime.runtimeLifeState,
+      runtimeDiagnostics: runtime.runtimeDiagnostics,
+      proactiveRuntime: runtime.proactiveRuntime,
+    }),
+  };
+}
+
+async function mergePersonaRuntimeRows<T extends { personaData: unknown; id: number; userId: number }>(
+  list: T[],
+): Promise<T[]> {
+  if (list.length === 0) return list;
+  await ensurePersonaRuntimeStatesTable();
+  const db = await getDb();
+  if (!db) return list;
+
+  const personaIds = Array.from(new Set(list.map(persona => persona.id)));
+  const userIds = Array.from(new Set(list.map(persona => persona.userId)));
+  const runtimeRows = await db.select().from(personaRuntimeStates)
+    .where(and(
+      inArray(personaRuntimeStates.personaId, personaIds),
+      inArray(personaRuntimeStates.userId, userIds),
+    ));
+  const runtimeByPersona = new Map(runtimeRows.map(row => [`${row.personaId}:${row.userId}`, row] as const));
+  return list.map(persona => mergePersonaRuntimeRow(persona, runtimeByPersona.get(`${persona.id}:${persona.userId}`)));
+}
+
+export type LlmUsagePeriodSummary = {
+  calls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  averageDurationMs: number;
+};
+
+export type LlmUsageBucketSummary = {
+  name: string;
+  calls: number;
+  totalTokens: number;
+  averageDurationMs: number;
+};
+
+export type PersistentLlmUsageSnapshot = {
+  source: "database";
+  today: LlmUsagePeriodSummary;
+  week: LlmUsagePeriodSummary;
+  month: LlmUsagePeriodSummary;
+  byProvider: Array<LlmUsageBucketSummary & { provider: string }>;
+  byPurpose: Array<LlmUsageBucketSummary & { purpose: string }>;
+  byUser: Array<LlmUsageBucketSummary & { userId: number | null }>;
+  byPersona: Array<LlmUsageBucketSummary & { personaId: number | null }>;
+  byRoute: Array<LlmUsageBucketSummary & { route: string }>;
+  recent: Array<{
+    id: number;
+    startedAt: string;
+    durationMs: number;
+    provider: string;
+    requestedProvider?: string;
+    model?: string;
+    purpose?: string;
+    userId?: number;
+    personaId?: number;
+    route?: string;
+    success: boolean;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    inputChars: number;
+    outputChars: number;
+    error?: string;
+  }>;
+};
+
+export type LlmUsageDetailQuery = {
+  from?: Date;
+  to?: Date;
+  userId?: number | null;
+  personaId?: number | null;
+  route?: string;
+  provider?: string;
+  purpose?: string;
+  success?: boolean;
+  limit?: number;
+};
+
+export type PersistentLlmUsageDetails = {
+  source: "database";
+  filters: {
+    from?: string;
+    to?: string;
+    userId?: number | null;
+    personaId?: number | null;
+    route?: string;
+    provider?: string;
+    purpose?: string;
+    success?: boolean;
+    limit: number;
+  };
+  summary: LlmUsagePeriodSummary;
+  records: PersistentLlmUsageSnapshot["recent"];
+};
+
+function startOfUtcDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function daysAgoUtc(date: Date, days: number) {
+  const start = startOfUtcDay(date);
+  start.setUTCDate(start.getUTCDate() - days);
+  return start;
+}
+
+function numbersFromSummary(row: {
+  calls: number;
+  successfulCalls: number;
+  inputTokens: string | number | null;
+  outputTokens: string | number | null;
+  totalTokens: string | number | null;
+  averageDurationMs: string | number | null;
+} | undefined): LlmUsagePeriodSummary {
+  const calls = Number(row?.calls ?? 0);
+  const successfulCalls = Number(row?.successfulCalls ?? 0);
+  return {
+    calls,
+    successfulCalls,
+    failedCalls: Math.max(0, calls - successfulCalls),
+    inputTokens: Number(row?.inputTokens ?? 0),
+    outputTokens: Number(row?.outputTokens ?? 0),
+    totalTokens: Number(row?.totalTokens ?? 0),
+    averageDurationMs: Math.round(Number(row?.averageDurationMs ?? 0)),
+  };
+}
+
+async function summarizeLlmUsageSince(since: Date): Promise<LlmUsagePeriodSummary> {
+  const db = await getDb();
+  if (!db) return numbersFromSummary(undefined);
+  const [row] = await db.select({
+    calls: count(),
+    successfulCalls: sql<number>`count(*) filter (where ${llmUsageRecords.success})::int`,
+    inputTokens: sum(llmUsageRecords.inputTokens),
+    outputTokens: sum(llmUsageRecords.outputTokens),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, since));
+  return numbersFromSummary(row);
+}
+
+export async function getPersistentLlmUsageSnapshot(now = new Date()): Promise<PersistentLlmUsageSnapshot | null> {
+  const db = await getDb();
+  if (!db) return null;
+  await ensureLlmUsageTable();
+
+  const todayStart = startOfUtcDay(now);
+  const weekStart = daysAgoUtc(now, 6);
+  const monthStart = daysAgoUtc(now, 29);
+  const [today, week, month] = await Promise.all([
+    summarizeLlmUsageSince(todayStart),
+    summarizeLlmUsageSince(weekStart),
+    summarizeLlmUsageSince(monthStart),
+  ]);
+
+  const providerRows = await db.select({
+    provider: llmUsageRecords.provider,
+    calls: count(),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, todayStart))
+    .groupBy(llmUsageRecords.provider)
+    .orderBy(desc(count()), desc(sum(llmUsageRecords.totalTokens)))
+    .limit(12);
+
+  const purposeRows = await db.select({
+    purpose: sql<string>`coalesce(${llmUsageRecords.purpose}, 'unknown')`,
+    calls: count(),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, todayStart))
+    .groupBy(sql`coalesce(${llmUsageRecords.purpose}, 'unknown')`)
+    .orderBy(desc(count()), desc(sum(llmUsageRecords.totalTokens)))
+    .limit(12);
+
+  const userRows = await db.select({
+    userId: llmUsageRecords.userId,
+    calls: count(),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, todayStart))
+    .groupBy(llmUsageRecords.userId)
+    .orderBy(desc(count()), desc(sum(llmUsageRecords.totalTokens)))
+    .limit(12);
+
+  const personaRows = await db.select({
+    personaId: llmUsageRecords.personaId,
+    calls: count(),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, todayStart))
+    .groupBy(llmUsageRecords.personaId)
+    .orderBy(desc(count()), desc(sum(llmUsageRecords.totalTokens)))
+    .limit(12);
+
+  const routeRows = await db.select({
+    route: sql<string>`coalesce(${llmUsageRecords.route}, 'unknown')`,
+    calls: count(),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(gte(llmUsageRecords.startedAt, todayStart))
+    .groupBy(sql`coalesce(${llmUsageRecords.route}, 'unknown')`)
+    .orderBy(desc(count()), desc(sum(llmUsageRecords.totalTokens)))
+    .limit(12);
+
+  const recentRows = await db.select().from(llmUsageRecords)
+    .orderBy(desc(llmUsageRecords.startedAt), desc(llmUsageRecords.id))
+    .limit(20);
+
+  return {
+    source: "database",
+    today,
+    week,
+    month,
+    byProvider: providerRows.map(row => ({
+      name: row.provider,
+      provider: row.provider,
+      calls: Number(row.calls ?? 0),
+      totalTokens: Number(row.totalTokens ?? 0),
+      averageDurationMs: Math.round(Number(row.averageDurationMs ?? 0)),
+    })),
+    byPurpose: purposeRows.map(row => ({
+      name: row.purpose,
+      purpose: row.purpose,
+      calls: Number(row.calls ?? 0),
+      totalTokens: Number(row.totalTokens ?? 0),
+      averageDurationMs: Math.round(Number(row.averageDurationMs ?? 0)),
+    })),
+    byUser: userRows.map(row => ({
+      name: row.userId == null ? "unassigned" : String(row.userId),
+      userId: row.userId ?? null,
+      calls: Number(row.calls ?? 0),
+      totalTokens: Number(row.totalTokens ?? 0),
+      averageDurationMs: Math.round(Number(row.averageDurationMs ?? 0)),
+    })),
+    byPersona: personaRows.map(row => ({
+      name: row.personaId == null ? "unassigned" : String(row.personaId),
+      personaId: row.personaId ?? null,
+      calls: Number(row.calls ?? 0),
+      totalTokens: Number(row.totalTokens ?? 0),
+      averageDurationMs: Math.round(Number(row.averageDurationMs ?? 0)),
+    })),
+    byRoute: routeRows.map(row => ({
+      name: row.route,
+      route: row.route,
+      calls: Number(row.calls ?? 0),
+      totalTokens: Number(row.totalTokens ?? 0),
+      averageDurationMs: Math.round(Number(row.averageDurationMs ?? 0)),
+    })),
+    recent: recentRows.map(row => ({
+      id: row.id,
+      startedAt: row.startedAt.toISOString(),
+      durationMs: row.durationMs,
+      provider: row.provider,
+      requestedProvider: row.requestedProvider || undefined,
+      model: row.model || undefined,
+      purpose: row.purpose || undefined,
+      userId: row.userId ?? undefined,
+      personaId: row.personaId ?? undefined,
+      route: row.route || undefined,
+      success: row.success,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      totalTokens: row.totalTokens,
+      inputChars: row.inputChars,
+      outputChars: row.outputChars,
+      error: row.error || undefined,
+    })),
+  };
+}
+
+function llmUsageDetailWhere(query: LlmUsageDetailQuery) {
+  const conditions: SQL[] = [];
+  if (query.from) conditions.push(gte(llmUsageRecords.startedAt, query.from));
+  if (query.to) conditions.push(lte(llmUsageRecords.startedAt, query.to));
+  if (query.userId !== undefined) conditions.push(query.userId === null
+    ? sql`${llmUsageRecords.userId} IS NULL`
+    : eq(llmUsageRecords.userId, query.userId));
+  if (query.personaId !== undefined) conditions.push(query.personaId === null
+    ? sql`${llmUsageRecords.personaId} IS NULL`
+    : eq(llmUsageRecords.personaId, query.personaId));
+  if (query.route?.trim()) conditions.push(ilike(llmUsageRecords.route, `%${query.route.trim()}%`));
+  if (query.provider?.trim()) conditions.push(ilike(llmUsageRecords.provider, `%${query.provider.trim()}%`));
+  if (query.purpose?.trim()) conditions.push(ilike(llmUsageRecords.purpose, `%${query.purpose.trim()}%`));
+  if (query.success !== undefined) conditions.push(eq(llmUsageRecords.success, query.success));
+  return conditions.length > 0 ? and(...conditions)! : sql`true`;
+}
+
+function llmUsageRowToRecent(row: typeof llmUsageRecords.$inferSelect): PersistentLlmUsageSnapshot["recent"][number] {
+  return {
+    id: row.id,
+    startedAt: row.startedAt.toISOString(),
+    durationMs: row.durationMs,
+    provider: row.provider,
+    requestedProvider: row.requestedProvider || undefined,
+    model: row.model || undefined,
+    purpose: row.purpose || undefined,
+    userId: row.userId ?? undefined,
+    personaId: row.personaId ?? undefined,
+    route: row.route || undefined,
+    success: row.success,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    totalTokens: row.totalTokens,
+    inputChars: row.inputChars,
+    outputChars: row.outputChars,
+    error: row.error || undefined,
+  };
+}
+
+export async function getPersistentLlmUsageDetails(query: LlmUsageDetailQuery = {}): Promise<PersistentLlmUsageDetails | null> {
+  const db = await getDb();
+  if (!db) return null;
+  await ensureLlmUsageTable();
+
+  const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+  const where = llmUsageDetailWhere(query);
+  const [summaryRow] = await db.select({
+    calls: count(),
+    successfulCalls: sql<number>`count(*) filter (where ${llmUsageRecords.success})::int`,
+    inputTokens: sum(llmUsageRecords.inputTokens),
+    outputTokens: sum(llmUsageRecords.outputTokens),
+    totalTokens: sum(llmUsageRecords.totalTokens),
+    averageDurationMs: sql<number>`coalesce(avg(${llmUsageRecords.durationMs}), 0)`,
+  })
+    .from(llmUsageRecords)
+    .where(where);
+
+  const rows = await db.select().from(llmUsageRecords)
+    .where(where)
+    .orderBy(desc(llmUsageRecords.startedAt), desc(llmUsageRecords.id))
+    .limit(limit);
+
+  return {
+    source: "database",
+    filters: {
+      from: query.from?.toISOString(),
+      to: query.to?.toISOString(),
+      userId: query.userId,
+      personaId: query.personaId,
+      route: query.route,
+      provider: query.provider,
+      purpose: query.purpose,
+      success: query.success,
+      limit,
+    },
+    summary: numbersFromSummary(summaryRow),
+    records: rows.map(llmUsageRowToRecent),
+  };
 }
 
 // ─── User helpers ───────────────────────────────────────────────────────────
@@ -117,46 +622,248 @@ export async function updateUserPassword(id: number, passwordHash: string) {
   await db.update(users).set({ passwordHash }).where(eq(users.id, id));
 }
 
+export const USER_ACCOUNT_DELETE_SECTIONS = [
+  "llmUsageRecords",
+  "personaRuntimeStates",
+  "memories",
+  "emotionSnapshots",
+  "diaryEntries",
+  "roleplayMessages",
+  "roleplayChannelMembers",
+  "roleplayChannels",
+  "messages",
+  "personaFiles",
+  "personaSourceChunks",
+  "personaSources",
+  "wechatBindings",
+  "wechatBotState",
+  "skillJobs",
+  "llmConfigs",
+  "scenes",
+  "personas",
+  "users",
+] as const;
+
 export async function deleteUserAccount(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  await ensureRoleplayTables();
+  await ensureLlmUsageTable();
+  await ensurePersonaRuntimeStatesTable();
+  const personaIdRows = await db.select({ id: personas.id }).from(personas).where(eq(personas.userId, id));
+  const personaIds = personaIdRows.map(row => row.id);
+  const usageScope = personaIds.length > 0
+    ? or(eq(llmUsageRecords.userId, id), inArray(llmUsageRecords.personaId, personaIds))!
+    : eq(llmUsageRecords.userId, id);
+  await db.delete(llmUsageRecords).where(usageScope);
+  await db.delete(personaRuntimeStates).where(eq(personaRuntimeStates.userId, id));
   await db.delete(memories).where(eq(memories.userId, id));
   await db.delete(emotionSnapshots).where(eq(emotionSnapshots.userId, id));
+  await db.delete(diaryEntries).where(eq(diaryEntries.userId, id));
+  await db.delete(roleplayMessages).where(eq(roleplayMessages.userId, id));
+  await db.delete(roleplayChannelMembers).where(eq(roleplayChannelMembers.userId, id));
+  await db.delete(roleplayChannels).where(eq(roleplayChannels.userId, id));
   await db.delete(messages).where(eq(messages.userId, id));
   await db.delete(personaFiles).where(eq(personaFiles.userId, id));
   await db.delete(personaSourceChunks).where(eq(personaSourceChunks.userId, id));
   await db.delete(personaSources).where(eq(personaSources.userId, id));
   await db.delete(wechatBindings).where(eq(wechatBindings.userId, id));
+  await db.delete(wechatBotState).where(eq(wechatBotState.userId, id));
+  await db.delete(skillJobs).where(eq(skillJobs.userId, id));
   await db.delete(llmConfigs).where(eq(llmConfigs.userId, id));
+  await db.delete(scenes).where(eq(scenes.userId, id));
   await db.delete(personas).where(eq(personas.userId, id));
   await db.delete(users).where(eq(users.id, id));
 }
 
 export async function getAccountStats(userId: number) {
   const db = await getDb();
-  if (!db) return { totalPersonas: 0, totalChats: 0, totalMessages: 0, totalFiles: 0, storageUsed: 0 };
+  if (!db) return {
+    totalPersonas: 0,
+    totalChats: 0,
+    totalMessages: 0,
+    totalFiles: 0,
+    storageUsed: 0,
+    totalMemories: 0,
+    totalSources: 0,
+    totalRoleplayChannels: 0,
+    totalLlmUsageRecords: 0,
+    totalRuntimeStates: 0,
+  };
+  await ensureRoleplayTables();
+  await ensureLlmUsageTable();
+  await ensurePersonaRuntimeStatesTable();
   const [personaCount] = await db.select({ c: count() }).from(personas).where(eq(personas.userId, userId));
   const [chatSum] = await db.select({ s: sum(personas.chatCount) }).from(personas).where(eq(personas.userId, userId));
   const [msgCount] = await db.select({ c: count() }).from(messages).where(eq(messages.userId, userId));
   const [fileCount] = await db.select({ c: count() }).from(personaFiles).where(eq(personaFiles.userId, userId));
   const [fileSize] = await db.select({ s: sum(personaFiles.fileSize) }).from(personaFiles).where(eq(personaFiles.userId, userId));
+  const [memoryCount] = await db.select({ c: count() }).from(memories).where(eq(memories.userId, userId));
+  const [sourceCount] = await db.select({ c: count() }).from(personaSources).where(eq(personaSources.userId, userId));
+  const [roleplayCount] = await db.select({ c: count() }).from(roleplayChannels).where(eq(roleplayChannels.userId, userId));
+  const [usageCount] = await db.select({ c: count() }).from(llmUsageRecords).where(eq(llmUsageRecords.userId, userId));
+  const [runtimeStateCount] = await db.select({ c: count() }).from(personaRuntimeStates).where(eq(personaRuntimeStates.userId, userId));
   return {
     totalPersonas: personaCount?.c || 0,
     totalChats: Number(chatSum?.s) || 0,
     totalMessages: msgCount?.c || 0,
     totalFiles: fileCount?.c || 0,
     storageUsed: Number(fileSize?.s) || 0,
+    totalMemories: memoryCount?.c || 0,
+    totalSources: sourceCount?.c || 0,
+    totalRoleplayChannels: roleplayCount?.c || 0,
+    totalLlmUsageRecords: usageCount?.c || 0,
+    totalRuntimeStates: runtimeStateCount?.c || 0,
+  };
+}
+
+export const USER_DATA_EXPORT_SECTIONS = [
+  "personas",
+  "messages",
+  "personaFiles",
+  "personaSources",
+  "personaSourceChunks",
+  "memories",
+  "emotionSnapshots",
+  "diaryEntries",
+  "roleplayChannels",
+  "roleplayChannelMembers",
+  "roleplayMessages",
+  "wechatBindings",
+  "skillJobs",
+  "llmUsageRecords",
+  "personaRuntimeStates",
+  "llmConfigs",
+  "wechatBotState",
+  "scenes",
+] as const;
+
+export type UserDataExportRows = {
+  user?: Record<string, unknown> | null;
+  personas?: unknown[];
+  messages?: unknown[];
+  personaFiles?: unknown[];
+  personaSources?: unknown[];
+  personaSourceChunks?: unknown[];
+  memories?: unknown[];
+  emotionSnapshots?: unknown[];
+  diaryEntries?: unknown[];
+  roleplayChannels?: unknown[];
+  roleplayChannelMembers?: unknown[];
+  roleplayMessages?: unknown[];
+  wechatBindings?: unknown[];
+  skillJobs?: unknown[];
+  llmUsageRecords?: unknown[];
+  personaRuntimeStates?: unknown[];
+  llmConfigs?: Array<Record<string, unknown>>;
+  wechatBotState?: unknown[];
+  scenes?: unknown[];
+};
+
+function omitPrivateKeys<T extends Record<string, unknown>>(row: T | null | undefined, keys: string[]) {
+  if (!row) return row;
+  const clone: Record<string, unknown> = { ...row };
+  for (const key of keys) delete clone[key];
+  return clone;
+}
+
+export function buildUserDataExportPayload(rows: UserDataExportRows) {
+  return {
+    exportedAt: new Date().toISOString(),
+    schemaVersion: 2,
+    notes: [
+      "账户密码哈希和会话 Cookie 不会导出",
+      "LLM 配置中的密钥值不会导出",
+      "local uploads, TTS cache, NapCat state, and local database files are not embedded in this JSON export",
+    ],
+    user: omitPrivateKeys(rows.user, ["passwordHash"]),
+    personas: rows.personas ?? [],
+    messages: rows.messages ?? [],
+    personaFiles: rows.personaFiles ?? [],
+    personaSources: rows.personaSources ?? [],
+    personaSourceChunks: rows.personaSourceChunks ?? [],
+    memories: rows.memories ?? [],
+    emotionSnapshots: rows.emotionSnapshots ?? [],
+    diaryEntries: rows.diaryEntries ?? [],
+    roleplayChannels: rows.roleplayChannels ?? [],
+    roleplayChannelMembers: rows.roleplayChannelMembers ?? [],
+    roleplayMessages: rows.roleplayMessages ?? [],
+    wechatBindings: rows.wechatBindings ?? [],
+    skillJobs: rows.skillJobs ?? [],
+    llmUsageRecords: rows.llmUsageRecords ?? [],
+    personaRuntimeStates: rows.personaRuntimeStates ?? [],
+    llmConfigs: (rows.llmConfigs ?? []).map(config => omitPrivateKeys(config, ["apiKey"])),
+    wechatBotState: rows.wechatBotState ?? [],
+    scenes: rows.scenes ?? [],
   };
 }
 
 export async function exportUserData(userId: number) {
   const db = await getDb();
   if (!db) return null;
-  const [user] = await db.select({ username: users.username, name: users.name, email: users.email, createdAt: users.createdAt })
+  await ensureRoleplayTables();
+  await ensureLlmUsageTable();
+  await ensurePersonaRuntimeStatesTable();
+  const [user] = await db.select({
+    username: users.username,
+    name: users.name,
+    email: users.email,
+    loginMethod: users.loginMethod,
+    role: users.role,
+    createdAt: users.createdAt,
+    updatedAt: users.updatedAt,
+    lastSignedIn: users.lastSignedIn,
+  })
     .from(users).where(eq(users.id, userId));
   const personaList = await db.select().from(personas).where(eq(personas.userId, userId));
   const messageList = await db.select().from(messages).where(eq(messages.userId, userId)).orderBy(messages.createdAt);
-  return { user, personas: personaList, messages: messageList };
+  const fileList = await db.select().from(personaFiles).where(eq(personaFiles.userId, userId)).orderBy(personaFiles.createdAt);
+  const sourceList = await db.select().from(personaSources).where(eq(personaSources.userId, userId)).orderBy(personaSources.createdAt);
+  const sourceChunkList = await db.select().from(personaSourceChunks).where(eq(personaSourceChunks.userId, userId)).orderBy(personaSourceChunks.createdAt);
+  const memoryList = await db.select().from(memories).where(eq(memories.userId, userId)).orderBy(memories.createdAt);
+  const emotionSnapshotList = await db.select().from(emotionSnapshots).where(eq(emotionSnapshots.userId, userId)).orderBy(emotionSnapshots.createdAt);
+  const diaryEntryList = await db.select().from(diaryEntries).where(eq(diaryEntries.userId, userId)).orderBy(diaryEntries.createdAt);
+  const roleplayChannelList = await db.select().from(roleplayChannels).where(eq(roleplayChannels.userId, userId)).orderBy(roleplayChannels.createdAt);
+  const roleplayMemberList = await db.select().from(roleplayChannelMembers).where(eq(roleplayChannelMembers.userId, userId)).orderBy(roleplayChannelMembers.createdAt);
+  const roleplayMessageList = await db.select().from(roleplayMessages).where(eq(roleplayMessages.userId, userId)).orderBy(roleplayMessages.createdAt);
+  const wechatBindingList = await db.select().from(wechatBindings).where(eq(wechatBindings.userId, userId)).orderBy(wechatBindings.createdAt);
+  const skillJobList = await db.select().from(skillJobs).where(eq(skillJobs.userId, userId)).orderBy(skillJobs.createdAt);
+  const llmUsageRecordList = await db.select().from(llmUsageRecords).where(eq(llmUsageRecords.userId, userId)).orderBy(llmUsageRecords.startedAt);
+  const personaRuntimeStateList = await db.select().from(personaRuntimeStates).where(eq(personaRuntimeStates.userId, userId)).orderBy(personaRuntimeStates.updatedAt);
+  const llmConfigList = await db.select({
+    id: llmConfigs.id,
+    userId: llmConfigs.userId,
+    providerName: llmConfigs.providerName,
+    isDefault: llmConfigs.isDefault,
+    baseUrl: llmConfigs.baseUrl,
+    model: llmConfigs.model,
+    systemMessage: llmConfigs.systemMessage,
+    extraConfig: llmConfigs.extraConfig,
+    createdAt: llmConfigs.createdAt,
+  }).from(llmConfigs).where(eq(llmConfigs.userId, userId)).orderBy(llmConfigs.createdAt);
+  const wechatBotStateList = await db.select().from(wechatBotState).where(eq(wechatBotState.userId, userId)).orderBy(wechatBotState.updatedAt);
+  const sceneList = await db.select().from(scenes).where(eq(scenes.userId, userId)).orderBy(scenes.createdAt);
+  return buildUserDataExportPayload({
+    user,
+    personas: personaList,
+    messages: messageList,
+    personaFiles: fileList,
+    personaSources: sourceList,
+    personaSourceChunks: sourceChunkList,
+    memories: memoryList,
+    emotionSnapshots: emotionSnapshotList,
+    diaryEntries: diaryEntryList,
+    roleplayChannels: roleplayChannelList,
+    roleplayChannelMembers: roleplayMemberList,
+    roleplayMessages: roleplayMessageList,
+    wechatBindings: wechatBindingList,
+    skillJobs: skillJobList,
+    llmUsageRecords: llmUsageRecordList,
+    personaRuntimeStates: personaRuntimeStateList,
+    llmConfigs: llmConfigList,
+    wechatBotState: wechatBotStateList,
+    scenes: sceneList,
+  });
 }
 
 // ─── Persona helpers ────────────────────────────────────────────────────────
@@ -171,7 +878,8 @@ export async function createPersona(data: InsertPersona) {
 export async function getPersonasByUserId(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(personas).where(eq(personas.userId, userId)).orderBy(desc(personas.updatedAt));
+  const list = await db.select().from(personas).where(eq(personas.userId, userId)).orderBy(desc(personas.updatedAt));
+  return mergePersonaRuntimeRows(list);
 }
 
 export async function getReadyPersonasForProactiveMessages() {
@@ -183,18 +891,31 @@ export async function getReadyPersonasForProactiveMessages() {
     .from(personas)
     .where(eq(personas.analysisStatus, "ready"))
     .orderBy(asc(personas.id));
+  const hydratedList = await mergePersonaRuntimeRows(list);
 
-  return list.filter((p) => {
-    const data = (p.personaData as any) || {};
-    const proactive = data.proactiveMessages;
+  return hydratedList.filter((p) => {
+    const proactive = getProactiveMessageConfig(p.personaData);
     return Boolean(proactive?.enabled && Array.isArray(proactive.times) && proactive.times.length > 0);
   });
+}
+
+export async function getReadyPersonasForDailyMemory() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const list = await db
+    .select()
+    .from(personas)
+    .where(eq(personas.analysisStatus, "ready"))
+    .orderBy(asc(personas.id));
+  return mergePersonaRuntimeRows(list);
 }
 
 export async function getPersonasWithStats(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  const list = await db.select().from(personas).where(eq(personas.userId, userId)).orderBy(desc(personas.updatedAt));
+  const rawList = await db.select().from(personas).where(eq(personas.userId, userId)).orderBy(desc(personas.updatedAt));
+  const list = await mergePersonaRuntimeRows(rawList);
   const result = [];
   for (const p of list) {
     const [lastMsgRow] = await db.select({ content: messages.content, createdAt: messages.createdAt })
@@ -257,20 +978,77 @@ export async function getPersonaById(id: number, userId: number) {
   if (!db) return undefined;
   const result = await db.select().from(personas)
     .where(and(eq(personas.id, id), eq(personas.userId, userId))).limit(1);
-  return result[0];
+  if (!result[0]) return undefined;
+  const runtime = await getPersonaRuntimeStateRow(id, userId);
+  return mergePersonaRuntimeRow(result[0], runtime);
 }
 
 export async function updatePersona(id: number, userId: number, data: Partial<InsertPersona>) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
-  await db.update(personas).set(data).where(and(eq(personas.id, id), eq(personas.userId, userId)));
+  let runtimeUpdate: ReturnType<typeof extractPersonaRuntimeForStorage> | null = null;
+  const nextData: Partial<InsertPersona> = { ...data };
+  if ("personaData" in nextData) {
+    runtimeUpdate = extractPersonaRuntimeForStorage(nextData.personaData);
+    nextData.personaData = runtimeUpdate.personaData;
+  }
+  await db.update(personas).set(nextData).where(and(eq(personas.id, id), eq(personas.userId, userId)));
+  if (runtimeUpdate?.hasRuntimePatch) {
+    await upsertPersonaRuntimeState(id, userId, runtimeUpdate);
+  }
+}
+
+type DbClient = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+async function deactivateRoleplayChannelsWithTooFewMembers(
+  database: DbClient,
+  userId: number,
+  channelIds: number[],
+) {
+  const uniqueChannelIds = Array.from(new Set(channelIds)).filter(Number.isFinite);
+  if (uniqueChannelIds.length === 0) return;
+
+  const memberCounts = await database.select({
+    channelId: roleplayChannelMembers.channelId,
+    memberCount: count(),
+  })
+    .from(roleplayChannelMembers)
+    .where(and(
+      eq(roleplayChannelMembers.userId, userId),
+      inArray(roleplayChannelMembers.channelId, uniqueChannelIds),
+    ))
+    .groupBy(roleplayChannelMembers.channelId);
+
+  const countsByChannel = new Map(memberCounts.map(row => [row.channelId, row.memberCount]));
+  const inactiveChannelIds = uniqueChannelIds.filter(channelId => (
+    shouldDeactivateRoleplayChannelAfterMemberRemoval(countsByChannel.get(channelId) ?? 0)
+  ));
+  if (inactiveChannelIds.length === 0) return;
+
+  await database.update(roleplayChannels)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(and(
+      eq(roleplayChannels.userId, userId),
+      inArray(roleplayChannels.id, inactiveChannelIds),
+    ));
 }
 
 export async function deletePersona(id: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  await ensureRoleplayTables();
+  await ensurePersonaRuntimeStatesTable();
+  const affectedRoleplayChannels = await db.select({ channelId: roleplayChannelMembers.channelId })
+    .from(roleplayChannelMembers)
+    .where(and(eq(roleplayChannelMembers.personaId, id), eq(roleplayChannelMembers.userId, userId)));
+  const affectedRoleplayChannelIds = affectedRoleplayChannels.map(row => row.channelId);
   await db.delete(memories).where(eq(memories.personaId, id));
   await db.delete(emotionSnapshots).where(eq(emotionSnapshots.personaId, id));
+  await db.delete(diaryEntries).where(and(eq(diaryEntries.personaId, id), eq(diaryEntries.userId, userId)));
+  await db.delete(personaRuntimeStates).where(and(eq(personaRuntimeStates.personaId, id), eq(personaRuntimeStates.userId, userId)));
+  await db.delete(roleplayMessages).where(and(eq(roleplayMessages.personaId, id), eq(roleplayMessages.userId, userId)));
+  await db.delete(roleplayChannelMembers).where(and(eq(roleplayChannelMembers.personaId, id), eq(roleplayChannelMembers.userId, userId)));
+  await deactivateRoleplayChannelsWithTooFewMembers(db, userId, affectedRoleplayChannelIds);
   await db.delete(messages).where(eq(messages.personaId, id));
   await db.delete(personaFiles).where(eq(personaFiles.personaId, id));
   await db.delete(personaSourceChunks).where(eq(personaSourceChunks.personaId, id));
@@ -308,6 +1086,37 @@ export type PersonaSourceRecallChunk = {
   matchedTerms?: string[];
   seedRank?: number;
   distanceFromSeed?: number;
+};
+
+export type PersonaSourceLibraryOverview = {
+  stats: {
+    sourceCount: number;
+    chunkCount: number;
+    chapterCount: number;
+    tokenEstimate: number;
+  };
+  topKeywords: string[];
+  sources: Array<{
+    id: number;
+    title: string;
+    sourceType: string;
+    originalName: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    chunkCount: number;
+    chapterCount: number;
+    tokenEstimate: number;
+    topKeywords: string[];
+    chapters: Array<{
+      title: string;
+      chunkCount: number;
+      tokenEstimate: number;
+    }>;
+  }>;
+  search: {
+    query: string;
+    results: PersonaSourceRecallChunk[];
+  };
 };
 
 let personaSourceTablesEnsured = false;
@@ -608,7 +1417,7 @@ export async function searchPersonaSourceChunks(
     if (!existing || score > existing.score) {
       bestById.set(row.id, {
         ...row,
-        matchedTerms: matchedTerms.length ? matchedTerms : bestSeed.matchedTerms,
+        matchedTerms,
         score,
         seedRank: bestSeedRank,
         distanceFromSeed: bestDistance,
@@ -635,6 +1444,156 @@ export async function getPersonaSourceLibraryStats(personaId: number, userId: nu
   const [chunkCount] = await db.select({ c: count() }).from(personaSourceChunks)
     .where(and(eq(personaSourceChunks.personaId, personaId), eq(personaSourceChunks.userId, userId)));
   return { sourceCount: sourceCount?.c || 0, chunkCount: chunkCount?.c || 0 };
+}
+
+function toCount(value: unknown): number {
+  const parsed = typeof value === "bigint"
+    ? Number(value)
+    : typeof value === "number"
+      ? value
+      : Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizedSourceKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    const keyword = String(item ?? "").trim();
+    if (!keyword || keyword.length > 32 || seen.has(keyword)) continue;
+    seen.add(keyword);
+    result.push(keyword);
+  }
+  return result;
+}
+
+function topSourceKeywords(values: unknown[], limit = 8): string[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    for (const keyword of normalizedSourceKeywords(value)) {
+      counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
+    .slice(0, limit)
+    .map(([keyword]) => keyword);
+}
+
+export async function getPersonaSourceLibraryOverview(
+  personaId: number,
+  userId: number,
+  query = "",
+): Promise<PersonaSourceLibraryOverview> {
+  await ensurePersonaSourceTables();
+  const db = await getDb();
+  const empty: PersonaSourceLibraryOverview = {
+    stats: { sourceCount: 0, chunkCount: 0, chapterCount: 0, tokenEstimate: 0 },
+    topKeywords: [],
+    sources: [],
+    search: { query: query.trim(), results: [] },
+  };
+  if (!db) return empty;
+
+  const sourceRows = await db.select().from(personaSources)
+    .where(and(eq(personaSources.personaId, personaId), eq(personaSources.userId, userId)))
+    .orderBy(desc(personaSources.updatedAt));
+
+  if (sourceRows.length === 0) return empty;
+
+  const statRows = await db.select({
+    sourceId: personaSourceChunks.sourceId,
+    chunkCount: sql<number>`count(*)::int`,
+    chapterCount: sql<number>`count(distinct coalesce(${personaSourceChunks.chapterTitle}, ''))::int`,
+    tokenEstimate: sql<number>`coalesce(sum(${personaSourceChunks.tokenEstimate}), 0)::int`,
+  })
+    .from(personaSourceChunks)
+    .where(and(eq(personaSourceChunks.personaId, personaId), eq(personaSourceChunks.userId, userId)))
+    .groupBy(personaSourceChunks.sourceId);
+
+  const chapterRows = await db.select({
+    sourceId: personaSourceChunks.sourceId,
+    chapterTitle: personaSourceChunks.chapterTitle,
+    chunkCount: sql<number>`count(*)::int`,
+    tokenEstimate: sql<number>`coalesce(sum(${personaSourceChunks.tokenEstimate}), 0)::int`,
+    firstChunkIndex: sql<number>`min(${personaSourceChunks.chunkIndex})::int`,
+  })
+    .from(personaSourceChunks)
+    .where(and(eq(personaSourceChunks.personaId, personaId), eq(personaSourceChunks.userId, userId)))
+    .groupBy(personaSourceChunks.sourceId, personaSourceChunks.chapterTitle)
+    .orderBy(personaSourceChunks.sourceId, sql`min(${personaSourceChunks.chunkIndex})`);
+
+  const keywordRows = await db.select({
+    sourceId: personaSourceChunks.sourceId,
+    keywords: personaSourceChunks.keywords,
+  })
+    .from(personaSourceChunks)
+    .where(and(eq(personaSourceChunks.personaId, personaId), eq(personaSourceChunks.userId, userId)))
+    .limit(2000);
+
+  const statsBySource = new Map(statRows.map(row => [row.sourceId, {
+    chunkCount: toCount(row.chunkCount),
+    chapterCount: toCount(row.chapterCount),
+    tokenEstimate: toCount(row.tokenEstimate),
+  }]));
+
+  const chaptersBySource = new Map<number, PersonaSourceLibraryOverview["sources"][number]["chapters"]>();
+  for (const row of chapterRows) {
+    const chapterList = chaptersBySource.get(row.sourceId) ?? [];
+    if (chapterList.length < 8) {
+      chapterList.push({
+        title: row.chapterTitle?.trim() || "未分章",
+        chunkCount: toCount(row.chunkCount),
+        tokenEstimate: toCount(row.tokenEstimate),
+      });
+    }
+    chaptersBySource.set(row.sourceId, chapterList);
+  }
+
+  const keywordsBySource = new Map<number, unknown[]>();
+  for (const row of keywordRows) {
+    const values = keywordsBySource.get(row.sourceId) ?? [];
+    values.push(row.keywords);
+    keywordsBySource.set(row.sourceId, values);
+  }
+
+  const totalChapterTitles = new Set<string>();
+  for (const row of chapterRows) {
+    totalChapterTitles.add(`${row.sourceId}:${row.chapterTitle?.trim() || "未分章"}`);
+  }
+
+  const sources = sourceRows.map(source => {
+    const stats = statsBySource.get(source.id) ?? { chunkCount: 0, chapterCount: 0, tokenEstimate: 0 };
+    return {
+      id: source.id,
+      title: source.title,
+      sourceType: source.sourceType,
+      originalName: source.originalName,
+      createdAt: source.createdAt,
+      updatedAt: source.updatedAt,
+      ...stats,
+      topKeywords: topSourceKeywords(keywordsBySource.get(source.id) ?? [], 6),
+      chapters: chaptersBySource.get(source.id) ?? [],
+    };
+  });
+
+  const trimmedQuery = query.trim().slice(0, 120);
+  const results = trimmedQuery
+    ? await searchPersonaSourceChunks(personaId, userId, trimmedQuery, 8)
+    : [];
+
+  return {
+    stats: {
+      sourceCount: sourceRows.length,
+      chunkCount: sources.reduce((sum, source) => sum + source.chunkCount, 0),
+      chapterCount: totalChapterTitles.size,
+      tokenEstimate: sources.reduce((sum, source) => sum + source.tokenEstimate, 0),
+    },
+    topKeywords: topSourceKeywords(keywordRows.map(row => row.keywords), 12),
+    sources,
+    search: { query: trimmedQuery, results },
+  };
 }
 
 // ─── Message helpers ────────────────────────────────────────────────────────
@@ -667,6 +1626,207 @@ export async function searchMessages(personaId: number, userId: number, query: s
     .where(and(eq(messages.personaId, personaId), eq(messages.userId, userId), ilike(messages.content, `%${query}%`)))
     .orderBy(desc(messages.createdAt))
     .limit(limit);
+}
+
+// ─── Roleplay channel helpers ───────────────────────────────────────────────
+
+let roleplayTablesEnsured = false;
+
+export type RoleplayChannelMemberView = {
+  id: number;
+  channelId: number;
+  personaId: number;
+  displayOrder: number;
+  speakingEnabled: boolean;
+  lastReadMessageId: number;
+  personaName: string;
+  avatarUrl: string | null;
+  emotionalState: string;
+  analysisStatus: string;
+};
+
+export type RoleplayChannelView = {
+  id: number;
+  userId: number;
+  name: string;
+  description: string | null;
+  scenePrompt: string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  members: RoleplayChannelMemberView[];
+};
+
+export async function ensureRoleplayTables() {
+  if (roleplayTablesEnsured) return;
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "roleplay_channels" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "userId" integer NOT NULL,
+      "name" varchar(100) NOT NULL,
+      "description" text,
+      "scenePrompt" text,
+      "isActive" boolean DEFAULT true NOT NULL,
+      "createdAt" timestamp DEFAULT now() NOT NULL,
+      "updatedAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "roleplay_channel_members" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "channelId" integer NOT NULL,
+      "userId" integer NOT NULL,
+      "personaId" integer NOT NULL,
+      "displayOrder" integer DEFAULT 0 NOT NULL,
+      "speakingEnabled" boolean DEFAULT true NOT NULL,
+      "lastReadMessageId" integer DEFAULT 0 NOT NULL,
+      "createdAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "roleplay_messages" (
+      "id" serial PRIMARY KEY NOT NULL,
+      "channelId" integer NOT NULL,
+      "userId" integer NOT NULL,
+      "personaId" integer,
+      "speakerName" varchar(100) NOT NULL,
+      "role" varchar(32) DEFAULT 'persona' NOT NULL,
+      "content" text NOT NULL,
+      "innerThought" text,
+      "moodState" jsonb,
+      "turnKind" varchar(50) DEFAULT 'dialogue' NOT NULL,
+      "createdAt" timestamp DEFAULT now() NOT NULL
+    )
+  `);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "roleplay_channels_user_idx" ON "roleplay_channels" ("userId")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "roleplay_members_channel_idx" ON "roleplay_channel_members" ("channelId", "displayOrder")`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "roleplay_members_channel_persona_idx" ON "roleplay_channel_members" ("channelId", "personaId")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "roleplay_messages_channel_idx" ON "roleplay_messages" ("channelId", "id")`);
+
+  roleplayTablesEnsured = true;
+}
+
+export async function createRoleplayChannel(data: InsertRoleplayChannel, memberPersonaIds: number[]) {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const uniquePersonaIds = Array.from(new Set(memberPersonaIds));
+  if (uniquePersonaIds.length < 2) throw new Error("roleplay channel requires at least two personas");
+
+  const [channel] = await db.insert(roleplayChannels).values(data).returning();
+  const memberRows: InsertRoleplayChannelMember[] = uniquePersonaIds.map((personaId, index) => ({
+    channelId: channel.id,
+    userId: data.userId,
+    personaId,
+    displayOrder: index,
+  }));
+  await db.insert(roleplayChannelMembers).values(memberRows);
+  return channel.id;
+}
+
+export async function getRoleplayChannels(userId: number): Promise<RoleplayChannelView[]> {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) return [];
+  const channels = await db.select().from(roleplayChannels)
+    .where(eq(roleplayChannels.userId, userId))
+    .orderBy(desc(roleplayChannels.updatedAt));
+
+  const result: RoleplayChannelView[] = [];
+  for (const channel of channels) {
+    result.push({
+      ...channel,
+      members: await getRoleplayChannelMembers(channel.id, userId),
+    });
+  }
+  return result;
+}
+
+export async function getRoleplayChannelById(channelId: number, userId: number): Promise<RoleplayChannelView | undefined> {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) return undefined;
+  const [channel] = await db.select().from(roleplayChannels)
+    .where(and(eq(roleplayChannels.id, channelId), eq(roleplayChannels.userId, userId)))
+    .limit(1);
+  if (!channel) return undefined;
+  return {
+    ...channel,
+    members: await getRoleplayChannelMembers(channelId, userId),
+  };
+}
+
+export async function getRoleplayChannelMembers(channelId: number, userId: number): Promise<RoleplayChannelMemberView[]> {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: roleplayChannelMembers.id,
+    channelId: roleplayChannelMembers.channelId,
+    personaId: roleplayChannelMembers.personaId,
+    displayOrder: roleplayChannelMembers.displayOrder,
+    speakingEnabled: roleplayChannelMembers.speakingEnabled,
+    lastReadMessageId: roleplayChannelMembers.lastReadMessageId,
+    personaName: personas.name,
+    avatarUrl: personas.avatarUrl,
+    emotionalState: personas.emotionalState,
+    analysisStatus: personas.analysisStatus,
+  })
+    .from(roleplayChannelMembers)
+    .innerJoin(personas, eq(roleplayChannelMembers.personaId, personas.id))
+    .where(and(
+      eq(roleplayChannelMembers.channelId, channelId),
+      eq(roleplayChannelMembers.userId, userId),
+      eq(personas.userId, userId),
+    ))
+    .orderBy(asc(roleplayChannelMembers.displayOrder), asc(roleplayChannelMembers.id));
+}
+
+export async function getRoleplayChannelMessages(channelId: number, userId: number, limit = 80) {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(roleplayMessages)
+    .where(and(eq(roleplayMessages.channelId, channelId), eq(roleplayMessages.userId, userId)))
+    .orderBy(desc(roleplayMessages.id))
+    .limit(limit);
+  return rows.reverse();
+}
+
+export async function createRoleplayMessage(data: InsertRoleplayMessage) {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const [result] = await db.insert(roleplayMessages).values(data).returning();
+  await db.update(roleplayChannels)
+    .set({ updatedAt: new Date() })
+    .where(and(eq(roleplayChannels.id, data.channelId), eq(roleplayChannels.userId, data.userId)));
+  return result;
+}
+
+export async function updateRoleplayMemberCursor(channelId: number, userId: number, personaId: number, lastReadMessageId: number) {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(roleplayChannelMembers)
+    .set({ lastReadMessageId })
+    .where(and(
+      eq(roleplayChannelMembers.channelId, channelId),
+      eq(roleplayChannelMembers.userId, userId),
+      eq(roleplayChannelMembers.personaId, personaId),
+    ));
+}
+
+export async function deleteRoleplayChannel(channelId: number, userId: number) {
+  await ensureRoleplayTables();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.delete(roleplayMessages).where(and(eq(roleplayMessages.channelId, channelId), eq(roleplayMessages.userId, userId)));
+  await db.delete(roleplayChannelMembers).where(and(eq(roleplayChannelMembers.channelId, channelId), eq(roleplayChannelMembers.userId, userId)));
+  await db.delete(roleplayChannels).where(and(eq(roleplayChannels.id, channelId), eq(roleplayChannels.userId, userId)));
 }
 
 // ─── WeChat Binding helpers ─────────────────────────────────────────────────
@@ -1076,17 +2236,102 @@ export async function updateIntimacy(personaId: number, userId: number, score: n
 
 // ─── Memory helpers ───────────────────────────────────────────────────────
 
+let memoryTableColumnsEnsured = false;
+
+export async function ensureMemoryTableColumns() {
+  if (memoryTableColumnsEnsured) return true;
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "source" varchar(50) DEFAULT 'manual' NOT NULL`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "memoryType" varchar(50) DEFAULT 'relationship_event' NOT NULL`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "importance" integer DEFAULT 3 NOT NULL`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "confidence" integer DEFAULT 3 NOT NULL`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "keywords" jsonb`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "emotion" varchar(50)`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "validFrom" varchar(50)`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "validTo" varchar(50)`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "lastAccessedAt" timestamp`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "evidenceMessageIds" jsonb`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "status" varchar(50) DEFAULT 'active' NOT NULL`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_persona_user_status_idx" ON "memories" ("personaId", "userId", "status")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_type_idx" ON "memories" ("memoryType")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_last_accessed_idx" ON "memories" ("lastAccessedAt")`);
+
+  memoryTableColumnsEnsured = true;
+  return true;
+}
+
 export async function createMemory(data: InsertMemory) {
+  await ensureMemoryTableColumns();
   const db = await getDb();
   if (!db) throw new Error("DB not available");
   const [result] = await db.insert(memories).values(data).returning({ id: memories.id });
   return result.id;
 }
 
-export async function getMemoriesByPersonaId(personaId: number) {
+export async function getMemoriesByPersonaId(personaId: number, userId: number) {
+  await ensureMemoryTableColumns();
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(memories).where(eq(memories.personaId, personaId)).orderBy(desc(memories.createdAt));
+  return db.select().from(memories)
+    .where(and(eq(memories.personaId, personaId), eq(memories.userId, userId)))
+    .orderBy(desc(memories.createdAt));
+}
+
+export async function getActiveMemoriesByPersonaId(personaId: number, userId: number) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(memories)
+    .where(and(eq(memories.personaId, personaId), eq(memories.userId, userId), eq(memories.status, "active")))
+    .orderBy(desc(memories.createdAt));
+}
+
+export async function getMemoryByTitleAndDate(personaId: number, userId: number, title: string, date: string) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(memories)
+    .where(and(
+      eq(memories.personaId, personaId),
+      eq(memories.userId, userId),
+      eq(memories.title, title),
+      eq(memories.date, date),
+    ))
+    .limit(1);
+  return rows[0];
+}
+
+export async function getMemoryBySourceAndDate(personaId: number, userId: number, source: string, date: string) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(memories)
+    .where(and(
+      eq(memories.personaId, personaId),
+      eq(memories.userId, userId),
+      eq(memories.source, source),
+      eq(memories.date, date),
+    ))
+    .limit(1);
+  return rows[0];
+}
+
+export async function touchMemoriesByIds(ids: number[], userId: number) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db || ids.length === 0) return;
+  await db.update(memories)
+    .set({ lastAccessedAt: new Date() })
+    .where(and(inArray(memories.id, ids), eq(memories.userId, userId)));
+}
+
+export async function updateMemory(id: number, userId: number, data: Partial<InsertMemory>) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.update(memories).set(data).where(and(eq(memories.id, id), eq(memories.userId, userId)));
 }
 
 export async function deleteMemory(id: number, userId: number) {
@@ -1336,9 +2581,12 @@ export async function activateScene(personaId: number, sceneId: number | null) {
 export async function getExportData(personaId: number, userId: number) {
   const db = await getDb();
   if (!db) return null;
+  await ensurePersonaRuntimeStatesTable();
   const [persona] = await db.select().from(personas)
     .where(and(eq(personas.id, personaId), eq(personas.userId, userId)));
   if (!persona) return null;
+  const runtime = await getPersonaRuntimeStateRow(personaId, userId);
+  const hydratedPersona = mergePersonaRuntimeRow(persona, runtime);
   const allMessages = await db.select().from(messages)
     .where(and(eq(messages.personaId, personaId), eq(messages.userId, userId)))
     .orderBy(asc(messages.createdAt));
@@ -1351,7 +2599,7 @@ export async function getExportData(personaId: number, userId: number) {
   const allDiaries = await db.select().from(diaryEntries)
     .where(and(eq(diaryEntries.personaId, personaId), eq(diaryEntries.userId, userId)))
     .orderBy(asc(diaryEntries.date));
-  return { persona, messages: allMessages, memories: allMemories, emotionSnapshots: allSnapshots, diaryEntries: allDiaries };
+  return { persona: hydratedPersona, messages: allMessages, memories: allMemories, emotionSnapshots: allSnapshots, diaryEntries: allDiaries };
 }
 
 // ─── Graduation helpers ─────────────────────────────────────────────────────

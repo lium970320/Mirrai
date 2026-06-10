@@ -15,6 +15,12 @@ describe("persona source recall", () => {
     expect(shouldUsePersonaSourceRecall("你再想想，当时具体的情形不是这样的", [
       { role: "user", content: "你还记得老鹰峡那次吗" },
     ])).toBe(true);
+    expect(shouldUsePersonaSourceRecall("那到底是谁", [
+      { role: "user", content: "小说里老鹰峡那次发生了什么" },
+    ])).toBe(true);
+    expect(shouldUsePersonaSourceRecall("具体在哪里", [
+      { role: "user", content: "你还记得中考那件事吗" },
+    ])).toBe(true);
     expect(shouldUsePersonaSourceRecall("吃饭了吗")).toBe(false);
     expect(shouldUsePersonaSourceRecall("哈哈")).toBe(false);
   });
@@ -68,5 +74,24 @@ describe("persona source recall", () => {
 
     expect(context).toContain("……");
     expect(context).toContain("中考那年考场外很热");
+  });
+
+  it("trims evidence excerpts according to economy limits", () => {
+    const context = formatSourceRecallContext([
+      {
+        id: 1,
+        sourceId: 1,
+        sourceTitle: "爱人随风而来",
+        chapterTitle: "旧事",
+        chunkIndex: 5,
+        content: "王芃泽在老鹰峡想起很多很长很长的旧事，后面这些文字不应该全部进入省额度提示词。",
+        score: 30,
+        matchedTerms: ["老鹰峡"],
+      },
+    ], "老鹰峡那次", { maxExcerptChars: 22 });
+
+    expect(context).toContain("老鹰峡");
+    expect(context).toContain("……");
+    expect(context).not.toContain("不应该全部进入省额度提示词");
   });
 });

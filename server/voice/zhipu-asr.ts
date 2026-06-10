@@ -1,5 +1,6 @@
 import path from "path";
 import { ENV } from "../_core/env";
+import { recordOperationsEvent } from "../_core/operations-events";
 
 export type ZhipuAsrSuccess = {
   ok: true;
@@ -58,6 +59,13 @@ export function extractZhipuAsrTranscript(body: unknown): string {
 export async function transcribeWithZhipuAsr(options: ZhipuAsrOptions): Promise<ZhipuAsrResult> {
   const model = ENV.zhipuAsrModel;
   if (!ENV.zhipuApiKey) {
+    recordOperationsEvent({
+      id: "voice.asr_not_configured",
+      scope: "voice",
+      title: "ASR 未配置",
+      detail: "智谱 ASR 没有可用 API key，QQ 语音输入无法转写。",
+      evidence: "ZHIPU_API_KEY/BIGMODEL_API_KEY/VISION_API_KEY 未配置",
+    });
     return {
       ok: false,
       status: "asr_not_configured",
@@ -93,6 +101,14 @@ export async function transcribeWithZhipuAsr(options: ZhipuAsrOptions): Promise<
     const responseText = await response.text();
     if (!response.ok) {
       console.warn(`voice_asr_failed provider=zhipu status=${response.status} body=${responseText.slice(0, 300)}`);
+      recordOperationsEvent({
+        id: "voice.asr_request_failed",
+        scope: "voice",
+        title: "ASR 请求失败",
+        detail: "智谱 ASR 接口返回错误，QQ 语音输入会降级到文字提示。",
+        rawError: `HTTP ${response.status}: ${responseText.slice(0, 300)}`,
+        evidence: `provider=zhipu model=${model}`,
+      });
       return {
         ok: false,
         status: "asr_request_failed",
@@ -105,6 +121,13 @@ export async function transcribeWithZhipuAsr(options: ZhipuAsrOptions): Promise<
     const transcript = extractZhipuAsrTranscript(body);
     if (!transcript) {
       console.warn("voice_asr_empty_transcript provider=zhipu");
+      recordOperationsEvent({
+        id: "voice.asr_empty_transcript",
+        scope: "voice",
+        title: "ASR 返回空文本",
+        detail: "语音识别请求成功但没有识别出文本，当前回合会降级到文字提示。",
+        evidence: `provider=zhipu model=${model}`,
+      });
       return {
         ok: false,
         status: "asr_empty_transcript",
@@ -123,6 +146,14 @@ export async function transcribeWithZhipuAsr(options: ZhipuAsrOptions): Promise<
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn("voice_asr_failed provider=zhipu", reason);
+    recordOperationsEvent({
+      id: "voice.asr_request_failed",
+      scope: "voice",
+      title: "ASR 请求失败",
+      detail: "智谱 ASR 请求抛出异常，QQ 语音输入会降级到文字提示。",
+      rawError: reason,
+      evidence: `provider=zhipu model=${model}`,
+    });
     return {
       ok: false,
       status: "asr_request_failed",

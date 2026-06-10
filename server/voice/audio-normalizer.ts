@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import { recordOperationsEvent } from "../_core/operations-events";
 
 export type AudioFormat = "wav" | "mp3" | "m4a" | "ogg" | "flac" | "silk" | "amr" | "unknown";
 
@@ -168,6 +169,14 @@ export async function normalizeAudioForAsr(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.warn(`voice_transcode_failed input=${inputFormat}`, reason);
+      recordOperationsEvent({
+        id: "voice.transcode_failed",
+        scope: "voice",
+        title: "语音转码失败",
+        detail: "QQ 语音输入已下载，但 ffmpeg 转成 ASR 可用格式时失败。",
+        rawError: reason,
+        evidence: `input=${inputFormat}`,
+      });
       return {
         ok: false,
         status: "voice_transcode_failed",
@@ -194,6 +203,14 @@ export async function normalizeAudioForAsr(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.warn("voice_transcode_failed input=silk", reason);
+      recordOperationsEvent({
+        id: "voice.silk_decode_failed",
+        scope: "voice",
+        title: "SILK 语音解码失败",
+        detail: "QQ SILK 语音无法解码成 WAV，语音输入会降级成文字提示。",
+        rawError: reason,
+        evidence: "input=silk",
+      });
       return {
         ok: false,
         status: "voice_transcode_failed",
@@ -204,6 +221,13 @@ export async function normalizeAudioForAsr(
   }
 
   console.warn(`voice_transcode_failed input=${inputFormat} reason=unsupported_codec`);
+  recordOperationsEvent({
+    id: "voice.unsupported_codec",
+    scope: "voice",
+    title: "语音格式不支持",
+    detail: "收到的语音格式当前不能稳定进入 ASR，会降级到文字提示。",
+    evidence: `input=${inputFormat}`,
+  });
   return {
     ok: false,
     status: "unsupported_voice_codec",

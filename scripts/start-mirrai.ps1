@@ -1,7 +1,8 @@
 param(
   [string]$RunRoot = "F:\Code\Mirrai",
   [int]$Port = 3000,
-  [string]$LogRoot = "F:\.mirrai-local\Mirrai\logs"
+  [string]$LogRoot = "F:\.mirrai-local\Mirrai\logs",
+  [switch]$UseLocalDb
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,8 +14,17 @@ function Get-MirraiProcess {
     Where-Object {
       $_.ProcessId -ne $PID -and
       $_.CommandLine -match $rootPattern -and
-      ($_.CommandLine -match "pnpm run dev|server/_core/index.ts|tsx|cross-env|corepack")
+      ($_.CommandLine -match "pnpm run dev|server[/\\]_core[/\\]index\.ts|tsx|cross-env|corepack")
     }
+}
+
+function Test-MirraiWeb {
+  try {
+    $response = Invoke-WebRequest -Uri "http://localhost:$Port/" -UseBasicParsing -TimeoutSec 3
+    return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
+  } catch {
+    return $false
+  }
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $RunRoot "package.json"))) {
@@ -24,6 +34,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $RunRoot "package.json"))) {
 $existing = @(Get-MirraiProcess)
 if ($existing.Count -gt 0) {
   Write-Host "Mirrai already appears to be running."
+  & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "status-mirrai.ps1") -RunRoot $RunRoot -Port $Port -LogRoot $LogRoot
+  exit 0
+}
+
+if (Test-MirraiWeb) {
+  Write-Host "Mirrai web endpoint is already responding at http://localhost:$Port/."
   & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "status-mirrai.ps1") -RunRoot $RunRoot -Port $Port -LogRoot $LogRoot
   exit 0
 }
@@ -38,7 +54,8 @@ if (-not $launcher) {
   $launcher = (Get-Command powershell.exe).Source
 }
 
-$command = "`$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(`$false); Set-Location -LiteralPath '$RunRoot'; corepack pnpm run dev"
+$runScript = if ($UseLocalDb) { "dev:local" } else { "dev" }
+$command = "`$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(`$false); Set-Location -LiteralPath '$RunRoot'; corepack pnpm run $runScript"
 $process = Start-Process `
   -FilePath $launcher `
   -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command) `

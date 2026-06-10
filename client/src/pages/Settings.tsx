@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -13,7 +13,8 @@ import {
   ArrowLeft, Wifi, WifiOff, Settings2, Sliders, ChevronDown, ChevronUp, Check,
   User, Shield, Database, Download, Trash2, KeyRound, Mail, Calendar,
   MessageCircle, FileText, HardDrive, Users, Clock, Pencil, AlertTriangle,
-  Leaf, Eye, EyeOff,
+  Leaf, Eye, EyeOff, Activity, Server, Cpu, Volume2, ImageIcon, Radio,
+  RefreshCw, Terminal,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,6 +25,7 @@ const TABS = [
   { key: "ai", label: "AI 设置", icon: Settings2 },
   { key: "wechat", label: "微信", icon: Wifi },
   { key: "qq", label: "QQ", icon: MessageCircle },
+  { key: "diagnostics", label: "运维诊断", icon: Activity },
   { key: "data", label: "数据管理", icon: Database },
 ] as const;
 
@@ -36,16 +38,16 @@ function SliderField({ label, value, onChange, min, max, step, unit }: {
   min: number; max: number; step: number; unit?: string;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3 p-4 bg-muted/20 border border-border/30 rounded-xl">
       <div className="flex items-center justify-between">
-        <Label className="text-sm text-foreground/70">{label}</Label>
-        <span className="text-sm font-medium text-foreground">{value}{unit}</span>
+        <Label className="text-sm font-semibold text-foreground/90">{label}</Label>
+        <span className="text-sm font-bold text-primary bg-primary/8 px-2.5 py-0.5 rounded-full">{value}{unit}</span>
       </div>
 // ─── SLIDER_PLACEHOLDER ──────────────────────────────────────────────────────
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
         className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer accent-primary" />
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div className="flex justify-between text-[11px] text-muted-foreground/80 font-medium px-0.5">
         <span>{min}{unit}</span><span>{max}{unit}</span>
       </div>
     </div>
@@ -65,46 +67,47 @@ function ProviderConfigRow({ provider, onSave, onSetDefault }: {
   const [model, setModel] = useState("");
 
   return (
-    <div className="border border-border rounded-xl overflow-hidden">
+    <div className={`rounded-xl overflow-hidden ${provider.configured ? "provider-card-configured" : "provider-card-unconfigured"}`}>
       <button onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-foreground font-medium">{provider.name}</span>
-          <span className={`text-xs ${provider.configured ? "text-emerald-500" : "text-muted-foreground"}`}>
+        className="w-full flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+        <div className="flex items-center gap-2.5">
+          <div className={`w-1.5 h-1.5 rounded-full ${provider.configured ? "bg-emerald-500" : "bg-muted-foreground/45"}`} />
+          <span className="text-sm text-foreground font-semibold tracking-tight">{provider.name}</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium ${provider.configured ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
             {provider.configured ? "已配置" : "未配置"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span onClick={e => { e.stopPropagation(); onSetDefault(); }}
-            className="text-xs text-primary hover:text-primary/80 cursor-pointer">设为默认</span>
-          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            className="text-xs text-primary hover:underline cursor-pointer font-medium">设为默认</span>
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground/80" /> : <ChevronDown className="w-4 h-4 text-muted-foreground/80" />}
         </div>
       </button>
       {expanded && (
-        <div className="p-3 pt-0 space-y-3 border-t border-border">
+        <div className="p-3.5 pt-0 space-y-3.5 border-t border-border/40">
           <div>
-            <Label className="text-xs text-foreground/70">API Key</Label>
+            <Label className="text-xs font-medium text-foreground/70">API Key</Label>
             <Input value={apiKey} onChange={e => setApiKey(e.target.value)}
-              placeholder="sk-..." type="password" className="h-9 bg-muted/50 border-border rounded-lg text-sm" />
+              placeholder="sk-..." type="password" className="h-9 bg-muted/35 border-border/50 rounded-lg text-sm mt-1" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
-              <Label className="text-xs text-foreground/70">Base URL</Label>
+              <Label className="text-xs font-medium text-foreground/70">Base URL (可选)</Label>
               <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-                placeholder="https://api.openai.com/v1" className="h-9 bg-muted/50 border-border rounded-lg text-sm" />
+                placeholder="https://api.openai.com/v1" className="h-9 bg-muted/35 border-border/50 rounded-lg text-sm mt-1" />
             </div>
             <div>
-              <Label className="text-xs text-foreground/70">Model</Label>
+              <Label className="text-xs font-medium text-foreground/70">Model (可选)</Label>
               <Input value={model} onChange={e => setModel(e.target.value)}
-                placeholder="gpt-4o" className="h-9 bg-muted/50 border-border rounded-lg text-sm" />
+                placeholder="gpt-4o" className="h-9 bg-muted/35 border-border/50 rounded-lg text-sm mt-1" />
             </div>
           </div>
-          <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg"
+          <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg h-8.5 font-semibold text-xs px-3"
             onClick={() => {
               onSave({ providerName: provider.name, apiKey: apiKey || undefined, baseUrl: baseUrl || undefined, model: model || undefined });
               setExpanded(false);
             }}>
-            <Check className="w-3.5 h-3.5 mr-1" />保存
+            <Check className="w-3.5 h-3.5 mr-1" />保存配置
           </Button>
         </div>
       )}
@@ -124,6 +127,391 @@ function StatItem({ icon: Icon, label, value }: { icon: any; label: string; valu
         <div className="text-sm font-semibold text-foreground">{value}</div>
         <div className="text-xs text-muted-foreground">{label}</div>
       </div>
+    </div>
+  );
+}
+
+// ─── DIAGNOSTIC PRIMITIVES ───────────────────────────────────────────────────
+
+type StatusTone = "ok" | "warn" | "error" | "muted";
+type DiagnosticAdvice = {
+  id?: string;
+  scope?: string;
+  title: string;
+  detail: string;
+  tone: StatusTone;
+  rawError?: string;
+  evidence?: string;
+  actions?: string[];
+};
+
+const toneClasses: Record<StatusTone, string> = {
+  ok: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  warn: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  error: "bg-red-500/10 text-red-700 dark:text-red-300",
+  muted: "bg-muted text-muted-foreground",
+};
+
+function toneForEnabled(value: boolean): StatusTone {
+  return value ? "ok" : "muted";
+}
+
+function StatusBadge({ label, tone = "muted" }: { label: string; tone?: StatusTone }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClasses[tone]}`}>
+      {label}
+    </span>
+  );
+}
+
+function BoolBadge({ value, trueLabel = "已配置", falseLabel = "未配置" }: {
+  value: boolean;
+  trueLabel?: string;
+  falseLabel?: string;
+}) {
+  return <StatusBadge label={value ? trueLabel : falseLabel} tone={toneForEnabled(value)} />;
+}
+
+function DiagnosticCard({ icon: Icon, title, subtitle, action, children }: {
+  icon: any;
+  title: string;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="warm-card p-5 space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Icon className="w-4.5 h-4.5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-semibold text-foreground">{title}</h2>
+            {subtitle && <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{subtitle}</p>}
+          </div>
+        </div>
+        {action && <div className="flex-shrink-0">{action}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function DiagnosticRow({ label, value, mono = false, badge }: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  badge?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`min-w-0 text-sm text-foreground sm:text-right ${mono ? "font-mono text-xs break-all" : "break-words"}`}>
+        {badge ?? value}
+      </span>
+    </div>
+  );
+}
+
+function compactList(items: string[] | undefined, empty = "无") {
+  if (!items || items.length === 0) return empty;
+  return items.join("、");
+}
+
+function formatDiagnosticTime(value: string | undefined) {
+  if (!value) return "未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function platformStatusLabel(platform: "qq" | "wechat", status: string | undefined) {
+  if (platform === "qq") {
+    const labels: Record<string, string> = {
+      connected: "已连接",
+      error: "连接异常",
+      disabled: "未启用",
+      unknown: "未知",
+    };
+    return labels[status || "unknown"] || status || "未知";
+  }
+
+  const labels: Record<string, string> = {
+    logged_in: "已登录",
+    starting: "启动中",
+    scanning: "等待扫码",
+    stopped: "未启动",
+    error: "运行异常",
+    unknown: "未知",
+  };
+  return labels[status || "unknown"] || status || "未知";
+}
+
+function runtimeCapabilityLabel(key: string) {
+  const labels: Record<string, string> = {
+    text: "文本",
+    media: "媒体",
+    voiceInput: "语音输入",
+    voiceOutput: "语音输出",
+    stickers: "表情包",
+    proactiveMessages: "主动消息",
+    autoBindSingleReadyPersona: "自动绑定单角色",
+  };
+  return labels[key] || key;
+}
+
+function voiceModeLabel(mode: string | undefined) {
+  const labels: Record<string, string> = {
+    never: "永不发语音",
+    requested: "仅明确要求",
+    smart: "智能判定",
+    sometimes: "低频自然发送",
+    always: "总是语音",
+  };
+  return labels[mode || ""] || mode || "未知";
+}
+
+function ttsProviderLabel(provider: string | undefined) {
+  const labels: Record<string, string> = {
+    "windows-sapi": "Windows SAPI",
+    edge: "Edge TTS",
+    voxcpm: "VoxCPM",
+    minimax: "MiniMax",
+    none: "无降级",
+  };
+  return labels[provider || ""] || provider || "未知";
+}
+
+function llmUsageSourceLabel(source: string | undefined) {
+  const labels: Record<string, string> = {
+    database: "数据库持久化",
+    "in-memory-runtime": "当前进程内",
+  };
+  return labels[source || ""] || source || "未知";
+}
+
+function llmBudgetStatusLabel(status: string | undefined) {
+  const labels: Record<string, string> = {
+    disabled: "未配置",
+    ok: "额度内",
+    warn: "接近上限",
+    exceeded: "已超额",
+  };
+  return labels[status || ""] || status || "未知";
+}
+
+function llmBudgetTone(status: string | undefined): StatusTone {
+  if (status === "exceeded") return "error";
+  if (status === "warn") return "warn";
+  if (status === "ok") return "ok";
+  return "muted";
+}
+
+function llmEconomyLevelLabel(level: string | undefined) {
+  const labels: Record<string, string> = {
+    off: "未启用",
+    conservative: "保守",
+    strict: "严格",
+  };
+  return labels[level || ""] || level || "未知";
+}
+
+function llmEconomyTone(level: string | undefined): StatusTone {
+  if (level === "strict") return "error";
+  if (level === "conservative") return "warn";
+  return "muted";
+}
+
+function tokenBudgetText(item: any) {
+  const limit = Number(item?.limit ?? 0);
+  const used = Number(item?.used ?? 0);
+  if (!limit) return "未配置";
+  return `${used} / ${limit} tokens · 剩余 ${item?.remaining ?? 0}`;
+}
+
+function llmEconomyActionText(economy: any) {
+  if (!economy?.enabled) return "未执行自动降成本";
+  const actions = [
+    economy.voice?.allowSmartJudge === false ? "暂停语音智能判断" : "",
+    economy.tts?.allowLlmSpeechEnrichment === false ? "暂停 TTS LLM 润色" : "",
+    economy.proactive?.allowScheduled === false ? "暂停定时主动消息" : "",
+    economy.proactive?.allowAmbient === false ? "暂停环境主动消息" : "",
+  ].filter(Boolean);
+  return actions.length ? actions.join("、") : "保留当前链路";
+}
+
+function llmEconomyLimitText(summary: any, kind: "context" | "memory" | "source") {
+  if (!summary) return "暂无";
+  if (kind === "context") {
+    const context = summary.context ?? {};
+    return `读取 ${context.historyFetchLimit ?? "-"} 条 · 进 LLM ${context.llmHistoryLimit ?? "-"} 条 · 连续性 ${context.continuityRecentLimit ?? "-"} 条`;
+  }
+  if (kind === "memory") {
+    const memory = summary.memoryRecall ?? {};
+    return `${memory.maxMemories ?? "-"} 条 · 每条 ${memory.maxDescriptionChars ?? "-"} 字`;
+  }
+  const source = summary.sourceRecall ?? {};
+  return `${source.maxChunks ?? "-"} 段 · 摘录 ${source.maxExcerptChars ?? "-"} 字 · 改写 ${source.maxRewriteTokens ?? "-"} tokens`;
+}
+
+function llmUsageBucketText(items: any[] | undefined, key: string, empty = "暂无") {
+  const list = (items ?? []).slice(0, 4)
+    .map(item => {
+      const rawName = item?.[key] ?? item?.name ?? "未归属";
+      const name = rawName === null || rawName === "" ? "未归属" : String(rawName);
+      return `${name} ${item?.totalTokens ?? 0}`;
+    });
+  return list.length ? list.join("、") : empty;
+}
+
+function parseOptionalIntegerInput(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function parseUsageLimit(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return 50;
+  return Math.min(Math.max(parsed, 1), 200);
+}
+
+function optionalUsageText(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function usageErrorPreview(value: string | undefined) {
+  if (!value) return "";
+  return value.length > 120 ? `${value.slice(0, 120)}...` : value;
+}
+
+function usageRecordMeta(record: any) {
+  const parts = [
+    record?.purpose || "unknown",
+    record?.route || "unknown",
+    record?.userId == null ? "未归属用户" : `用户 #${record.userId}`,
+    record?.personaId == null ? "未归属角色" : `角色 #${record.personaId}`,
+  ];
+  return parts.join(" · ");
+}
+
+function platformDiagnosticAdvice(platform: "qq" | "wechat", status: any): DiagnosticAdvice | null {
+  const raw = platform === "wechat"
+    ? status?.lastError?.message || status?.lastError?.code || ""
+    : status?.lastError || "";
+  const message = String(raw || "").trim();
+
+  if (platform === "qq") {
+    if (!status?.enabled || status?.status === "disabled") {
+      return {
+        title: "QQ 未启用",
+        detail: "在本机运行副本 .env 设置 QQ_ENABLED=true，重启 Mirrai 后再检查 NapCat。",
+        tone: "muted",
+      };
+    }
+    if (status?.status === "connected") {
+      return {
+        title: "NapCat 已连接",
+        detail: "OneBot HTTP API 可访问，后续重点检查联系人绑定和 webhook 上报。",
+        tone: "ok",
+      };
+    }
+    if (/fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(message)) {
+      return {
+        title: "NapCat / OneBot 不可访问",
+        detail: "确认 NapCat 已启动，HTTP API 端口与 QQ_ONEBOT_BASE_URL 一致，并允许本机访问。",
+        tone: "error",
+      };
+    }
+    if (/401|403|unauthorized|token|access/i.test(message)) {
+      return {
+        title: "OneBot access token 可能不匹配",
+        detail: "核对 NapCat accessToken 与 QQ_ONEBOT_ACCESS_TOKEN；事件上报 token 另看 webhook token。",
+        tone: "error",
+      };
+    }
+    if (message) {
+      return {
+        title: "QQ 接入异常",
+        detail: message,
+        tone: "error",
+      };
+    }
+  }
+
+  if (platform === "wechat") {
+    if (!status || status.status === "stopped") {
+      return {
+        title: "微信机器人未启动",
+        detail: "需要使用微信页签启动服务；微信 Web 登录稳定性受账号和环境影响。",
+        tone: "muted",
+      };
+    }
+    if (status.status === "logged_in") {
+      return {
+        title: "微信已登录",
+        detail: "微信收发可用，后续重点检查联系人绑定和主动消息策略。",
+        tone: "ok",
+      };
+    }
+    if (status.syncCircuitBreakerTripped || /400|熔断|停止自动重试|login/i.test(message)) {
+      return {
+        title: "微信 Web 登录已熔断",
+        detail: "当前账号或环境可能无法获取扫码会话；先在微信页签停止服务，再确认 puppet / 登录态后重试。",
+        tone: "error",
+      };
+    }
+    if (status.status === "starting" || status.status === "scanning") {
+      return {
+        title: platformStatusLabel("wechat", status.status),
+        detail: "等待服务进入已登录状态；扫码二维码后再刷新诊断。",
+        tone: "warn",
+      };
+    }
+    if (message) {
+      return {
+        title: "微信接入异常",
+        detail: message,
+        tone: "error",
+      };
+    }
+  }
+
+  return null;
+}
+
+function AdvisoryBox({ advice }: { advice: DiagnosticAdvice | null }) {
+  if (!advice) return null;
+  const borderClasses: Record<StatusTone, string> = {
+    ok: "border-emerald-500/20 bg-emerald-500/5 text-emerald-800 dark:text-emerald-200",
+    warn: "border-amber-500/20 bg-amber-500/5 text-amber-800 dark:text-amber-200",
+    error: "border-red-500/20 bg-red-500/5 text-red-800 dark:text-red-200",
+    muted: "border-border/60 bg-muted/10 text-muted-foreground",
+  };
+  return (
+    <div className={`mt-3 rounded-lg border px-3 py-2.5 text-xs leading-relaxed ${borderClasses[advice.tone]}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">{advice.title}</span>
+        {advice.scope && <span className="rounded-full bg-background/55 px-1.5 py-0.5 font-mono text-[10px] uppercase">{advice.scope}</span>}
+      </div>
+      <div className="mt-1 break-words">{advice.detail}</div>
+      {advice.rawError && (
+        <div className="mt-2 rounded-md bg-background/45 px-2 py-1.5 font-mono text-[11px] break-all">
+          {advice.rawError}
+        </div>
+      )}
+      {advice.actions && advice.actions.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {advice.actions.map((action, index) => (
+            <li key={`${advice.id ?? advice.title}-${index}`} className="break-words">
+              {index + 1}. {action}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -516,15 +904,15 @@ function WeChatTab() {
           </div>
         )}
 
-        <div className="flex gap-2">
-          <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl"
+        <div className="flex gap-2.5">
+          <Button size="sm" className="bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl shadow-xs hover:shadow-md active:scale-[0.98] transition-all"
             onClick={() => startBot.mutate()}
             disabled={startBot.isPending || bot?.status === "logged_in" || bot?.status === "starting" || bot?.status === "scanning"}>
-            启动
+            启动服务
           </Button>
-          <Button size="sm" variant="outline" className="rounded-xl border-border"
+          <Button size="sm" variant="outline" className="rounded-xl border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 active:scale-[0.98] transition-all"
             onClick={() => stopBot.mutate()} disabled={stopBot.isPending || bot?.status === "stopped"}>
-            停止
+            停止服务
           </Button>
         </div>
       </section>
@@ -580,16 +968,16 @@ function WeChatTab() {
                     </div>
 
                     {binding ? (
-                      <Button size="sm" variant="outline" className="rounded-lg border-border"
+                      <Button size="sm" variant="outline" className="rounded-xl border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 active:scale-[0.98] transition-all"
                         onClick={() => unbindContact.mutate({ id: binding.id })}
                         disabled={unbindContact.isPending}>
-                        解除
+                        解除绑定
                       </Button>
                     ) : (
-                      <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg"
+                      <Button size="sm" className="bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl shadow-xs hover:shadow-md active:scale-[0.98] transition-all"
                         onClick={() => handleBind(contact)}
                         disabled={bindContact.isPending || !selectedPersonaId}>
-                        绑定
+                        进行绑定
                       </Button>
                     )}
                   </div>
@@ -762,16 +1150,16 @@ function QqTab() {
                     </div>
 
                     {binding ? (
-                      <Button size="sm" variant="outline" className="rounded-lg border-border"
+                      <Button size="sm" variant="outline" className="rounded-xl border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 active:scale-[0.98] transition-all"
                         onClick={() => unbindContact.mutate({ id: binding.id })}
                         disabled={unbindContact.isPending}>
-                        解除
+                        解除绑定
                       </Button>
                     ) : (
-                      <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg"
+                      <Button size="sm" className="bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl shadow-xs hover:shadow-md active:scale-[0.98] transition-all"
                         onClick={() => handleBind(contact)}
                         disabled={bindContact.isPending || !selectedPersonaId}>
-                        绑定
+                        进行绑定
                       </Button>
                     )}
                   </div>
@@ -781,6 +1169,499 @@ function QqTab() {
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ─── OPERATIONS DIAGNOSTICS TAB ─────────────────────────────────────────────
+
+function OperationsDiagnosticsTab() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [usageFilters, setUsageFilters] = useState({
+    from: "",
+    to: "",
+    userId: "",
+    personaId: "",
+    route: "",
+    provider: "",
+    purpose: "",
+    success: "all",
+    limit: "50",
+  });
+  const diagnostics = trpc.system.operationsDiagnostics.useQuery(undefined, { refetchInterval: 10000 });
+  const usageDetailsInput = useMemo(() => ({
+    from: optionalUsageText(usageFilters.from),
+    to: optionalUsageText(usageFilters.to),
+    userId: isAdmin ? parseOptionalIntegerInput(usageFilters.userId) : undefined,
+    personaId: parseOptionalIntegerInput(usageFilters.personaId),
+    route: optionalUsageText(usageFilters.route),
+    provider: optionalUsageText(usageFilters.provider),
+    purpose: optionalUsageText(usageFilters.purpose),
+    success: usageFilters.success === "success" ? true : usageFilters.success === "failed" ? false : undefined,
+    limit: parseUsageLimit(usageFilters.limit),
+  }), [isAdmin, usageFilters]);
+  const usageDetails = trpc.system.llmUsageDetails.useQuery(usageDetailsInput, { refetchInterval: 10000 });
+  const data = diagnostics.data as any;
+
+  if (diagnostics.isLoading) {
+    return (
+      <div className="warm-card p-6 text-sm text-muted-foreground">
+        正在读取运行诊断...
+      </div>
+    );
+  }
+
+  if (diagnostics.error || !data) {
+    return (
+      <div className="warm-card p-5 space-y-4 border-destructive/20">
+        <div className="flex items-center gap-2 text-destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <span className="text-sm font-medium">诊断读取失败</span>
+        </div>
+        <p className="text-xs text-muted-foreground break-words">{diagnostics.error?.message ?? "暂无诊断数据"}</p>
+        <Button size="sm" variant="outline" className="rounded-xl border-border"
+          onClick={() => diagnostics.refetch()}>
+          <RefreshCw className="w-3.5 h-3.5 mr-1.5" />重新读取
+        </Button>
+      </div>
+    );
+  }
+
+  const databaseModeLabel: Record<string, string> = {
+    local: "本机 PostgreSQL",
+    neon: "Neon PostgreSQL",
+    remote: "远程 PostgreSQL",
+    unconfigured: "未配置",
+    invalid: "连接串异常",
+  };
+  const databaseTone: Record<string, StatusTone> = {
+    local: "ok",
+    neon: "ok",
+    remote: "warn",
+    unconfigured: "error",
+    invalid: "error",
+  };
+  const qqLive = data.live?.qq;
+  const wechatLive = data.live?.wechat;
+  const qqStatusTone: StatusTone = qqLive?.status === "connected" ? "ok" : qqLive?.status === "error" ? "error" : "muted";
+  const wechatStatusTone: StatusTone = wechatLive?.status === "logged_in" ? "ok" : wechatLive?.status === "error" ? "error" : wechatLive?.status === "starting" || wechatLive?.status === "scanning" ? "warn" : "muted";
+  const troubleshootingItems = data.troubleshooting?.items ?? [];
+  const qqAdvice = data.troubleshooting?.platforms?.qq ?? platformDiagnosticAdvice("qq", qqLive);
+  const wechatAdvice = data.troubleshooting?.platforms?.wechat ?? platformDiagnosticAdvice("wechat", wechatLive);
+  const configuredProviders = (data.llm?.providers ?? []).filter((provider: any) => provider.configured);
+  const enabledStickerTypes = Object.entries(data.stickers?.enabledByType ?? {})
+    .map(([type, count]) => `${type} ${count}`)
+    .join("、") || "无";
+  const providerOverrideText = Object.entries(data.proactiveMessages?.llmProviderOverrides ?? {})
+    .map(([provider, count]) => `${provider} ${count}`)
+    .join("、") || "无";
+  const usageDetailsData = usageDetails.data as any;
+  const usageRecords = usageDetailsData?.records ?? [];
+
+  return (
+    <div className="space-y-6">
+      <section className="warm-card p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Activity className="w-5 h-5 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-foreground">运维诊断</h2>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {formatDiagnosticTime(data.generatedAt)} · {data.runtime?.nodeEnv ?? "development"}
+              </p>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" className="rounded-xl border-border"
+            onClick={() => diagnostics.refetch()} disabled={diagnostics.isFetching}>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${diagnostics.isFetching ? "animate-spin" : ""}`} />
+            {diagnostics.isFetching ? "刷新中..." : "刷新"}
+          </Button>
+        </div>
+      </section>
+
+      <DiagnosticCard icon={AlertTriangle} title="运维排障清单"
+        subtitle={`${data.troubleshooting?.summary?.errors ?? 0} 个错误 · ${data.troubleshooting?.summary?.warnings ?? 0} 个提醒`}>
+        {troubleshootingItems.length > 0 ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {troubleshootingItems.map((item: DiagnosticAdvice, index: number) => (
+              <AdvisoryBox key={item.id ?? `${item.scope}-${index}`} advice={item} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2.5 text-xs text-muted-foreground">
+            当前没有需要处理的配置或运行错误；如外部平台仍异常，请刷新诊断或查看本机服务日志。
+          </div>
+        )}
+      </DiagnosticCard>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DiagnosticCard icon={Server} title="运行与数据库"
+          subtitle={<span className="font-mono break-all">{data.runtime?.cwd}</span>}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+              <DiagnosticRow label="数据库模式" value=""
+                badge={<StatusBadge label={databaseModeLabel[data.database?.mode] ?? data.database?.mode ?? "未知"} tone={databaseTone[data.database?.mode] ?? "muted"} />} />
+              <DiagnosticRow label="Host" value={data.database?.host || "未配置"} mono />
+              <DiagnosticRow label="Database" value={data.database?.database || "未配置"} mono />
+              <DiagnosticRow label="推荐命令" value={data.database?.recommendedDevCommand || "corepack pnpm run dev"} mono />
+            </div>
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+              <DiagnosticRow label="运行副本" value={data.runtime?.localWorktree || "F:/Code/Mirrai"} mono />
+              <DiagnosticRow label="运行数据" value={data.runtime?.localDataRoot || "F:/.mirrai-local/Mirrai"} mono />
+              <DiagnosticRow label="上传目录" value={data.runtime?.uploadDir || "未配置"} mono />
+              <DiagnosticRow label="贴图目录" value={data.runtime?.stickerBaseDir || "未配置"} mono />
+            </div>
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Cpu} title="LLM 路由"
+          subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个提供商已配置`}>
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="默认提供商" value={data.llm?.defaultProvider || "未设置"} />
+            <DiagnosticRow label="DeepSeek 动态路由" value=""
+              badge={<BoolBadge value={Boolean(data.llm?.dynamicDeepSeekRouting)} trueLabel="启用" falseLabel="未启用" />} />
+            <DiagnosticRow label="用量来源" value={llmUsageSourceLabel(data.llm?.usage?.source)} />
+            <DiagnosticRow label="今日调用" value={`${data.llm?.usage?.today?.calls ?? 0} 次 · 失败 ${data.llm?.usage?.today?.failedCalls ?? 0}`} />
+            <DiagnosticRow label="今日 tokens" value={data.llm?.usage?.today?.totalTokens ?? 0} />
+            <DiagnosticRow label="本周 tokens" value={`${data.llm?.usage?.week?.totalTokens ?? 0} · ${data.llm?.usage?.week?.calls ?? 0} 次`} />
+            <DiagnosticRow label="本月 tokens" value={`${data.llm?.usage?.month?.totalTokens ?? 0} · ${data.llm?.usage?.month?.calls ?? 0} 次`} />
+            <DiagnosticRow label="今日用户归属" value={llmUsageBucketText(data.llm?.usage?.byUser, "userId")} />
+            <DiagnosticRow label="今日角色归属" value={llmUsageBucketText(data.llm?.usage?.byPersona, "personaId")} />
+            <DiagnosticRow label="今日入口归属" value={llmUsageBucketText(data.llm?.usage?.byRoute, "route")} />
+            <DiagnosticRow label="软额度状态" value=""
+              badge={<StatusBadge label={llmBudgetStatusLabel(data.llm?.budget?.status)} tone={llmBudgetTone(data.llm?.budget?.status)} />} />
+            <DiagnosticRow label="每日软额度" value={tokenBudgetText(data.llm?.budget?.daily)} />
+            <DiagnosticRow label="月度软额度" value={tokenBudgetText(data.llm?.budget?.monthly)} />
+            <DiagnosticRow label="额度建议" value={data.llm?.budget?.recommendation ?? "未配置软额度"} />
+            <DiagnosticRow label="省额度模式" value=""
+              badge={<StatusBadge label={llmEconomyLevelLabel(data.llm?.economy?.level)} tone={llmEconomyTone(data.llm?.economy?.level)} />} />
+            <DiagnosticRow label="自动降成本" value={llmEconomyActionText(data.llm?.economy)} />
+            <DiagnosticRow label="上下文上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "context")} />
+            <DiagnosticRow label="记忆召回上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "memory")} />
+            <DiagnosticRow label="资料库召回上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "source")} />
+            <DiagnosticRow label="执行建议" value={data.llm?.economy?.recommendation ?? "省额度模式未启用。"} />
+            <DiagnosticRow label="上限说明" value={data.llm?.economy?.limitsSummary?.safeguards?.[0] ?? "这些数字是每轮保护上限，不是质量目标。"} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(data.llm?.providers ?? []).map((provider: any) => (
+              <div key={provider.name} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-foreground truncate">{provider.name}</span>
+                  <BoolBadge value={provider.configured} />
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground font-mono break-all">
+                  {provider.model || provider.endpoint?.origin || "未设置模型"}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">用量明细</h3>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {usageDetailsData
+                    ? `${llmUsageSourceLabel(usageDetailsData.source)} · ${usageDetailsData.summary?.calls ?? 0} 次 · ${usageDetailsData.summary?.totalTokens ?? 0} tokens`
+                    : "读取中..."}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+                  onClick={() => usageDetails.refetch()} disabled={usageDetails.isFetching}>
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${usageDetails.isFetching ? "animate-spin" : ""}`} />
+                  刷新
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+                  onClick={() => setUsageFilters({
+                    from: "",
+                    to: "",
+                    userId: "",
+                    personaId: "",
+                    route: "",
+                    provider: "",
+                    purpose: "",
+                    success: "all",
+                    limit: "50",
+                  })}>
+                  清空
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">开始时间</Label>
+                <Input type="datetime-local" value={usageFilters.from}
+                  onChange={e => setUsageFilters(filters => ({ ...filters, from: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">结束时间</Label>
+                <Input type="datetime-local" value={usageFilters.to}
+                  onChange={e => setUsageFilters(filters => ({ ...filters, to: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              {isAdmin && (
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">用户 ID</Label>
+                  <Input value={usageFilters.userId} inputMode="numeric" placeholder="全部"
+                    onChange={e => setUsageFilters(filters => ({ ...filters, userId: e.target.value }))}
+                    className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">角色 ID</Label>
+                <Input value={usageFilters.personaId} inputMode="numeric" placeholder="全部"
+                  onChange={e => setUsageFilters(filters => ({ ...filters, personaId: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">入口</Label>
+                <Input value={usageFilters.route} placeholder="social.qq"
+                  onChange={e => setUsageFilters(filters => ({ ...filters, route: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Provider</Label>
+                <Input value={usageFilters.provider} placeholder="DeepSeek"
+                  onChange={e => setUsageFilters(filters => ({ ...filters, provider: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Purpose</Label>
+                <Input value={usageFilters.purpose} placeholder="chat"
+                  onChange={e => setUsageFilters(filters => ({ ...filters, purpose: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">结果</Label>
+                <select value={usageFilters.success}
+                  onChange={e => setUsageFilters(filters => ({ ...filters, success: e.target.value }))}
+                  className="w-full h-9 px-2 bg-background/60 border border-border/60 rounded-lg text-xs text-foreground">
+                  <option value="all">全部</option>
+                  <option value="success">成功</option>
+                  <option value="failed">失败</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">条数</Label>
+                <Input value={usageFilters.limit} inputMode="numeric"
+                  onChange={e => setUsageFilters(filters => ({ ...filters, limit: e.target.value }))}
+                  className="h-9 bg-background/60 border-border/60 rounded-lg text-xs" />
+              </div>
+            </div>
+
+            {usageDetailsData && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="rounded-md bg-background/45 px-2.5 py-2">
+                  <div className="text-sm font-semibold text-foreground">{usageDetailsData.summary?.calls ?? 0}</div>
+                  <div className="text-[11px] text-muted-foreground">调用</div>
+                </div>
+                <div className="rounded-md bg-background/45 px-2.5 py-2">
+                  <div className="text-sm font-semibold text-foreground">{usageDetailsData.summary?.failedCalls ?? 0}</div>
+                  <div className="text-[11px] text-muted-foreground">失败</div>
+                </div>
+                <div className="rounded-md bg-background/45 px-2.5 py-2">
+                  <div className="text-sm font-semibold text-foreground">{usageDetailsData.summary?.totalTokens ?? 0}</div>
+                  <div className="text-[11px] text-muted-foreground">tokens</div>
+                </div>
+                <div className="rounded-md bg-background/45 px-2.5 py-2">
+                  <div className="text-sm font-semibold text-foreground">{usageDetailsData.summary?.averageDurationMs ?? 0}ms</div>
+                  <div className="text-[11px] text-muted-foreground">平均耗时</div>
+                </div>
+              </div>
+            )}
+
+            {usageDetails.error && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-300 break-words">
+                {usageDetails.error.message}
+              </div>
+            )}
+
+            {!usageDetails.error && usageDetails.isLoading && (
+              <div className="rounded-lg border border-border/50 bg-background/35 px-3 py-2.5 text-xs text-muted-foreground">
+                正在读取用量明细...
+              </div>
+            )}
+
+            {!usageDetails.error && !usageDetails.isLoading && usageRecords.length === 0 && (
+              <div className="rounded-lg border border-border/50 bg-background/35 px-3 py-2.5 text-xs text-muted-foreground">
+                当前筛选下暂无记录。
+              </div>
+            )}
+
+            {usageRecords.length > 0 && (
+              <div className="space-y-2">
+                {usageRecords.map((record: any) => (
+                  <div key={record.id} className="rounded-lg border border-border/50 bg-background/45 px-3 py-2.5 min-w-0">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[11px] text-muted-foreground">{formatDiagnosticTime(record.startedAt)}</span>
+                          <StatusBadge label={record.success ? "成功" : "失败"} tone={record.success ? "ok" : "error"} />
+                        </div>
+                        <div className="mt-1 text-sm font-medium text-foreground break-words">
+                          {record.provider}{record.model ? ` · ${record.model}` : ""}
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground break-words">
+                          {usageRecordMeta(record)}
+                        </div>
+                        {record.error && (
+                          <div className="mt-2 rounded-md bg-red-500/5 px-2 py-1.5 font-mono text-[11px] text-red-700 dark:text-red-300 break-all">
+                            {usageErrorPreview(record.error)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 sm:min-w-[210px]">
+                        <div className="rounded-md bg-muted/20 px-2 py-1.5 text-right">
+                          <div className="text-xs font-semibold text-foreground">{record.totalTokens ?? 0}</div>
+                          <div className="text-[10px] text-muted-foreground">total</div>
+                        </div>
+                        <div className="rounded-md bg-muted/20 px-2 py-1.5 text-right">
+                          <div className="text-xs font-semibold text-foreground">{record.inputTokens ?? 0}/{record.outputTokens ?? 0}</div>
+                          <div className="text-[10px] text-muted-foreground">in/out</div>
+                        </div>
+                        <div className="rounded-md bg-muted/20 px-2 py-1.5 text-right">
+                          <div className="text-xs font-semibold text-foreground">{record.durationMs ?? 0}ms</div>
+                          <div className="text-[10px] text-muted-foreground">耗时</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DiagnosticCard>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DiagnosticCard icon={MessageCircle} title="平台接入"
+          subtitle="QQ / 微信实时状态与绑定策略">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="QQ 开关" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
+            <DiagnosticRow label="QQ 实时状态" value=""
+              badge={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />} />
+            <DiagnosticRow label="OneBot" value={data.qq?.onebotEndpoint?.origin || "未配置"} mono />
+            <DiagnosticRow label="Webhook token" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.webhookSecretConfigured)} />} />
+            <DiagnosticRow label="群聊" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.allowGroups)} trueLabel="允许" falseLabel="关闭" />} />
+            {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
+            <AdvisoryBox advice={qqAdvice} />
+          </div>
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="微信开关" value=""
+              badge={<BoolBadge value={Boolean(data.wechat?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
+            <DiagnosticRow label="微信实时状态" value=""
+              badge={<StatusBadge label={platformStatusLabel("wechat", wechatLive?.status)} tone={wechatStatusTone} />} />
+            <DiagnosticRow label="Puppet" value={data.wechat?.puppet || "未配置"} />
+            <DiagnosticRow label="Bot 名称" value={data.wechat?.botName || "未配置"} />
+            <DiagnosticRow label="Session" value={data.wechat?.sessionDir || "未配置"} mono />
+            {wechatLive?.lastError?.message && <DiagnosticRow label="微信原始错误" value={wechatLive.lastError.message} />}
+            <AdvisoryBox advice={wechatAdvice} />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Radio} title="Runtime 收敛"
+          subtitle="Web / QQ / 微信的人物运行时能力">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
+              <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold uppercase text-foreground">{platform}</span>
+                  <BoolBadge value={Boolean(runtime.enabled)} trueLabel="启用" falseLabel="关闭" />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(runtime)
+                    .filter(([key]) => key !== "enabled")
+                    .map(([key, value]) => (
+                      <StatusBadge key={key} label={runtimeCapabilityLabel(key)} tone={value ? "ok" : "muted"} />
+                    ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="文本 runtime" value={data.architecture?.textRuntime} mono />
+            <DiagnosticRow label="媒体 runtime" value={data.architecture?.mediaRuntime} mono />
+            <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Database} title="持久化与数据安全"
+          subtitle="运行态、导出、删除和迁移覆盖">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="角色运行态" value={data.persistence?.runtimeStorage?.personaRuntime ?? "persona_runtime_states"} mono />
+            <DiagnosticRow label="LLM 用量" value={data.persistence?.runtimeStorage?.llmUsage ?? "llm_usage_records"} mono />
+            <DiagnosticRow label="本机清理脚本" value={data.persistence?.localRuntimeCleanupScript ?? "scripts/cleanup-local-runtime.ps1"} mono />
+            <DiagnosticRow label="同步脚本" value={data.persistence?.syncScript ?? "scripts/sync-local-worktree.ps1"} mono />
+            <DiagnosticRow label="正式迁移" value={compactList(data.persistence?.requiredMigrations, "暂无")} mono />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+              <div className="text-xs font-semibold text-foreground">导出覆盖</div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground break-words">
+                {compactList(data.persistence?.exportSections)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+              <div className="text-xs font-semibold text-foreground">删除覆盖</div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground break-words">
+                {compactList(data.persistence?.deleteSections)}
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {(data.persistence?.notes ?? []).map((note: string, index: number) => (
+              <div key={index} className="rounded-lg border border-border/50 bg-background/35 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                {note}
+              </div>
+            ))}
+          </div>
+        </DiagnosticCard>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <DiagnosticCard icon={Volume2} title="语音">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="回复策略" value=""
+              badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.voice?.policy?.probability ?? 0} · ${data.voice?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="ASR" value={`${data.voice?.asr?.provider ?? "未知"} · ${data.voice?.asr?.model ?? "未知"}`} />
+            <DiagnosticRow label="TTS" value={`${ttsProviderLabel(data.voice?.tts?.provider)} -> ${ttsProviderLabel(data.voice?.tts?.fallbackProvider)}`} />
+            <DiagnosticRow label="VoxCPM" value={data.voice?.tts?.voxcpmEndpoint?.origin ?? "未配置"} mono />
+            <DiagnosticRow label="MiniMax" value=""
+              badge={<BoolBadge value={Boolean(data.voice?.tts?.minimaxConfigured)} />} />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={ImageIcon} title="表情包">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="策略" value=""
+              badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
+            <DiagnosticRow label="总量 / 启用" value={`${data.stickers?.total ?? 0} / ${data.stickers?.enabled ?? 0}`} />
+            <DiagnosticRow label="类型" value={enabledStickerTypes} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.stickers?.policy?.probability ?? 0} · ${data.stickers?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="目录" value={data.stickers?.baseDir ?? "未配置"} mono />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Terminal} title="主动消息">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
+            <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
+            <DiagnosticRow label="定时槽位" value={data.proactiveMessages?.configuredSlotCount ?? 0} />
+            <DiagnosticRow label="时间" value={compactList(data.proactiveMessages?.uniqueTimes)} />
+            <DiagnosticRow label="风格提示" value={`${data.proactiveMessages?.stylePromptConfiguredPersonas ?? 0} 个角色`} />
+            <DiagnosticRow label="角色模型覆盖" value={providerOverrideText} />
+          </div>
+        </DiagnosticCard>
+      </div>
     </div>
   );
 }
@@ -855,6 +1736,28 @@ function DataManagementTab() {
                 <div className="text-[10px] text-muted-foreground">文件</div>
               </div>
             </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
+              <div className="text-center p-2 bg-muted/20 rounded-lg">
+                <div className="text-sm font-semibold text-foreground">{accountStats.totalMemories ?? 0}</div>
+                <div className="text-[10px] text-muted-foreground">记忆</div>
+              </div>
+              <div className="text-center p-2 bg-muted/20 rounded-lg">
+                <div className="text-sm font-semibold text-foreground">{accountStats.totalSources ?? 0}</div>
+                <div className="text-[10px] text-muted-foreground">资料</div>
+              </div>
+              <div className="text-center p-2 bg-muted/20 rounded-lg">
+                <div className="text-sm font-semibold text-foreground">{accountStats.totalRoleplayChannels ?? 0}</div>
+                <div className="text-[10px] text-muted-foreground">频道</div>
+              </div>
+              <div className="text-center p-2 bg-muted/20 rounded-lg">
+                <div className="text-sm font-semibold text-foreground">{accountStats.totalLlmUsageRecords ?? 0}</div>
+                <div className="text-[10px] text-muted-foreground">用量</div>
+              </div>
+              <div className="text-center p-2 bg-muted/20 rounded-lg">
+                <div className="text-sm font-semibold text-foreground">{accountStats.totalRuntimeStates ?? 0}</div>
+                <div className="text-[10px] text-muted-foreground">运行态</div>
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -865,7 +1768,7 @@ function DataManagementTab() {
           <Download className="w-4 h-4 text-primary/60" /> 数据导出
         </h3>
         <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-          导出你的所有数据，包括个人资料、分身信息和对话记录。数据将以 JSON 格式下载。
+          导出账户资料、分身、角色运行态、对话、记忆、资料库、日记、Roleplay 频道、平台绑定和 LLM 用量记录。JSON 不包含密码哈希、会话 Cookie、LLM API Key、本机上传文件实体、TTS 缓存或本机数据库文件。
         </p>
         <Button size="sm" variant="outline" className="rounded-xl border-border"
           onClick={() => exportData.mutate()}
@@ -883,7 +1786,7 @@ function DataManagementTab() {
         <div className="p-4 bg-destructive/5 rounded-xl border border-destructive/10">
           <p className="text-sm text-foreground font-medium mb-1">删除账户</p>
           <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-            永久删除你的账户和所有相关数据，包括所有分身、对话记录和上传文件。此操作不可撤销。
+            永久删除你的账户和所有相关数据库记录，包括分身、角色运行态、对话、记忆、资料库、Roleplay、平台绑定和 LLM 用量记录。此操作不可撤销。
           </p>
           <Button size="sm" variant="destructive" className="rounded-xl"
             onClick={() => setShowDeleteDialog(true)}>
@@ -900,7 +1803,7 @@ function DataManagementTab() {
             <div className="p-3 bg-destructive/5 rounded-xl border border-destructive/10">
               <p className="text-xs text-destructive leading-relaxed">
                 此操作将永久删除你的账户及所有数据，包括 {accountStats?.totalPersonas || 0} 个分身、
-                {accountStats?.totalMessages || 0} 条消息和 {accountStats?.totalFiles || 0} 个文件。
+                {accountStats?.totalMessages || 0} 条消息、{accountStats?.totalRuntimeStates || 0} 条运行态和 {accountStats?.totalFiles || 0} 个文件元数据。
                 此操作不可撤销。
               </p>
             </div>
@@ -961,31 +1864,40 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="container py-6 max-w-2xl mx-auto">
-        {/* Tab Navigation */}
-        <div className="flex gap-1 mb-6 p-1 bg-muted/30 rounded-xl overflow-x-auto scrollbar-hide">
-          {TABS.map(tab => {
-            const Icon = tab.icon;
-            return (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-shrink-0 ${
-                  activeTab === tab.key
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}>
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+      <main className="container py-6 max-w-5xl mx-auto px-4">
+        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-8 items-start">
+          {/* 左侧侧边栏 (大屏常驻，移动端横向滚动) */}
+          <aside className="flex md:flex-col gap-1 p-1.5 bg-card/60 backdrop-blur-md border border-border/40 rounded-2xl md:sticky md:top-20 overflow-x-auto scrollbar-hide">
+            {TABS.map(tab => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.key;
+              return (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                  className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all flex-shrink-0 md:w-full relative ${
+                    isActive
+                      ? "bg-primary/8 text-primary font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                  }`}>
+                  {isActive && (
+                    <span className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full hidden md:block" />
+                  )}
+                  <Icon className={`w-4.5 h-4.5 ${isActive ? "text-primary" : "text-muted-foreground/80"}`} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </aside>
 
-        {/* Tab Content */}
-        {activeTab === "profile" && <ProfileTab />}
-        {activeTab === "ai" && <AISettingsTab />}
-        {activeTab === "wechat" && <WeChatTab />}
-        {activeTab === "qq" && <QqTab />}
-        {activeTab === "data" && <DataManagementTab />}
+          {/* 右侧内容 */}
+          <div className="space-y-6 min-w-0">
+            {activeTab === "profile" && <ProfileTab />}
+            {activeTab === "ai" && <AISettingsTab />}
+            {activeTab === "wechat" && <WeChatTab />}
+            {activeTab === "qq" && <QqTab />}
+            {activeTab === "diagnostics" && <OperationsDiagnosticsTab />}
+            {activeTab === "data" && <DataManagementTab />}
+          </div>
+        </div>
       </main>
     </div>
   );

@@ -1,13 +1,25 @@
 import { nanoid } from "nanoid";
+import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
 import { applyIncomingLifeState } from "../_core/life-schedule";
+import { withPersonaRuntimeDiagnostics } from "../_core/persona-runtime";
 import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import * as db from "../db";
 import { llmService } from "../llm";
+import { buildLlmTurnEconomyPolicy, getCurrentLlmEconomyPolicy } from "../llm/economy";
 import { storagePut } from "../storage";
 import { describeImage, type VisionImageInput } from "../vision";
 import { buildConversationContinuityInstruction } from "./conversation-continuity";
-import type { SocialPlatform } from "./persona-text-chat";
+import { buildPersonaMemoryRecallContext } from "./memory-recall";
+import { buildTurnPlanInstruction, planPersonaTurn } from "./persona-turn-planner";
+import {
+  resolveRuntimeChannel,
+  resolveRuntimeOutputPreference,
+  type SocialRuntimeBinding,
+  type SocialRuntimeChannel,
+  type SocialRuntimeOutputPreference,
+  type SocialRuntimePlatform,
+} from "./runtime-request";
 
 export type SocialMediaInput = VisionImageInput & {
   kind: "image" | "emoticon";
@@ -15,18 +27,26 @@ export type SocialMediaInput = VisionImageInput & {
 };
 
 export type SocialPersonaMediaChatOptions = {
-  platform: SocialPlatform;
-  binding: {
-    personaId: number;
-    userId: number;
-  };
+  platform: SocialRuntimePlatform;
+  binding: SocialRuntimeBinding;
   contactName: string;
   media: SocialMediaInput;
-  channel?: "web" | "wechat";
+  channel?: SocialRuntimeChannel;
   storagePrefix: string;
+  sceneOverlay?: string | null;
+  outputPreference?: SocialRuntimeOutputPreference;
 };
 
-function platformLabel(platform: SocialPlatform): string {
+export type SocialPersonaMediaChatResult = {
+  replyText: string;
+  emotionalState: string;
+  userMessageId: number;
+  assistantMessageId: number;
+  mediaUrl?: string;
+};
+
+function platformLabel(platform: SocialRuntimePlatform): string {
+  if (platform === "web") return "网页";
   return platform === "qq" ? "QQ" : "微信";
 }
 
@@ -39,24 +59,25 @@ function mediaLabel(media: SocialMediaInput): string {
   return "[图片]";
 }
 
-function mediaKindLabel(platform: SocialPlatform, media: SocialMediaInput): string {
+function mediaKindLabel(platform: SocialRuntimePlatform, media: SocialMediaInput): string {
   const platformName = platformLabel(platform);
   if (media.kind === "emoticon") return `${platformName}表情包`;
   return `${platformName}图片`;
 }
 
-function socialSystemPromptOverlay(platform: SocialPlatform): string {
+function socialSystemPromptOverlay(platform: SocialRuntimePlatform): string {
   const label = platformLabel(platform);
   return [
     `【${label} 接入规则】${label} 只是同一个人物的另一个聊天入口，不是新身份、新关系或新时间线。`,
     "你必须沿用网页、微信和其他入口里的同一套人物设定、共同经历、称呼习惯、异地背景和情感进展。",
+    buildCurrentUserIdentityOverride("平台用户身份覆盖"),
     "如果用户发来图片或表情包，只把它当作当前聊天中的自然内容来回应，不要提视觉模型、识别结果、接口或平台差异。",
     "回复节奏保持自然私聊感：能一句说清就一句，不要每次都关心、说教、催睡或总结；只有对方明显需要安慰、解释或认真讨论时才展开。",
   ].join("\n");
 }
 
 function mediaInstruction(
-  platform: SocialPlatform,
+  platform: SocialRuntimePlatform,
   contactName: string,
   media: SocialMediaInput,
   description: string,
@@ -71,7 +92,7 @@ function mediaInstruction(
   ].filter(Boolean).join("\n");
 }
 
-function noVisionInstruction(platform: SocialPlatform, contactName: string, media: SocialMediaInput): string {
+function noVisionInstruction(platform: SocialRuntimePlatform, contactName: string, media: SocialMediaInput): string {
   const sender = contactName || "对方";
   const caption = media.caption?.trim();
   const base = media.kind === "emoticon"
@@ -90,9 +111,12 @@ function mediaReplyLoopGuard(history: Array<{ role: string; content: string }>):
   return "【话题防循环】上一轮已经把话题收束到睡觉、休息或明天安排。用户这次发图片/表情包，多半是在继续互动或表达情绪；不要再催睡或关闭话题，先回应图片/表情包带来的情绪。";
 }
 
-export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaChatOptions): Promise<string | null> {
+export async function handleSocialPersonaMediaChatDetailed(
+  options: SocialPersonaMediaChatOptions,
+): Promise<SocialPersonaMediaChatResult | null> {
   const persona = await db.getPersonaById(options.binding.personaId, options.binding.userId);
   if (!persona || persona.analysisStatus !== "ready") return null;
+  const now = new Date();
 
   let url: string | undefined;
   if (options.media.buffer.byteLength > 0) {
@@ -124,13 +148,20 @@ export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaCh
     messageType: "image",
     mediaUrl: url,
     emotionalState: persona.emotionalState,
-    channel: options.channel ?? "web",
+    channel: resolveRuntimeChannel(options),
   });
 
-  const history = await db.getMessagesByPersonaId(options.binding.personaId, 20);
+  const baseEconomy = await getCurrentLlmEconomyPolicy();
+  const economy = buildLlmTurnEconomyPolicy(baseEconomy, {
+    route: `social.${options.platform}.media_reply`,
+    platform: options.platform,
+    intent: "media",
+  });
+  const history = await db.getMessagesByPersonaId(options.binding.personaId, economy.context.historyFetchLimit);
   const lifeGate = applyIncomingLifeState(
     persona.personaData,
     [mediaLabel(options.media), caption || ""].filter(Boolean).join(" "),
+    now,
   );
   if (lifeGate.changed) {
     await db.updatePersona(options.binding.personaId, options.binding.userId, {
@@ -144,18 +175,51 @@ export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaCh
   const personaForPrompt = lifeGate.changed
     ? { ...persona, personaData: lifeGate.personaData }
     : persona;
+  const outputPreference = resolveRuntimeOutputPreference(options);
+  const turnPlan = planPersonaTurn({
+    platform: options.platform,
+    inputText: [mediaLabel(options.media), caption || ""].filter(Boolean).join(" "),
+    isMedia: true,
+    recentMessages: history.slice(-economy.context.continuityRecentLimit),
+    personaData: personaForPrompt.personaData,
+    outputPreference,
+    now,
+  });
+  console.info(
+    `[PersonaTurn] platform=${turnPlan.platform} intent=${turnPlan.intent} memory=${turnPlan.memoryMode} activity=${turnPlan.currentActivity} replyLength=${turnPlan.replyLength} risks=${turnPlan.risks.join(",")}`,
+  );
+  const memoryRecallContext = await buildPersonaMemoryRecallContext({
+    personaId: options.binding.personaId,
+    userId: options.binding.userId,
+    messageText: [mediaLabel(options.media), caption || ""].filter(Boolean).join(" "),
+    recentMessages: history.slice(-economy.context.recallRecentLimit),
+    memoryMode: turnPlan.memoryMode,
+    limit: economy.memoryRecall.maxMemories,
+    maxDescriptionChars: economy.memoryRecall.maxDescriptionChars,
+  });
 
   const systemPrompt = [
-    buildSystemPrompt(personaForPrompt),
+    buildSystemPrompt(personaForPrompt, {
+      sceneOverlay: options.sceneOverlay,
+      now,
+    }),
     socialSystemPromptOverlay(options.platform),
-    buildConversationContinuityInstruction(history, persona.name, "reply"),
-  ].join("\n\n");
+    buildTurnPlanInstruction(turnPlan),
+    buildConversationContinuityInstruction(history, persona.name, "reply", {
+      recentLimit: economy.context.continuityRecentLimit,
+      timelineLimit: economy.context.continuityTimelineLimit,
+    }),
+    memoryRecallContext,
+  ].filter(Boolean).join("\n\n");
   const currentMediaInstruction = visionDescription
     ? mediaInstruction(options.platform, options.contactName, options.media, visionDescription)
     : noVisionInstruction(options.platform, options.contactName, options.media);
   const loopGuard = mediaReplyLoopGuard(history);
+  const defaultConfig = await db.getDefaultLlmConfig(options.binding.userId);
+  const extra = (defaultConfig?.extraConfig as any) || {};
+  const provider = (persona as any).llmProvider || undefined;
 
-  const llmHistory = history.slice(-19).map(m => {
+  const llmHistory = history.slice(-economy.context.llmHistoryLimit).map(m => {
     if (m.id === userMessageId) {
       return {
         role: "user" as const,
@@ -173,25 +237,66 @@ export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaCh
       { role: "system", content: systemPrompt },
       ...llmHistory,
     ],
+    options: {
+      provider,
+      temperature: extra.temperature,
+      maxTokens: extra.maxTokens,
+      purpose: "media_reply",
+      userId: options.binding.userId,
+      personaId: options.binding.personaId,
+      route: `social.${options.platform}.media_reply`,
+    },
   });
 
   const replyText = cleanAssistantReply(response);
   const newState = computeEmotionalState(label, replyText, persona.emotionalState);
 
-  await db.createMessage({
+  const assistantMessageId = await db.createMessage({
     personaId: options.binding.personaId,
     userId: options.binding.userId,
     role: "assistant",
     content: replyText,
     emotionalState: newState,
-    channel: options.channel ?? "web",
+    channel: resolveRuntimeChannel(options),
   });
+
+  const runtimeDiagnostics = {
+    lastTurnAt: now.toISOString(),
+    platform: options.platform,
+    channel: resolveRuntimeChannel(options),
+    mode: "reply",
+    inputPreview: userContent.slice(0, 240),
+    replyPreview: replyText.slice(0, 240),
+    mediaKind: options.media.kind,
+    mediaUrl: url,
+    turnPlan,
+    economy: {
+      level: economy.level,
+      context: economy.context,
+      memoryRecall: economy.memoryRecall,
+      recallDegradation: economy.recallDegradation,
+    },
+    memoryRecallUsed: Boolean(memoryRecallContext),
+    visionUsed: Boolean(visionDescription),
+  };
 
   await db.updatePersona(options.binding.personaId, options.binding.userId, {
     chatCount: (persona.chatCount || 0) + 1,
-    lastChatAt: new Date(),
+    lastChatAt: now,
     emotionalState: newState as any,
+    personaData: withPersonaRuntimeDiagnostics(personaForPrompt.personaData, runtimeDiagnostics),
   });
 
-  return replyText;
+  return {
+    replyText,
+    emotionalState: newState,
+    userMessageId,
+    assistantMessageId,
+    mediaUrl: url,
+  };
+}
+
+export async function handleSocialPersonaMediaChat(options: SocialPersonaMediaChatOptions): Promise<string | null> {
+  const result = await handleSocialPersonaMediaChatDetailed(options);
+  return result?.replyText ?? null;
 }

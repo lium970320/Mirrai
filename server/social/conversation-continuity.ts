@@ -1,3 +1,5 @@
+import { getBeijingTimeKey } from "../_core/time-context";
+
 type ConversationMessage = {
   role: string;
   content: string;
@@ -13,7 +15,7 @@ function timeLabel(value: Date | string | undefined): string {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return getBeijingTimeKey(date);
 }
 
 function compact(content: string, max = 140): string {
@@ -63,9 +65,10 @@ export function buildConversationContinuityInstruction(
   messages: ConversationMessage[],
   personaName = "王芃泽",
   mode: "reply" | "proactive" = "reply",
+  options: { recentLimit?: number; timelineLimit?: number } = {},
 ): string {
-  const recent = messages.slice(-12);
-  const timeline = formatRecentConversationTimeline(recent, personaName, 10);
+  const recent = messages.slice(-(options.recentLimit ?? 12));
+  const timeline = formatRecentConversationTimeline(recent, personaName, options.timelineLimit ?? 10);
   const last = recent[recent.length - 1];
   const lastAssistant = lastByRole(recent, "assistant");
   const lastUser = lastByRole(recent, "user");

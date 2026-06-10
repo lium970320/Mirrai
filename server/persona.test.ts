@@ -34,6 +34,12 @@ vi.mock("./db", () => ({
   setDefaultLlmConfig: vi.fn(),
   getWechatBotState: vi.fn(),
   upsertWechatBotState: vi.fn(),
+  createRoleplayChannel: vi.fn(),
+  getRoleplayChannels: vi.fn().mockResolvedValue([]),
+  getRoleplayChannelById: vi.fn().mockResolvedValue(null),
+  getRoleplayChannelMessages: vi.fn().mockResolvedValue([]),
+  createRoleplayMessage: vi.fn(),
+  deleteRoleplayChannel: vi.fn(),
 }));
 
 function makeCtx(userId = 1): TrpcContext {

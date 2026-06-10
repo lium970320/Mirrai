@@ -4,7 +4,7 @@ const SOURCE_RECALL_TRIGGER =
   /记得|还记得|想起|回忆|当年|以前|那时候|那会儿|原文|原著|小说|剧情|细节|第.{0,3}次|初遇|遇见|见面|中考|考场|学校|西北|湾子|老鹰峡|柱子|王玉柱|敏子|北京|南京|姚敏|小川|老赵|小刘|大刘|小彭|林慧珍|车祸|左臂|治疗|地质|研究所|表白|亲吻|喜欢|救过|向导|睡在一起|睡一块|抱着|小时候/;
 
 const SOURCE_FOLLOW_UP_PATTERN =
-  /不对|不是这样|不是这样的|瞎说|乱说|记错|说错|再想想|好好想|具体|情形|细节|明明|根本|后来呢|然后呢|当时/;
+  /不对|不是这样|不是这样的|瞎说|乱说|记错|说错|再想想|好好想|具体|情形|细节|明明|根本|后来呢|然后呢|当时|哪里|哪儿|谁|怎么|为什么|为何|哪段|哪个|是不是|对不对|真的吗|之前呢|那时候呢/;
 
 const SOURCE_CORRECTION_PATTERN =
   /不对|不是这样|不是这样的|瞎说|乱说|记错|说错|再想想|好好想|明明|根本/;
@@ -18,6 +18,7 @@ export type SourceRecallOptions = {
   messageText: string;
   recentMessages?: Array<{ role: string; content: string }>;
   limit?: number;
+  maxExcerptChars?: number;
 };
 
 function hasDirectSourceTrigger(messageText: string): boolean {
@@ -84,8 +85,13 @@ function cleanChunkExcerpt(content: string, terms: string[] = [], maxLength = 76
   return `${start > 0 ? "……" : ""}${excerpt}${start + maxLength < chars.length ? "……" : ""}`;
 }
 
-export function formatSourceRecallContext(chunks: PersonaSourceRecallChunk[], currentQuestion = ""): string {
+export function formatSourceRecallContext(
+  chunks: PersonaSourceRecallChunk[],
+  currentQuestion = "",
+  options: { maxExcerptChars?: number } = {},
+): string {
   if (chunks.length === 0) return "";
+  const maxExcerptChars = options.maxExcerptChars ?? 760;
 
   const references = chunks.map((chunk, index) => {
     const chapter = chunk.chapterTitle?.trim() || `片段 ${chunk.chunkIndex + 1}`;
@@ -94,7 +100,7 @@ export function formatSourceRecallContext(chunks: PersonaSourceRecallChunk[], cu
       : "";
     return [
       `证据 ${index + 1}：${chunk.sourceTitle} / ${chapter} / 全书片段 ${chunk.chunkIndex + 1}${matched}`,
-      `原文片段：${cleanChunkExcerpt(chunk.content, chunk.matchedTerms)}`,
+      `原文片段：${cleanChunkExcerpt(chunk.content, chunk.matchedTerms, maxExcerptChars)}`,
     ].join("\n");
   }).join("\n\n");
 
@@ -171,5 +177,7 @@ export async function buildPersonaSourceRecallContext(options: SourceRecallOptio
 
   if (chunks.length === 0) return formatSourceRecallMissContext(currentQuery);
 
-  return formatSourceRecallContext(chunks, currentQuery);
+  return formatSourceRecallContext(chunks, currentQuery, {
+    maxExcerptChars: options.maxExcerptChars,
+  });
 }

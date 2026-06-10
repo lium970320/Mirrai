@@ -1,3 +1,11 @@
+import { getPersonaRuntimeState, withPersonaRuntimeLifeState } from "./persona-runtime";
+import {
+  BEIJING_TIME_ZONE_LABEL,
+  getBeijingTimeKey,
+  getBeijingTimeParts,
+  type BeijingDayPart,
+} from "./time-context";
+
 type DayKind = "weekday" | "saturday" | "sunday";
 
 type LifeStateId =
@@ -37,6 +45,9 @@ type RoutineSlot = {
 type ScheduleState = RoutineSlot & {
   dayKind: DayKind;
   minute: number;
+  dateKey: string;
+  timeKey: string;
+  dayPart: BeijingDayPart;
 };
 
 type RuntimeLifeStatus = "drowsy_awake";
@@ -48,7 +59,6 @@ type RuntimeLifeState = {
   reason: "wake_message" | "urgent_message" | "continued_chat";
 };
 
-const RUNTIME_LIFE_STATE_KEY = "runtimeLifeState";
 const DROWSY_AWAKE_MINUTES = 20;
 
 function slot(
@@ -108,12 +118,7 @@ function minuteOfDay(time: string): number {
   return hour * 60 + minute;
 }
 
-function currentMinute(now = new Date()): number {
-  return now.getHours() * 60 + now.getMinutes();
-}
-
-function dayKind(now = new Date()): DayKind {
-  const day = now.getDay();
+function dayKindFromWeekday(day: number): DayKind {
   if (day === 0) return "sunday";
   if (day === 6) return "saturday";
   return "weekday";
@@ -126,12 +131,20 @@ function routineForDay(kind: DayKind): RoutineSlot[] {
 }
 
 export function getPersonaScheduleState(now = new Date()): ScheduleState {
-  const kind = dayKind(now);
-  const minute = currentMinute(now);
+  const beijingTime = getBeijingTimeParts(now);
+  const kind = dayKindFromWeekday(beijingTime.weekday);
+  const minute = beijingTime.minuteOfDay;
   const routine = routineForDay(kind);
   const slot = routine.find(item => minute >= minuteOfDay(item.start) && minute < minuteOfDay(item.end))
     ?? routine[routine.length - 1];
-  return { ...slot, dayKind: kind, minute };
+  return {
+    ...slot,
+    dayKind: kind,
+    minute,
+    dateKey: beijingTime.dateKey,
+    timeKey: beijingTime.timeKey,
+    dayPart: beijingTime.dayPart,
+  };
 }
 
 function dayKindLabel(kind: DayKind): string {
@@ -143,7 +156,7 @@ function dayKindLabel(kind: DayKind): string {
 function localTimeLabel(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return getBeijingTimeKey(date);
 }
 
 function availabilityLabel(value: ReplyAvailability): string {
@@ -177,8 +190,10 @@ export function buildLifeScheduleOverlay(now = new Date()): string {
 function buildLifeScheduleOverlayForState(state: ScheduleState, runtime?: RuntimeLifeState | null): string {
   const lines = [
     "【当前生活行程】",
+    `当前北京时间：${state.dateKey} ${state.timeKey}（${state.dayPart}，${BEIJING_TIME_ZONE_LABEL}）`,
     `今天类型：${dayKindLabel(state.dayKind)}`,
     `当前时段：${state.start}-${state.end}，${state.label}`,
+    `当前时段判定：${state.dayPart}`,
     `基础状态ID：${state.stateId}`,
     `状态类型：${categoryLabel(state.category)}`,
     `回复可用性：${availabilityLabel(state.availability)}`,
@@ -187,6 +202,7 @@ function buildLifeScheduleOverlayForState(state: ScheduleState, runtime?: Runtim
     `状态转移：${state.transitionHint}`,
     "默认设定：王芃泽常驻南京，工作日在南京研究所作息；敏子常驻武汉纺织大学。回复和主动消息都要承认两人是异地，不要默认同屋、同城、马上见面。",
     "行程约束：上班时不要表现得整段时间都闲着；下班路上可以短促报平安；夜里准备睡觉时不要忽然展开长篇；睡眠时段除非用户明显有急事或明确叫醒，不要像白天一样清醒秒回。",
+    `时间一致性：如果回复里提到现在的时间段，必须符合“${state.dayPart} / ${state.timeKey}”这个北京时间；用户纠正时间时先承认并修正，不要沿用上一轮错误说法。`,
   ];
 
   if (runtime?.status === "drowsy_awake") {
@@ -219,14 +235,14 @@ export function getActiveRuntimeLifeState(
   personaData: unknown,
   now = new Date(),
 ): RuntimeLifeState | null {
-  const data = clonePersonaData(personaData);
-  const raw = data[RUNTIME_LIFE_STATE_KEY];
+  const raw = getPersonaRuntimeState(personaData).runtimeLifeState;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const runtime = raw as Record<string, unknown>;
 
-  const status = typeof raw.status === "string" ? raw.status : "";
-  const until = typeof raw.until === "string" ? raw.until : "";
-  const startedAt = typeof raw.startedAt === "string" ? raw.startedAt : "";
-  const reason = typeof raw.reason === "string" ? raw.reason : "continued_chat";
+  const status = typeof runtime.status === "string" ? runtime.status : "";
+  const until = typeof runtime.until === "string" ? runtime.until : "";
+  const startedAt = typeof runtime.startedAt === "string" ? runtime.startedAt : "";
+  const reason = typeof runtime.reason === "string" ? runtime.reason : "continued_chat";
   if (status !== "drowsy_awake" || !until || !startedAt) return null;
 
   const untilMs = new Date(until).getTime();
@@ -280,10 +296,13 @@ export function applyIncomingLifeState(
   const activeRuntime = getActiveRuntimeLifeState(data, now);
 
   if (state.status !== "asleep") {
-    if (data[RUNTIME_LIFE_STATE_KEY]) {
-      const next = { ...data };
-      delete next[RUNTIME_LIFE_STATE_KEY];
-      return { suppress: false, state, personaData: next, changed: true };
+    if (getPersonaRuntimeState(data).runtimeLifeState) {
+      return {
+        suppress: false,
+        state,
+        personaData: withPersonaRuntimeLifeState(data, null),
+        changed: true,
+      };
     }
     return { suppress: false, state, personaData: data, changed: false };
   }
@@ -292,14 +311,11 @@ export function applyIncomingLifeState(
     return {
       suppress: false,
       state,
-      personaData: {
-        ...data,
-        [RUNTIME_LIFE_STATE_KEY]: {
+      personaData: withPersonaRuntimeLifeState(data, {
           ...activeRuntime,
           until: drowsyUntil(now),
           reason: "continued_chat",
-        } satisfies RuntimeLifeState,
-      },
+        } satisfies RuntimeLifeState),
       changed: true,
     };
   }
@@ -308,15 +324,12 @@ export function applyIncomingLifeState(
     return {
       suppress: false,
       state,
-      personaData: {
-        ...data,
-        [RUNTIME_LIFE_STATE_KEY]: {
+      personaData: withPersonaRuntimeLifeState(data, {
           status: "drowsy_awake",
           startedAt: now.toISOString(),
           until: drowsyUntil(now),
           reason: isWakeMessage(text) ? "wake_message" : "urgent_message",
-        } satisfies RuntimeLifeState,
-      },
+        } satisfies RuntimeLifeState),
       changed: true,
     };
   }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSourceGroundingRewriteMessages,
+  isUnhelpfulSourceRecallReply,
+  sourceRecallFallbackReply,
   sourceGroundedLlmOptions,
   withSourceGroundingInstruction,
 } from "./source-grounding";
@@ -35,12 +37,25 @@ describe("source grounding", () => {
   it("bounds source recall LLM options", () => {
     expect(sourceGroundedLlmOptions({ temperature: 0.9, maxTokens: 1200 })).toMatchObject({
       temperature: 0.25,
-      maxTokens: 320,
+      maxTokens: 480,
     });
     expect(sourceGroundedLlmOptions({ provider: "DeepSeek" })).toMatchObject({
       provider: "DeepSeek",
       temperature: 0.25,
+      maxTokens: 480,
+    });
+    expect(sourceGroundedLlmOptions({ maxTokens: 1200 }, 320)).toMatchObject({
+      temperature: 0.25,
       maxTokens: 320,
     });
+  });
+
+  it("uses a source-specific fallback instead of the generic presence reply", () => {
+    const fallback = sourceRecallFallbackReply("你爱柱子吗");
+
+    expect(fallback).toContain("不能拿一句“我在”糊弄你");
+    expect(fallback).toContain("柱子");
+    expect(isUnhelpfulSourceRecallReply("我在。")).toBe(true);
+    expect(isUnhelpfulSourceRecallReply(fallback)).toBe(false);
   });
 });

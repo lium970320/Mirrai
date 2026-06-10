@@ -4,6 +4,32 @@ const LEADING_SPEAKER_LABEL_PATTERN =
   /^\s*(王芃泽|王鹏泽|叔|柱子|敏子|敏|Minzi|AI|助手|角色|机器人)\s*[：:]\s*/i;
 const SENTENCE_PATTERN = /[^。！？!?…；;\n]+[。！？!?…；;]*/g;
 const CLAUSE_PATTERN = /[^，,、\n]+[，,、]*/g;
+const WRAPPING_QUOTE_PAIRS: Array<[string, string]> = [
+  ["“", "”"],
+  ["‘", "’"],
+  ["「", "」"],
+  ["『", "』"],
+  ["\"", "\""],
+  ["'", "'"],
+];
+const LEADING_DECORATIVE_QUOTES_PATTERN = /^["“”'‘’「」『』]+/;
+const TRAILING_DECORATIVE_QUOTES_PATTERN = /["“”'‘’「」『』]+$/;
+const FORCED_DIRECTNESS_TAIL_SENTENCE_PATTERNS = [
+  /^(?:行了吧[，,、\s]*)?够不够(?:直接|清楚|明白|浓烈|直白|坦白|爱你|真|认真|诚恳)?[了呀啊呢嘛吗么]*$/,
+  /^(?:行了吧[，,、\s]*)?够[^。！？!?；;\n]{0,8}(?:直接|清楚|明白|浓烈|直白|坦白|爱你|真|认真|诚恳)[了呀啊呢嘛吗么]*$/,
+  /^不够(?:我|叔|明天|下次|以后|再|就)/,
+  /^再(?:浓|直接|明白|说)/,
+  /^你要是还嫌/,
+  /^这样(?:够|还不够)/,
+  /^行了吧$/,
+];
+const OVERUSED_LEADING_CATCHPHRASE_PATTERN =
+  /^(?:你听好了|听好了)[，,。.!！：:\s]*/;
+const OVERUSED_SLEEP_CLOSURE_TAIL_SENTENCE_PATTERNS = [
+  /^(?:行了[，,、\s]*)?(?:别闹了?|不闹了)[，,、\s]*(?:快|早点|早些|赶紧)?睡(?:吧|了)?$/,
+  /^行了[，,、\s]*(?:不早了[，,、\s]*)?(?:快|早点|早些|赶紧)?睡(?:吧|了)?$/,
+  /^别闹了?[，,、\s]*早点休息$/,
+];
 
 const DEFAULT_WECHAT_SOFT_LIMIT = 78;
 const DEFAULT_WECHAT_HARD_LIMIT = 118;
@@ -29,17 +55,93 @@ export function stripLeadingAsides(text: string): string {
   return result.trim() || text.trim();
 }
 
+function stripWrappingQuotes(text: string): string {
+  let result = text.trim();
+
+  for (let i = 0; i < 4; i++) {
+    const wrapped = WRAPPING_QUOTE_PAIRS.find(([open, close]) =>
+      result.startsWith(open) && result.endsWith(close) && result.length >= open.length + close.length,
+    );
+    const hasBoundaryQuotes =
+      LEADING_DECORATIVE_QUOTES_PATTERN.test(result)
+      && TRAILING_DECORATIVE_QUOTES_PATTERN.test(result);
+    const next = wrapped
+      ? result.slice(wrapped[0].length, result.length - wrapped[1].length).trim()
+      : hasBoundaryQuotes
+        ? result
+          .replace(LEADING_DECORATIVE_QUOTES_PATTERN, "")
+          .replace(TRAILING_DECORATIVE_QUOTES_PATTERN, "")
+          .trim()
+        : result;
+    if (!next || next === result) break;
+    result = next;
+  }
+
+  return result;
+}
+
+export function stripReplyDecorativeQuotes(text: string): string {
+  const stripped = stripWrappingQuotes(text);
+  return stripped
+    .split("\n")
+    .map(line => stripWrappingQuotes(line))
+    .join("\n")
+    .trim();
+}
+
 function stripLeadingSpeakerLabel(text: string): string {
   let result = text.trimStart();
   for (let i = 0; i < 3; i++) {
     const match = result.match(LEADING_SPEAKER_LABEL_PATTERN);
     if (!match) break;
     const name = match[1];
-    const rest = result.slice(match[0].length).trimStart();
+    const rest = stripReplyDecorativeQuotes(result.slice(match[0].length).trimStart());
     if (!rest) return "";
     result = /^(敏子|敏|Minzi)$/i.test(name) ? `${name}，${rest}` : rest;
   }
   return result.trim();
+}
+
+function stripForcedDirectnessTail(text: string): string {
+  const normalized = text.trim();
+  const sentences = normalized.match(SENTENCE_PATTERN)?.map(sentence => sentence.trim()).filter(Boolean) ?? [];
+  if (sentences.length === 0) return normalized;
+
+  let end = sentences.length;
+  while (end > 0) {
+    const compact = sentences[end - 1]
+      .replace(/\s+/g, "")
+      .replace(/[。！？!?…；;]+$/g, "");
+    if (!FORCED_DIRECTNESS_TAIL_SENTENCE_PATTERNS.some(pattern => pattern.test(compact))) break;
+    end -= 1;
+  }
+
+  if (end === sentences.length) return normalized;
+  return sentences.slice(0, end).join("").trim();
+}
+
+function stripOverusedLeadingCatchphrase(text: string): string {
+  const compact = text.trimStart();
+  const stripped = compact.replace(OVERUSED_LEADING_CATCHPHRASE_PATTERN, "").trimStart();
+  return stripped || compact;
+}
+
+function stripOverusedSleepClosureTail(text: string): string {
+  const normalized = text.trim();
+  const sentences = normalized.match(SENTENCE_PATTERN)?.map(sentence => sentence.trim()).filter(Boolean) ?? [];
+  if (sentences.length === 0) return normalized;
+
+  let end = sentences.length;
+  while (end > 0) {
+    const compact = sentences[end - 1]
+      .replace(/\s+/g, "")
+      .replace(/[。！？!?…；;]+$/g, "");
+    if (!OVERUSED_SLEEP_CLOSURE_TAIL_SENTENCE_PATTERNS.some(pattern => pattern.test(compact))) break;
+    end -= 1;
+  }
+
+  if (end === sentences.length) return normalized;
+  return sentences.slice(0, end).join("").trim();
 }
 
 export function cleanAssistantReply(
@@ -49,10 +151,23 @@ export function cleanAssistantReply(
   const raw = (text ?? "").trim();
   if (!raw) return fallback;
 
-  const stripped = stripLeadingSpeakerLabel(stripLeadingAsides(raw)).trim();
-  const strippedAgain = stripLeadingSpeakerLabel(raw.replace(LEADING_ASIDE_PATTERN, "").trim()).trim();
+  const unquoted = stripReplyDecorativeQuotes(raw);
+  const stripped = stripReplyDecorativeQuotes(
+    stripOverusedSleepClosureTail(
+      stripForcedDirectnessTail(
+        stripOverusedLeadingCatchphrase(
+          stripLeadingSpeakerLabel(stripLeadingAsides(unquoted)).trim(),
+        ),
+      ),
+    ),
+  );
+  const strippedAgain = stripReplyDecorativeQuotes(
+    stripOverusedLeadingCatchphrase(
+      stripLeadingSpeakerLabel(unquoted.replace(LEADING_ASIDE_PATTERN, "").trim()).trim(),
+    ),
+  );
 
-  return strippedAgain ? stripped : fallback;
+  return strippedAgain && stripped ? stripped : fallback;
 }
 
 function normalizeReplyText(text: string): string {

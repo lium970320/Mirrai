@@ -3,6 +3,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
 /* ─── Design Tokens — Calm Product Palette ────────────────────────────────── */
 @theme inline {
   --color-background: oklch(0.982 0.006 118);
@@ -16,7 +22,7 @@
   --color-secondary: oklch(0.94 0.012 112);
   --color-secondary-foreground: oklch(0.26 0.02 236);
   --color-muted: oklch(0.93 0.008 118);
-  --color-muted-foreground: oklch(0.47 0.018 236);
+  --color-muted-foreground: oklch(0.38 0.015 236);
   --color-accent: oklch(0.92 0.025 164);
   --color-accent-foreground: oklch(0.24 0.04 164);
   --color-destructive: oklch(0.58 0.18 25);
@@ -51,7 +57,7 @@ html.dark {
   --color-secondary: oklch(0.35 0.014 236);
   --color-secondary-foreground: oklch(0.92 0.008 118);
   --color-muted: oklch(0.36 0.012 236);
-  --color-muted-foreground: oklch(0.78 0.010 118);
+  --color-muted-foreground: oklch(0.85 0.006 118);
   --color-accent: oklch(0.38 0.035 164);
   --color-accent-foreground: oklch(0.95 0.008 118);
   --color-destructive: oklch(0.66 0.16 25);
@@ -150,18 +156,27 @@ html.dark ::-webkit-scrollbar-thumb:hover { background: oklch(0.42 0.005 260); }
 
 /* ─── Cards ────────────────────────────────────────────────────────────────── */
 .warm-card {
-  background: color-mix(in oklab, var(--color-card) 94%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  background: color-mix(in oklab, var(--color-card) 90%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
-  box-shadow: 0 1px 2px color-mix(in oklab, var(--color-foreground) 6%, transparent);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-foreground) 4%, transparent);
+  transition: border-color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .warm-card:hover {
-  border-color: color-mix(in oklab, var(--color-primary) 32%, var(--color-border));
-  box-shadow: 0 10px 28px color-mix(in oklab, var(--color-foreground) 9%, transparent);
+  transform: translateY(-2px);
+  border-color: var(--color-primary);
+  box-shadow:
+    0 6px 20px -4px color-mix(in oklab, var(--color-primary) 12%, transparent),
+    0 2px 4px -1px color-mix(in oklab, var(--color-foreground) 4%, transparent);
 }
 html.dark .warm-card:hover {
-  box-shadow: 0 14px 36px color-mix(in oklab, black 28%, transparent);
+  box-shadow:
+    0 12px 30px -4px color-mix(in oklab, var(--color-primary) 18%, transparent),
+    0 4px 10px -2px color-mix(in oklab, black 40%, transparent);
 }
 
 /* ─── Header ───────────────────────────────────────────────────────────────── */
@@ -313,14 +328,16 @@ html.dark .app-nav-divider {
   background: oklch(0.44 0.02 220 / 0.36);
 }
 .chat-composer {
-  background: color-mix(in oklab, var(--color-background) 88%, transparent);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
-  border-top: 1px solid color-mix(in oklab, var(--color-border) 50%, transparent);
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 4px 16px -2px color-mix(in oklab, var(--color-foreground) 6%, transparent) !important;
+  transition: all 0.2s ease;
 }
 html.dark .chat-composer {
-  background: oklch(0.27 0.014 236 / 0.94);
-  border-top-color: oklch(0.48 0.014 236 / 0.70);
+  background: var(--color-card) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 20px -2px oklch(0.08 0.008 240 / 0.3) !important;
 }
 @media (max-width: 640px) {
   .app-nav {
@@ -371,15 +388,16 @@ html.dark .bubble-user {
   background: linear-gradient(135deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 72%, var(--color-chart-3)));
 }
 .bubble-ai {
-  background: color-mix(in oklab, var(--color-card) 94%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
-  color: var(--color-foreground);
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-foreground) !important;
   border-radius: 1.125rem 1.125rem 1.125rem 0.25rem;
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--color-foreground) 2%, transparent);
 }
 html.dark .bubble-ai {
-  background: oklch(0.34 0.014 236);
-  border-color: oklch(0.54 0.014 236 / 0.72);
-  color: oklch(0.96 0.006 118);
+  background: oklch(0.32 0.014 236) !important;
+  border-color: oklch(0.48 0.014 236) !important;
+  color: oklch(0.96 0.006 118) !important;
 }
 
 /* ─── Accent Text ──────────────────────────────────────────────────────────── */
@@ -422,44 +440,34 @@ html.dark .bubble-ai {
 
 /* ─── Lobby Hero Banner ────────────────────────────────────────────────────── */
 .lobby-hero {
-  background:
-    linear-gradient(135deg,
-      color-mix(in oklab, var(--color-primary) 12%, transparent),
-      color-mix(in oklab, var(--color-chart-2) 10%, transparent) 48%,
-      color-mix(in oklab, var(--color-card) 80%, transparent)
-    );
-  border: 1px solid color-mix(in oklab, var(--color-primary) 22%, var(--color-border));
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
   position: relative;
 }
 .lobby-hero-dots {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(color-mix(in oklab, var(--color-primary) 8%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklab, var(--color-primary) 8%, transparent) 1px, transparent 1px);
-  background-size: 22px 22px;
-  mask-image: linear-gradient(90deg, black, transparent 85%);
-  pointer-events: none;
+  display: none !important;
 }
 
 /* ─── Mood Ring (avatar border glow) ───────────────────────────────────────── */
 .mood-ring {
-  padding: 3px;
+  padding: 1px;
   border-radius: 1rem;
-  background: linear-gradient(135deg, var(--mood-color, #7CB69D) 0%, transparent 60%);
+  background: color-mix(in oklab, var(--color-border) 80%, transparent);
   display: inline-flex;
+  border: 1px solid var(--mood-color, var(--color-border));
 }
 .mood-ring img {
-  border: 2px solid white;
+  border: 1px solid var(--color-card);
 }
 .mood-ring-sm {
-  padding: 2px;
+  padding: 1px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--mood-color, #7CB69D) 0%, transparent 60%);
+  background: color-mix(in oklab, var(--color-border) 80%, transparent);
   display: inline-flex;
+  border: 1px solid var(--mood-color, var(--color-border));
 }
 .mood-ring-sm img {
-  border: 2px solid white;
+  border: 1px solid var(--color-card);
 }
 
 /* ─── Line Clamp ───────────────────────────────────────────────────────────── */
@@ -498,8 +506,8 @@ html.dark .bubble-ai {
 
 /* ─── Breathing Dot (online indicator) ─────────────────────────────────────── */
 @keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
+  0%, 100% { box-shadow: 0 0 0 0 oklch(0.60 0.16 150 / 0.8), 0 1px 2px rgba(0,0,0,0.15); }
+  50% { box-shadow: 0 0 0 5px oklch(0.60 0.16 150 / 0), 0 1px 2px rgba(0,0,0,0.15); }
 }
 .breathing-dot {
   animation: breathe 2.5s ease-in-out infinite;
@@ -507,8 +515,9 @@ html.dark .bubble-ai {
 
 /* ─── Gradient Mesh Background ────────────────────────────────────────────── */
 @keyframes meshMove {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  0% { background-position: 0% 0%, 100% 100%; }
+  50% { background-position: 50% 100%, 100% 0%; }
+  100% { background-position: 0% 0%, 100% 100%; }
 }
 .gradient-mesh-bg {
   position: fixed;
@@ -516,13 +525,42 @@ html.dark .bubble-ai {
   z-index: 0;
   pointer-events: none;
   background:
-    linear-gradient(120deg, color-mix(in oklab, var(--color-primary) 10%, transparent), transparent 34%),
-    linear-gradient(240deg, color-mix(in oklab, var(--color-chart-2) 8%, transparent), transparent 42%),
-    repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-foreground) 4%, transparent) 0 1px, transparent 1px 28px);
-  opacity: 0.75;
+    radial-gradient(at 0% 0%, color-mix(in oklab, var(--color-primary) 4%, transparent) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, color-mix(in oklab, var(--color-chart-3) 3%, transparent) 0px, transparent 50%),
+    repeating-linear-gradient(0deg, color-mix(in oklab, var(--color-foreground) 1.5%, transparent) 0 1px, transparent 1px 30px);
+  background-size: 100% 100%;
+  opacity: 0.5;
 }
 html.dark .gradient-mesh-bg {
-  opacity: 0.5;
+  opacity: 0.25;
+}
+
+/* 自定义 Range Slider 滑块 */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  background: color-mix(in oklab, var(--color-muted) 85%, var(--color-foreground) 10%);
+  height: 5px;
+  border-radius: 999px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5.5px;
+  background-color: var(--color-primary);
+  height: 16px;
+  width: 16px;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--color-primary) 30%, transparent);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background-color: color-mix(in oklab, var(--color-primary) 85%, var(--color-foreground));
 }
 
 /* ─── Activity Heatmap ────────────────────────────────────────────────────── */
@@ -603,23 +641,11 @@ html.dark .gradient-mesh-bg {
 .gradient-border-card {
   position: relative;
   overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--color-border) 75%, transparent) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
-.gradient-border-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  background: conic-gradient(from var(--border-angle, 0deg), oklch(0.55 0.18 255 / 0.3), oklch(0.62 0.14 300 / 0.3), oklch(0.55 0.12 210 / 0.3), oklch(0.55 0.18 255 / 0.3));
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  -webkit-mask-composite: xor;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.gradient-border-card:hover::before {
-  opacity: 1;
+.gradient-border-card:hover {
+  border-color: var(--color-primary) !important;
 }
 
 /* ─── Depth Ring ──────────────────────────────────────────────────────────── */
@@ -829,3 +855,91 @@ html.dark .gradient-mesh-bg {
 .login-card-glow {
   position: relative;
 }
+
+/* ─── Lobby Custom Tabs & Cards ─────────────────────────────────────────── */
+.lobby-tab-list {
+  background: color-mix(in oklab, var(--color-card) 40%, transparent) !important;
+  border: 1px solid color-mix(in oklab, var(--color-border) 40%, transparent) !important;
+  backdrop-filter: blur(12px);
+  position: relative;
+}
+
+.lobby-tab-trigger {
+  position: relative;
+  background: transparent !important;
+  color: var(--color-muted-foreground) !important;
+  font-weight: 500;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+.lobby-tab-trigger::after {
+  content: "";
+  position: absolute;
+  bottom: 0px;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 40%;
+  height: 2.5px;
+  background: linear-gradient(90deg, var(--color-primary), oklch(0.65 0.15 190));
+  border-radius: 9999px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+  opacity: 0;
+  box-shadow: 0 0 8px var(--color-primary);
+}
+
+.lobby-tab-trigger[data-state=active] {
+  color: var(--color-foreground) !important;
+  background: color-mix(in oklab, var(--color-primary) 6%, transparent) !important;
+  font-weight: 600 !important;
+}
+
+.lobby-tab-trigger[data-state=active]::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
+}
+
+/* 今日推荐流光左边框与磨砂优化 */
+.recommend-glow {
+  border-left: 3px solid var(--color-primary) !important;
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
+  border-left-width: 3px !important;
+}
+
+/* 想对你说消息流卡片样式 */
+.daily-message-item {
+  background: var(--color-card) !important;
+  border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent) !important;
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-foreground) 2%, transparent) !important;
+  transition: all 0.2s ease !important;
+}
+.daily-message-item:hover {
+  border-color: var(--color-primary) !important;
+  background: var(--color-card) !important;
+}
+
+/* ─── Settings AI Provider Cards ────────────────────────────────────────── */
+.provider-card-unconfigured {
+  border: 1px dashed color-mix(in oklab, var(--color-border) 70%, transparent) !important;
+  background: color-mix(in oklab, var(--color-muted) 20%, transparent) !important;
+  transition: all 0.3s ease !important;
+}
+.provider-card-unconfigured:hover {
+  border-color: color-mix(in oklab, var(--color-primary) 30%, var(--color-border)) !important;
+  background: color-mix(in oklab, var(--color-card) 40%, transparent) !important;
+}
+
+.provider-card-configured {
+  position: relative;
+  background: color-mix(in oklab, var(--color-card) 90%, transparent) !important;
+  border: 1px solid color-mix(in oklab, var(--color-primary) 25%, var(--color-border)) !important;
+  box-shadow: 0 4px 15px -3px color-mix(in oklab, var(--color-primary) 5%, transparent) !important;
+  transition: all 0.3s ease !important;
+}
+.provider-card-configured:hover {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 8px 24px -3px color-mix(in oklab, var(--color-primary) 12%, transparent) !important;
+}
+

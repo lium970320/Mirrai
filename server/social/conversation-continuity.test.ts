@@ -37,4 +37,21 @@ describe("conversation continuity", () => {
     expect(instruction).toContain("只生成一次综合回复");
     expect(instruction).toContain("不要为每条旧消息分别补答");
   });
+
+  it("honors economy context limits for the recent timeline", () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `第 ${index + 1} 条`,
+      createdAt: new Date(2026, 4, 14, 18, index),
+    }));
+
+    const instruction = buildConversationContinuityInstruction(messages, "王芃泽", "reply", {
+      recentLimit: 4,
+      timelineLimit: 3,
+    });
+
+    expect(instruction).not.toContain("第 6 条");
+    expect(instruction).toContain("第 8 条");
+    expect(instruction).toContain("第 10 条");
+  });
 });

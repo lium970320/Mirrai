@@ -1,4 +1,5 @@
 import { llmService } from "../llm";
+import { getCurrentLlmEconomyPolicy } from "../llm/economy";
 import {
   createMessage,
   getDefaultLlmConfig,
@@ -7,12 +8,29 @@ import {
   updatePersona,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
+import {
+  getProactiveMessageSettings,
+  withPersonaRuntimeDiagnostics,
+  withProactiveMessageRuntime,
+} from "../_core/persona-runtime";
 import { cleanAssistantReply } from "../_core/reply-utils";
-import { sendProactiveTextToPreferredPlatform } from "../social/proactive-delivery";
+import {
+  resolveProactivePreferredTarget,
+  sendProactiveTextToPreferredPlatform,
+} from "../social/proactive-delivery";
+import {
+  buildProactiveRuntimeDiagnostics,
+  buildProactiveRuntimePlan,
+  type ProactiveRuntimePlan,
+} from "../social/proactive-runtime";
 import {
   buildConversationContinuityInstruction,
   formatRecentConversationTimeline,
 } from "../social/conversation-continuity";
+import {
+  getBeijingDateKey,
+  getBeijingMinuteOfDay,
+} from "../_core/time-context";
 
 type AmbientPeriod = "day" | "evening" | "lateNight";
 
@@ -64,14 +82,11 @@ const PERIODS: Record<AmbientPeriod, AmbientPeriodConfig> = {
 };
 
 function dateKey(now = new Date()) {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getBeijingDateKey(now);
 }
 
 function minutesNow(now = new Date()) {
-  return now.getHours() * 60 + now.getMinutes();
+  return getBeijingMinuteOfDay(now);
 }
 
 function randomIntInclusive([min, max]: [number, number]) {
@@ -146,20 +161,47 @@ function fallbackMessage(period: AmbientPeriod) {
   return "刚忙完手边的事，短短地想起你一下。记得吃饭，别一忙就忘了照顾自己。";
 }
 
-async function generateAmbientMessage(persona: any, eventText: string, period: AmbientPeriod) {
+export type AmbientProactiveMessageResult = {
+  replyText: string;
+  runtimePlan: ProactiveRuntimePlan;
+  inputText: string;
+};
+
+export async function generateAmbientMessageDetailed(
+  persona: any,
+  eventText: string,
+  period: AmbientPeriod,
+  now = new Date(),
+): Promise<AmbientProactiveMessageResult> {
   const defaultConfig = await getDefaultLlmConfig(persona.userId);
   const extra = (defaultConfig?.extraConfig as any) || {};
-  const proactive = (((persona.personaData as any) || {}).proactiveMessages || {}) as any;
+  const proactive = getProactiveMessageSettings(persona.personaData);
   const history = await getMessagesByPersonaId(persona.id, 16);
+  const target = await resolveProactivePreferredTarget(persona);
+  const inputText = `环境主动消息 ${PERIODS[period].label}: ${eventText}`;
+  const runtimePlan = buildProactiveRuntimePlan({
+    target,
+    inputText,
+    recentMessages: history.slice(-12),
+    personaData: persona.personaData,
+    now,
+  });
   const recentContext = formatRecentConversationTimeline(history, persona.name, 10);
   const continuityInstruction = buildConversationContinuityInstruction(history, persona.name, "proactive");
 
   const response = await llmService.invoke({
     messages: [
-      { role: "system", content: buildSystemPrompt(persona) },
+      {
+        role: "system",
+        content: [
+          buildSystemPrompt(persona, { now }),
+          runtimePlan.instruction,
+        ].filter(Boolean).join("\n\n"),
+      },
       {
         role: "user",
         content: [
+          `计划投递入口：${runtimePlan.platform} / ${runtimePlan.channel}。`,
           `现在是${PERIODS[period].label}，网页里刚触发了一个日常存在感事件：“${eventText}”。`,
           "这次事件抽中了主动私聊消息。请把这个动作或心情转成角色本人会发给用户的一条自然私聊。",
           "要求：内容要和当下动作/心情有关，不要提到网页、事件、触发、概率、系统或定时。",
@@ -177,10 +219,23 @@ async function generateAmbientMessage(persona: any, eventText: string, period: A
       provider: (persona as any).llmProvider || undefined,
       temperature: Math.max(extra.temperature ?? 0.85, 0.85),
       maxTokens: Math.min(extra.maxTokens ?? 240, 360),
+      purpose: "proactive",
+      userId: persona.userId,
+      personaId: persona.id,
+      route: `proactive.${runtimePlan.platform}.ambient`,
     },
   });
 
-  return cleanAssistantReply(response, fallbackMessage(period));
+  return {
+    replyText: cleanAssistantReply(response, fallbackMessage(period)),
+    runtimePlan,
+    inputText,
+  };
+}
+
+export async function generateAmbientMessage(persona: any, eventText: string, period: AmbientPeriod): Promise<string> {
+  const result = await generateAmbientMessageDetailed(persona, eventText, period);
+  return result.replyText;
 }
 
 export async function maybeSendAmbientPresenceMessage(
@@ -207,8 +262,18 @@ export async function maybeSendAmbientPresenceMessage(
   }
 
   const personaData = ((persona.personaData as any) || {});
-  const proactive = personaData.proactiveMessages || {};
+  const proactive = getProactiveMessageSettings(personaData);
   if (!proactive.enabled) return { sent: false, reason: "disabled" as const };
+
+  const economy = await getCurrentLlmEconomyPolicy(now);
+  if (!options.force && !economy.proactive.allowAmbient) {
+    return {
+      sent: false,
+      reason: "llm_budget" as const,
+      period,
+      economyLevel: economy.level,
+    };
+  }
 
   const state = buildState(proactive.ambientPresence, today);
   const count = state.counts[period] || 0;
@@ -224,7 +289,8 @@ export async function maybeSendAmbientPresenceMessage(
     return { sent: false, reason: "probability_skip" as const, period, count, target, probability };
   }
 
-  const replyText = await generateAmbientMessage(persona, eventText, period);
+  const generated = await generateAmbientMessageDetailed(persona, eventText, period, now);
+  const replyText = generated.replyText;
   const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
   if (!delivery.sent) {
     return { sent: false, reason: delivery.reason || "send_failed", period, count, target };
@@ -253,13 +319,22 @@ export async function maybeSendAmbientPresenceMessage(
   });
 
   await updatePersona(persona.id, persona.userId, {
-    personaData: {
-      ...personaData,
-      proactiveMessages: {
-        ...proactive,
-        ambientPresence: nextState,
-      },
-    },
+    personaData: withPersonaRuntimeDiagnostics(
+      withProactiveMessageRuntime(personaData, { ambientPresence: nextState }),
+      buildProactiveRuntimeDiagnostics({
+        runtimePlan: generated.runtimePlan,
+        trigger: "ambient",
+        inputText: generated.inputText,
+        replyText,
+        delivery,
+        now,
+        details: {
+          eventText,
+          period,
+          ambientPresence: nextState,
+        },
+      }),
+    ),
     lastChatAt: now,
   });
 
