@@ -1080,15 +1080,6 @@ export default function PersonaStatePanel({ personaId, onClose }: PersonaStatePa
                               </span>
                             }
                           />
-                          <KeyValue
-                            label="微信"
-                            value={
-                              <span className="flex flex-wrap gap-1.5">
-                                <Chip tone={platformRuntime?.wechat?.enabled ? "good" : "neutral"}>入口 {enabledLabel(platformRuntime?.wechat?.enabled)}</Chip>
-                                <Chip tone={platformRuntime?.wechat?.proactiveMessages ? "good" : "neutral"}>主动消息 {enabledLabel(platformRuntime?.wechat?.proactiveMessages)}</Chip>
-                              </span>
-                            }
-                          />
                           <KeyValue label="TTS" value={`${ttsProviderLabel(voiceStrategy?.tts?.provider)} / 降级 ${ttsProviderLabel(voiceStrategy?.tts?.fallbackProvider)}`} />
                         </div>
                       </div>

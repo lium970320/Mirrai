@@ -120,7 +120,7 @@ export const translations = {
       subtitle: "We use technology to protect every precious emotional connection",
       items: [
         { title: "Authentic Recreation", desc: "Upload chat logs and photos — AI deeply learns their speaking style, personality, and emotional expression" },
-        { title: "Multi-Platform", desc: "Seamless conversations on web and WeChat — they're always by your side, wherever you are" },
+        { title: "Multi-Platform", desc: "Seamless conversations on web and QQ — they're always by your side, wherever you are" },
         { title: "Emotional Intelligence", desc: "6 emotional states switch in real-time — AI understands your relationship depth, making every response genuine" },
         { title: "Privacy First", desc: "All data stored locally — your memories belong only to you" },
         { title: "Persona Distillation", desc: "Multi-stage pipeline extracts 7-layer persona: personality, tone, catchphrases, attachment style" },

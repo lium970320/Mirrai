@@ -28,7 +28,7 @@ vi.mock("../db", () => ({
   updatePersona: mocks.updatePersona,
 }));
 
-vi.mock("../social/proactive-delivery", () => ({
+vi.mock("./proactive-delivery", () => ({
   resolveProactivePreferredTarget: mocks.resolveProactivePreferredTarget,
   sendProactiveTextToPreferredPlatform: mocks.sendProactiveTextToPreferredPlatform,
 }));

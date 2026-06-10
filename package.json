@@ -51,17 +51,17 @@
     "@trpc/client": "^11.6.0",
     "@trpc/react-query": "^11.6.0",
     "@trpc/server": "^11.6.0",
-    "axios": "^1.12.0",
+    "axios": "^1.17.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "cookie": "^1.0.2",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.2",
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.45.2",
     "edge-tts": "^1.0.1",
     "embla-carousel-react": "^8.6.0",
-    "express": "^4.21.2",
+    "express": "^4.22.2",
     "framer-motion": "^12.23.22",
     "gifwrap": "0.9.4",
     "input-otp": "^1.4.2",
@@ -84,8 +84,6 @@
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "wechaty": "^1.20.2",
-    "wechaty-puppet-wechat4u": "^1.14.14",
     "wouter": "^3.3.5",
     "ws": "^8.16.0",
     "zod": "^4.1.12"
@@ -102,7 +100,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.20",
     "cross-env": "^10.1.0",
-    "drizzle-kit": "^0.31.4",
+    "drizzle-kit": "^0.31.10",
     "embedded-postgres": "18.3.0-beta.17",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
@@ -116,7 +114,10 @@
   },
   "pnpm": {
     "overrides": {
-      "tailwindcss>nanoid": "3.3.7"
+      "tailwindcss>nanoid": "3.3.7",
+      "express>path-to-regexp": "0.1.13",
+      "lodash": "^4.18.1",
+      "lodash-es": "^4.18.1"
     }
   }
 }

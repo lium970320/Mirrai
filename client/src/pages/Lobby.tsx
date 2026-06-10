@@ -652,7 +652,7 @@ function TypingIndicator({ personas }: { personas: any[] }) {
   const [event, setEvent] = useState<{ personaIdx: number; text: string } | null>(null);
   const ready = useMemo(() => personas.filter((p: any) => p.analysisStatus === "ready"), [personas]);
   const readyRef = useRef(ready);
-  const ambientPresenceMutation = trpc.wechat.maybeSendAmbientPresence.useMutation();
+  const ambientPresenceMutation = trpc.qq.maybeSendAmbientPresence.useMutation();
   const ambientPresenceRef = useRef(ambientPresenceMutation.mutate);
 
   useEffect(() => {
@@ -1128,11 +1128,6 @@ function PersonaCard({ persona, onChat, onUpload, onEdit, onDelete }: {
             </div>
             {isReady && (
               <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-3 border-card breathing-dot shadow-md" />
-            )}
-            {persona.wechatBound && (
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-card flex items-center justify-center shadow-xs">
-                <Wifi className="w-2.5 h-2.5 text-white" />
-              </div>
             )}
             {compatibility !== null && (
               <div className="absolute -bottom-2 -left-2 z-10 bg-card rounded-full p-0.5 shadow-md" title={`默契度 ${compatibility}%`}>

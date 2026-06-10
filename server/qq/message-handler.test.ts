@@ -75,8 +75,8 @@ vi.mock("../stickers/sticker-sender", () => ({
   sendQqSticker: mocks.sendQqSticker,
 }));
 
-vi.mock("../wechat/incoming-message-batcher", async () => {
-  const actual = await vi.importActual<typeof import("../wechat/incoming-message-batcher")>("../wechat/incoming-message-batcher");
+vi.mock("../social/incoming-message-batcher", async () => {
+  const actual = await vi.importActual<typeof import("../social/incoming-message-batcher")>("../social/incoming-message-batcher");
   return {
     ...actual,
     enqueueWechatTextMessage: vi.fn((options: any) => {

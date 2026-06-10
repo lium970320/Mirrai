@@ -1,9 +1,5 @@
-import {
-  getActiveQqBindingsByPersonaId,
-  getActiveWechatBindingsByPersonaId,
-} from "../db";
+import { getActiveQqBindingsByPersonaId } from "../db";
 import { getQqBotStatus, sendQqText } from "../qq/onebot-client";
-import { getBotStatus, sendWeChatText } from "../wechat/bot";
 import type { SocialRuntimeChannel, SocialRuntimePlatform } from "./runtime-request";
 
 export type ProactivePreferredTarget = {
@@ -33,12 +29,11 @@ export async function resolveProactivePreferredTarget(
     };
   }
 
-  const wechatBindings = await getActiveWechatBindingsByPersonaId(persona.id, persona.userId);
   return {
-    channel: wechatBindings.length > 0 ? "wechat" : "web",
-    platform: wechatBindings.length > 0 ? "wechat" : null,
+    channel: "web",
+    platform: null,
     qqBindings: [],
-    wechatBindings,
+    wechatBindings: [],
   };
 }
 
@@ -67,24 +62,6 @@ export async function sendProactiveTextToPreferredPlatform(
     };
   }
 
-  if (target.platform !== "wechat") {
-    console.warn(`[Proactive] Persona ${persona.id} has no active QQ or WeChat binding`);
-    return { sent: false, channel: "web", platform: null, reason: "no_binding" };
-  }
-
-  if (getBotStatus().status !== "logged_in") {
-    return { sent: false, channel: "wechat", platform: "wechat", reason: "wechat_offline" };
-  }
-
-  let sent = false;
-  for (const binding of target.wechatBindings) {
-    sent = (await sendWeChatText(binding.wechatContactId, text, binding.wechatName)) || sent;
-  }
-
-  return {
-    sent,
-    channel: "wechat",
-    platform: "wechat",
-    reason: sent ? undefined : "wechat_send_failed",
-  };
+  console.warn(`[Proactive] Persona ${persona.id} has no active QQ binding`);
+  return { sent: false, channel: "web", platform: null, reason: "no_binding" };
 }
