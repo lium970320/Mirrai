@@ -2,6 +2,7 @@ import { llmService } from "../llm";
 import { loadPrompt } from "./prompts";
 import { runPythonTool } from "./runner";
 import * as db from "../db";
+import { withPersonaProfileSections } from "../_core/persona-profile";
 
 export type PipelineInput = {
   personaId: number;
@@ -37,6 +38,7 @@ export async function runSkillPipeline(input: PipelineInput): Promise<void> {
         { role: "system", content: analyzerPrompt },
         { role: "user", content: `人物名称：${name}\n\n聊天记录/素材：\n${chatContent.slice(0, 10000)}` },
       ],
+      options: { purpose: "skill_pipeline", userId, personaId, route: "skill_pipeline.analyze" },
     });
 
     // Stage 2: Build persona
@@ -52,6 +54,7 @@ export async function runSkillPipeline(input: PipelineInput): Promise<void> {
         { role: "system", content: builderPrompt },
         { role: "user", content: `人物名称：${name}\n\n分析结果：\n${analysisResult}` },
       ],
+      options: { purpose: "skill_pipeline", userId, personaId, route: "skill_pipeline.build" },
     });
 
     // Stage 3: Parse and store
@@ -76,8 +79,10 @@ export async function runSkillPipeline(input: PipelineInput): Promise<void> {
       };
     }
 
+    const structuredPersonaData = withPersonaProfileSections(personaData, { name });
+
     await db.updatePersona(personaId, userId, {
-      personaData,
+      personaData: structuredPersonaData,
       analysisStatus: "ready",
       analysisProgress: 100,
       analysisMessage: `${name} 的数字分身已准备好`,
@@ -88,7 +93,7 @@ export async function runSkillPipeline(input: PipelineInput): Promise<void> {
       pipelineStage: "complete",
       stageProgress: 100,
       stageMessage: "完成",
-      analysisResult: personaData as any,
+      analysisResult: structuredPersonaData as any,
     });
 
     // Try to run Python skill writer (optional, non-blocking)

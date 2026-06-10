@@ -6,7 +6,7 @@ export const emotionalStateEnum = pgEnum("emotional_state", ["warm", "playful", 
 export const fileTypeEnum = pgEnum("file_type", ["chat_txt", "chat_csv", "image", "video"]);
 export const processStatusEnum = pgEnum("process_status", ["uploaded", "processing", "done", "failed"]);
 export const messageRoleEnum = pgEnum("message_role", ["user", "assistant"]);
-export const channelEnum = pgEnum("channel", ["web", "wechat"]);
+export const channelEnum = pgEnum("channel", ["web", "wechat", "qq"]);
 export const characterFamilyEnum = pgEnum("character_family", ["colleague", "relationship", "celebrity"]);
 export const pipelineStageEnum = pgEnum("pipeline_stage", [
   "intake", "collecting", "analyzing_persona", "analyzing_work",
@@ -130,6 +130,65 @@ export const messages = pgTable("messages", {
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = typeof messages.$inferInsert;
 
+export const roleplayChannels = pgTable("roleplay_channels", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  scenePrompt: text("scenePrompt"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type RoleplayChannel = typeof roleplayChannels.$inferSelect;
+export type InsertRoleplayChannel = typeof roleplayChannels.$inferInsert;
+
+export const roleplayChannelMembers = pgTable("roleplay_channel_members", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channelId").notNull(),
+  userId: integer("userId").notNull(),
+  personaId: integer("personaId").notNull(),
+  displayOrder: integer("displayOrder").default(0).notNull(),
+  speakingEnabled: boolean("speakingEnabled").default(true).notNull(),
+  lastReadMessageId: integer("lastReadMessageId").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type RoleplayChannelMember = typeof roleplayChannelMembers.$inferSelect;
+export type InsertRoleplayChannelMember = typeof roleplayChannelMembers.$inferInsert;
+
+export const roleplayMessages = pgTable("roleplay_messages", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channelId").notNull(),
+  userId: integer("userId").notNull(),
+  personaId: integer("personaId"),
+  speakerName: varchar("speakerName", { length: 100 }).notNull(),
+  role: varchar("role", { length: 32 }).default("persona").notNull(),
+  content: text("content").notNull(),
+  innerThought: text("innerThought"),
+  moodState: jsonb("moodState"),
+  turnKind: varchar("turnKind", { length: 50 }).default("dialogue").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type RoleplayMessage = typeof roleplayMessages.$inferSelect;
+export type InsertRoleplayMessage = typeof roleplayMessages.$inferInsert;
+
+export const personaRuntimeStates = pgTable("persona_runtime_states", {
+  id: serial("id").primaryKey(),
+  personaId: integer("personaId").notNull(),
+  userId: integer("userId").notNull(),
+  runtimeLifeState: jsonb("runtimeLifeState"),
+  runtimeDiagnostics: jsonb("runtimeDiagnostics"),
+  proactiveRuntime: jsonb("proactiveRuntime"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type PersonaRuntimeStateRow = typeof personaRuntimeStates.$inferSelect;
+export type InsertPersonaRuntimeStateRow = typeof personaRuntimeStates.$inferInsert;
+
 export const wechatBindings = pgTable("wechat_bindings", {
   id: serial("id").primaryKey(),
   personaId: integer("personaId").notNull(),
@@ -178,6 +237,30 @@ export const llmConfigs = pgTable("llm_configs", {
 export type LlmConfig = typeof llmConfigs.$inferSelect;
 export type InsertLlmConfig = typeof llmConfigs.$inferInsert;
 
+export const llmUsageRecords = pgTable("llm_usage_records", {
+  id: serial("id").primaryKey(),
+  startedAt: timestamp("startedAt").notNull(),
+  durationMs: integer("durationMs").default(0).notNull(),
+  provider: varchar("provider", { length: 64 }).notNull(),
+  requestedProvider: varchar("requestedProvider", { length: 64 }),
+  model: varchar("model", { length: 128 }),
+  purpose: varchar("purpose", { length: 64 }),
+  userId: integer("userId"),
+  personaId: integer("personaId"),
+  route: varchar("route", { length: 128 }),
+  success: boolean("success").default(true).notNull(),
+  inputTokens: integer("inputTokens").default(0).notNull(),
+  outputTokens: integer("outputTokens").default(0).notNull(),
+  totalTokens: integer("totalTokens").default(0).notNull(),
+  inputChars: integer("inputChars").default(0).notNull(),
+  outputChars: integer("outputChars").default(0).notNull(),
+  error: text("error"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LlmUsageRecordRow = typeof llmUsageRecords.$inferSelect;
+export type InsertLlmUsageRecordRow = typeof llmUsageRecords.$inferInsert;
+
 export const wechatBotState = pgTable("wechat_bot_state", {
   id: serial("id").primaryKey(),
   userId: integer("userId").notNull(),
@@ -200,6 +283,17 @@ export const memories = pgTable("memories", {
   category: memoryCategoryEnum().default("memory").notNull(),
   date: varchar("date", { length: 50 }),
   messageId: integer("messageId"),
+  source: varchar("source", { length: 50 }).default("manual").notNull(),
+  memoryType: varchar("memoryType", { length: 50 }).default("relationship_event").notNull(),
+  importance: integer("importance").default(3).notNull(),
+  confidence: integer("confidence").default(3).notNull(),
+  keywords: jsonb("keywords"),
+  emotion: varchar("emotion", { length: 50 }),
+  validFrom: varchar("validFrom", { length: 50 }),
+  validTo: varchar("validTo", { length: 50 }),
+  lastAccessedAt: timestamp("lastAccessedAt"),
+  evidenceMessageIds: jsonb("evidenceMessageIds"),
+  status: varchar("status", { length: 50 }).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

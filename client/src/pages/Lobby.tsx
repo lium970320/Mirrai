@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import ForewordModal from "@/components/ForewordModal";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -259,27 +260,7 @@ function useAnimatedCounter(target: number, duration = 800): number {
   return value;
 }
 
-// ─── FLOATING PARTICLES (SEASONAL) ──────────────────────────────────────────
-
-function FloatingParticles() {
-  const season = getSeason();
-  const particles = SEASONAL_PARTICLES[season];
-  return (
-    <div className="lobby-particles" aria-hidden>
-      {Array.from({ length: 8 }).map((_, i) => (
-        <span key={i} className="lobby-particle" style={{
-          left: `${8 + i * 12}%`,
-          animationDelay: `${i * 1.1}s`,
-          animationDuration: `${5 + i * 1.3}s`,
-          fontSize: `${10 + (i % 3) * 4}px`,
-          opacity: 0.12 + (i % 3) * 0.04,
-        }}>
-          {particles[i % particles.length]}
-        </span>
-      ))}
-    </div>
-  );
-}
+// ─── FLOATING PARTICLES REMOVED ──────────────────────────────────────────
 
 // ─── HERO BANNER ─────────────────────────────────────────────────────────────
 
@@ -443,7 +424,7 @@ function DailyMessages({ personas }: { personas: any[] }) {
         {messages.map((m, i) => {
           const emotion = EMOTIONAL_STATES[m.emotion] || EMOTIONAL_STATES.warm;
           return (
-            <div key={i} className="flex items-start gap-3 px-4 py-3 bg-card/70 rounded-xl border border-border/60 animate-fade-in-up backdrop-blur-sm"
+            <div key={i} className="daily-message-item flex items-start gap-3 px-4 py-3 rounded-xl animate-fade-in-up"
               style={{ animationDelay: `${i * 100}ms` }}>
               <div className="mood-ring-sm flex-shrink-0" style={{ "--mood-color": emotion.color } as any}>
                 <img src={generateAvatar(m.name)} alt="" className="w-8 h-8 rounded-full" />
@@ -452,7 +433,7 @@ function DailyMessages({ personas }: { personas: any[] }) {
                 <span className="text-xs font-medium text-foreground">{m.name}</span>
                 <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{m.message}</p>
               </div>
-              <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 mt-1">今天</span>
+              <span className="text-[10px] text-muted-foreground/75 flex-shrink-0 mt-1">今天</span>
             </div>
           );
         })}
@@ -557,7 +538,7 @@ function ActivityHeatmap() {
         })}
       </div>
       <div className="flex items-center gap-1 mt-2 justify-end">
-        <span className="text-[9px] text-muted-foreground/50">少</span>
+        <span className="text-[9px] text-muted-foreground/80">少</span>
         {[0, 0.25, 0.5, 0.75, 1].map((v, i) => (
           <div key={i} className="heatmap-cell" style={{
             width: "10px", height: "10px",
@@ -566,7 +547,7 @@ function ActivityHeatmap() {
               : `oklch(0.52 ${0.10 * v} 155 / ${0.2 + v * 0.8})`,
           }} />
         ))}
-        <span className="text-[9px] text-muted-foreground/50">多</span>
+        <span className="text-[9px] text-muted-foreground/80">多</span>
       </div>
     </div>
   );
@@ -867,7 +848,7 @@ function ConversationStarters({ personas, onChat }: { personas: any[]; onChat: (
             <img src={generateAvatar(s.personaName)} alt="" className="w-8 h-8 rounded-lg flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground leading-relaxed truncate">"{s.text}"</p>
-              <span className="text-[10px] text-muted-foreground/50">问问 {s.personaName}</span>
+              <span className="text-[10px] text-muted-foreground/80">问问 {s.personaName}</span>
             </div>
             <MessageCircle className="w-3.5 h-3.5 text-primary/30 group-hover:text-primary/60 transition-colors flex-shrink-0" />
           </button>
@@ -966,14 +947,14 @@ function MiniCalendar() {
       </div>
       <div className="grid grid-cols-7 gap-1">
         {["日", "一", "二", "三", "四", "五", "六"].map(d => (
-          <div key={d} className="text-center text-[9px] text-muted-foreground/50 py-0.5">{d}</div>
+          <div key={d} className="text-center text-[9px] text-muted-foreground/85 py-0.5">{d}</div>
         ))}
         {days.map((d, i) => (
           <div key={i} className={`cal-cell aspect-square rounded-md flex items-center justify-center text-[10px] ${
             !d ? "" :
             d.today ? "bg-primary text-primary-foreground font-bold ring-2 ring-primary/30" :
             d.active ? "bg-primary/15 text-primary font-medium" :
-            "text-muted-foreground/40"
+            "text-muted-foreground/60"
           }`}>
             {d?.day || ""}
           </div>
@@ -1106,225 +1087,246 @@ function PersonaCard({ persona, onChat, onUpload, onEdit, onDelete }: {
   });
 
   return (
-    <div className={`warm-card gradient-border-card p-5 animate-fade-in-up group relative ${isGraduated ? "opacity-70" : ""}`}>
-      {isGraduated && (
-        <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-[10px] text-violet-500 font-medium z-10">
-          <GraduationCap className="w-3 h-3" /> 休眠
-        </div>
-      )}
-
-      {!isGraduated && milestone && (
-        <div className="absolute -top-2 -right-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-300 font-medium z-10">
-          <span>{milestone.icon}</span> {milestone.label}
-        </div>
-      )}
-
-      {missLevel && (
-        <div className="absolute -top-2 -left-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-500 font-medium z-10 animate-pulse-soft">
-          💭 {missLevel}
-        </div>
-      )}
-
-      {anniversary !== null && anniversary <= 30 && (
-        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20">
-          <Gift className="w-3.5 h-3.5 text-rose-400" />
-          <span className="text-xs text-rose-600 dark:text-rose-300">
-            {anniversary === 0 ? "今天是纪念日！🎉" : `距离纪念日还有 ${anniversary} 天`}
-          </span>
-        </div>
-      )}
-
-      <div className="flex items-start gap-4">
-        <div className="relative flex-shrink-0">
-          <div className="mood-ring" style={{ "--mood-color": emotion.color } as any}>
-            <img src={avatar} alt="" className="w-14 h-14 rounded-2xl" />
+    <div className={`warm-card gradient-border-card p-5.5 animate-fade-in-up group relative flex flex-col justify-between ${isGraduated ? "opacity-75" : ""}`}>
+      {/* 状态徽章区 */}
+      <div className="absolute top-5.5 right-5.5 flex items-center gap-1.5 z-10">
+        {isGraduated && (
+          <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-[10px] text-violet-500 font-semibold backdrop-blur-xs">
+            <GraduationCap className="w-3.5 h-3.5" /> 毕业休眠
           </div>
-          {isReady && (
-            <span className="absolute top-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-card breathing-dot" />
-          )}
-          {persona.wechatBound && (
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-card flex items-center justify-center">
-              <Wifi className="w-2.5 h-2.5 text-white" />
-            </div>
-          )}
-          {compatibility !== null && (
-            <div className="absolute -bottom-2 -left-2 z-10" title={`默契度 ${compatibility}%`}>
-              <div className="relative">
-                <DepthRing value={compatibility} size={28} />
-                <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-primary"
-                  style={{ transform: "rotate(90deg)" }}>{compatibility}</span>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-semibold text-foreground truncate">{persona.name}</h3>
-            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border state-bg-${persona.emotionalState || "warm"}`}>
-              {emotion.emoji} {emotion.label}
+        )}
+        {!isGraduated && milestone && (
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-300 font-semibold backdrop-blur-xs shadow-xs">
+            <span>{milestone.icon}</span> {milestone.label}
+          </div>
+        )}
+        {missLevel && (
+          <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-500 font-semibold animate-pulse-soft backdrop-blur-xs">
+            💭 {missLevel}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {/* 周年纪念提示 */}
+        {anniversary !== null && anniversary <= 30 && (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-rose-500/8 border border-rose-500/15 animate-fade-in-up">
+            <Gift className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span className="text-xs font-medium text-rose-600 dark:text-rose-300">
+              {anniversary === 0 ? "🌟 今日是你们的纪念日！🎉" : `距离共同纪念日还有 ${anniversary} 天`}
             </span>
-            {persona.intimacyLevel && persona.intimacyLevel !== "初识" && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary" title={`亲密度 ${persona.intimacyScore || 0}`}>
-                {persona.intimacyLevel}
-              </span>
+          </div>
+        )}
+
+        {/* 头部：头像与核心名字属性 */}
+        <div className="flex items-center gap-4">
+          <div className="relative flex-shrink-0">
+            {/* 头像流光Mood环 */}
+            <div className="mood-ring p-[3px] rounded-2xl transition-transform duration-300 group-hover:scale-[1.03]" 
+                 style={{ "--mood-color": emotion.color } as any}>
+              <img src={avatar} alt="" className="w-14 h-14 rounded-[13px] object-cover bg-muted" />
+            </div>
+            {isReady && (
+              <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-3 border-card breathing-dot shadow-md" />
+            )}
+            {persona.wechatBound && (
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-card flex items-center justify-center shadow-xs">
+                <Wifi className="w-2.5 h-2.5 text-white" />
+              </div>
+            )}
+            {compatibility !== null && (
+              <div className="absolute -bottom-2 -left-2 z-10 bg-card rounded-full p-0.5 shadow-md" title={`默契度 ${compatibility}%`}>
+                <div className="relative flex items-center justify-center">
+                  <DepthRing value={compatibility} size={28} />
+                  <span className="absolute inset-0 flex items-center justify-center text-[7px] font-bold text-primary"
+                    style={{ transform: "rotate(90deg)" }}>{compatibility}</span>
+                </div>
+              </div>
             )}
           </div>
-          <p className="text-muted-foreground text-sm truncate">{persona.relationshipDesc || "重要的人"}</p>
 
-          <div className="flex items-center gap-2.5 mt-2 text-xs text-muted-foreground flex-wrap">
+          <div className="flex-1 min-w-0 pr-28 sm:pr-36">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h3 className="font-bold text-base text-foreground tracking-tight truncate group-hover:text-primary transition-colors">{persona.name}</h3>
+              <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border state-bg-${persona.emotionalState || "warm"} state-${persona.emotionalState || "warm"}`}>
+                {emotion.emoji} {emotion.label}
+              </span>
+              {persona.intimacyLevel && persona.intimacyLevel !== "初识" && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary border border-primary/10 font-semibold" title={`亲密度评分 ${persona.intimacyScore || 0}`}>
+                  {persona.intimacyLevel}
+                </span>
+              )}
+            </div>
+            <p className="text-muted-foreground text-xs font-medium mt-1 truncate">{persona.relationshipDesc || "数字分身"}</p>
+          </div>
+        </div>
+
+        {/* 人设简介/口头禅等展示 */}
+        <div className="space-y-2">
+          {pd.summary && isReady && (
+            <div className="flex items-start gap-1.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+              <Eye className="w-3.5 h-3.5 text-primary/60 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-muted-foreground/90 leading-relaxed italic line-clamp-2">{pd.summary}</p>
+            </div>
+          )}
+
+          {!pd.summary && traits && isReady && (
+            <div className="flex items-start gap-1.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+              <Brain className="w-3.5 h-3.5 text-primary/60 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-muted-foreground/90 leading-relaxed line-clamp-2">{traits}</p>
+            </div>
+          )}
+
+          {catchphrases.length > 0 && isReady && (
+            <div className="flex items-center gap-1.5 overflow-hidden py-0.5">
+              {catchphrases.slice(0, 3).map((phrase: string, i: number) => (
+                <span key={i} className="inline-block text-[9px] px-2 py-0.5 rounded-full bg-primary/4 text-primary/80 border border-primary/10 truncate max-w-[100px] font-medium">
+                  “{phrase}”
+                </span>
+              ))}
+            </div>
+          )}
+
+          {(pd.loveLanguage || pd.attachmentStyle) && isReady && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {pd.attachmentStyle && ATTACHMENT_LABELS[pd.attachmentStyle] && (
+                <span className="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full bg-muted/70 text-muted-foreground font-medium">
+                  {ATTACHMENT_LABELS[pd.attachmentStyle]} {pd.attachmentStyle}
+                </span>
+              )}
+              {pd.loveLanguage && LOVE_LANG_ICONS[pd.loveLanguage] && (
+                <span className="inline-flex items-center gap-1 text-[9px] px-2 py-0.5 rounded-full bg-muted/70 text-muted-foreground font-medium">
+                  {LOVE_LANG_ICONS[pd.loveLanguage]} {pd.loveLanguage}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 基础数据统计列 */}
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/40">
+          <div className="flex items-center gap-3">
             <span className="flex items-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
-              {status.label}
+              <span className="font-medium">{status.label}</span>
             </span>
             {persona.chatCount > 0 && (
-              <span className="flex items-center gap-1">
-                <MessageCircle className="w-3 h-3" /> {persona.chatCount}
+              <span className="flex items-center gap-1" title="累计对话">
+                <MessageCircle className="w-3 h-3 text-muted-foreground/70" /> {persona.chatCount}
               </span>
             )}
             {persona.fileCount > 0 && (
-              <span className="flex items-center gap-1">
-                <FileText className="w-3 h-3" /> {persona.fileCount}
-              </span>
-            )}
-            {persona.llmProvider && (
-              <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-medium">
-                {persona.llmProvider}
+              <span className="flex items-center gap-1" title="素材文件数">
+                <FileText className="w-3 h-3 text-muted-foreground/70" /> {persona.fileCount}
               </span>
             )}
           </div>
+          {persona.llmProvider && (
+            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-muted/65 text-muted-foreground/90 uppercase tracking-wider scale-95 origin-right">
+              {persona.llmProvider}
+            </span>
+          )}
         </div>
+
+        {/* 时间进度与上次交流 */}
+        {(togetherDays || persona.lastChatAt) && (
+          <div className="flex items-center gap-3.5 text-[10px] text-muted-foreground/80 flex-wrap">
+            {togetherDays && (
+              <span className="flex items-center gap-1">
+                <Heart className="w-3.5 h-3.5 text-rose-400" />
+                <span>{persona.togetherTo ? `相伴 ${togetherDays} 日` : `已相守 ${togetherDays} 日`}</span>
+              </span>
+            )}
+            {persona.lastChatAt && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span>上次对话 {relativeTime(persona.lastChatAt)}</span>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* 正在解析进度条 */}
+        {isAnalyzing && (
+          <div className="pt-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+              <span className="shimmer-text font-medium">{getAnalysisStage(persona.analysisProgress || 0)}</span>
+              <span className="font-semibold text-primary">{persona.analysisProgress || 0}%</span>
+            </div>
+            <div className="h-1.5 bg-muted/60 rounded-full overflow-hidden">
+              <div className="h-full bg-primary/80 rounded-full transition-all duration-500 progress-bar"
+                style={{ width: `${persona.analysisProgress || 0}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* 最新回复切片 */}
+        {persona.lastMessage && !isAnalyzing && (
+          <div className="p-3 bg-muted/30 rounded-xl border border-border/30 group/msg relative overflow-hidden transition-all hover:bg-muted/40">
+            <p className="text-[11px] text-muted-foreground/90 leading-relaxed truncate">{persona.lastMessage.content}</p>
+            <p className="text-[9px] text-muted-foreground/60 mt-1 flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5" /> {relativeTime(persona.lastMessage.createdAt)}
+            </p>
+          </div>
+        )}
       </div>
 
-      {(togetherDays || persona.lastChatAt) && (
-        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-          {togetherDays && (
-            <span className="flex items-center gap-1">
-              <Heart className="w-3 h-3 text-rose-400" />
-              {persona.togetherTo ? `在一起了 ${togetherDays} 天` : `已经 ${togetherDays} 天`}
-            </span>
-          )}
-          {persona.lastChatAt && (
-            <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              上次 {relativeTime(persona.lastChatAt)}
-            </span>
-          )}
-        </div>
-      )}
-
-      {pd.summary && isReady && (
-        <div className="mt-2.5 flex items-start gap-1.5">
-          <Eye className="w-3 h-3 text-primary/40 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-muted-foreground/70 line-clamp-1 italic">{pd.summary}</p>
-        </div>
-      )}
-
-      {traits && isReady && !pd.summary && (
-        <div className="mt-2.5 flex items-start gap-1.5">
-          <Brain className="w-3 h-3 text-primary/50 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-muted-foreground/80 line-clamp-1">{traits}</p>
-        </div>
-      )}
-
-      {catchphrases.length > 0 && isReady && (
-        <div className="mt-2 flex items-center gap-1.5 overflow-hidden">
-          {catchphrases.slice(0, 3).map((phrase: string, i: number) => (
-            <span key={i} className="inline-block text-[10px] px-2 py-0.5 rounded-full bg-primary/5 text-primary/70 border border-primary/10 truncate max-w-[100px]">
-              "{phrase}"
-            </span>
-          ))}
-        </div>
-      )}
-
-      {(pd.loveLanguage || pd.attachmentStyle) && isReady && (
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          {pd.attachmentStyle && ATTACHMENT_LABELS[pd.attachmentStyle] && (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">
-              {ATTACHMENT_LABELS[pd.attachmentStyle]} {pd.attachmentStyle}
-            </span>
-          )}
-          {pd.loveLanguage && LOVE_LANG_ICONS[pd.loveLanguage] && (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">
-              {LOVE_LANG_ICONS[pd.loveLanguage]} {pd.loveLanguage}
-            </span>
-          )}
-        </div>
-      )}
-
-      {isAnalyzing && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span className="shimmer-text">{getAnalysisStage(persona.analysisProgress || 0)}</span>
-            <span>{persona.analysisProgress || 0}%</span>
-          </div>
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-primary/70 rounded-full transition-all duration-500"
-              style={{ width: `${persona.analysisProgress || 0}%` }} />
-          </div>
-        </div>
-      )}
-
-      {persona.lastMessage && !isAnalyzing && (
-        <div className="mt-3 px-3 py-2 bg-muted/30 rounded-xl">
-          <p className="text-xs text-muted-foreground truncate">{persona.lastMessage.content}</p>
-          <p className="text-[10px] text-muted-foreground/50 mt-0.5">{relativeTime(persona.lastMessage.createdAt)}</p>
-        </div>
-      )}
-
-      <div className="flex gap-2 mt-4 pt-3 border-t border-border">
+      {/* 底部精炼交互按钮组 */}
+      <div className="flex gap-2.5 mt-5 pt-3.5 border-t border-border/60">
         {isGraduated ? (
           <>
-            <Button size="sm" className="flex-1 bg-violet-500 hover:bg-violet-600 text-white rounded-xl"
+            <Button size="sm" className="flex-1 bg-violet-600 hover:bg-violet-700 text-white rounded-xl h-9.5 text-xs font-semibold shadow-xs transition-all active:scale-[0.98]"
               onClick={() => awakenMutation.mutate({ id: persona.id })} disabled={awakenMutation.isPending}>
-              <Sunrise className="w-3.5 h-3.5 mr-1.5" />{awakenMutation.isPending ? "唤醒中..." : "唤醒"}
+              <Sunrise className="w-3.5 h-3.5 mr-1.5" />{awakenMutation.isPending ? "唤醒中..." : "重新唤醒"}
             </Button>
             {persona.farewellLetter && (
-              <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl"
-                onClick={() => setShowLetter(true)}>
-                <BookOpen className="w-3.5 h-3.5" />
+              <Button size="sm" variant="ghost" className="h-9.5 w-9.5 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-xl"
+                onClick={() => setShowLetter(true)} title="查看告别信">
+                <BookOpen className="w-4 h-4" />
               </Button>
             )}
           </>
         ) : isReady ? (
           <>
-            <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl" onClick={onChat}>
-              <MessageCircle className="w-3.5 h-3.5 mr-1.5" />对话
+            <Button size="sm" className="flex-1 bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl h-9.5 text-xs font-semibold shadow-xs hover:shadow-md transition-all active:scale-[0.98]" onClick={onChat}>
+              <MessageCircle className="w-3.5 h-3.5 mr-1.5" />进入对话
             </Button>
-            <Button size="sm" variant="outline" className="rounded-xl border-border" onClick={onUpload}>
-              <Upload className="w-3.5 h-3.5 mr-1.5" />素材
+            <Button size="sm" variant="outline" className="rounded-xl border-border text-xs px-3 h-9.5 font-medium hover:bg-muted/50 transition-all" onClick={onUpload} title="上传素材">
+              <Upload className="w-3.5 h-3.5" />
             </Button>
           </>
         ) : (
-          <Button size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl" onClick={onUpload}>
-            <Upload className="w-3.5 h-3.5 mr-1.5" />上传素材
+          <Button size="sm" className="flex-1 bg-primary hover:bg-primary/95 text-primary-foreground rounded-xl h-9.5 text-xs font-semibold shadow-xs transition-all active:scale-[0.98]" onClick={onUpload}>
+            <Upload className="w-3.5 h-3.5 mr-1.5" />上传素材开始解析
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl" onClick={onEdit}>
+        <Button size="sm" variant="ghost" className="h-9.5 w-9.5 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-xl" onClick={onEdit} title="修改设定">
           <Pencil className="w-3.5 h-3.5" />
         </Button>
-        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl" onClick={onDelete}>
+        <Button size="sm" variant="ghost" className="h-9.5 w-9.5 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl" onClick={onDelete} title="删除分身">
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
 
+      {/* 告别信弹窗 */}
       {showLetter && persona.farewellLetter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowLetter(false)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-card border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowLetter(false)}>
+          <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" />
+          <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <GraduationCap className="w-5 h-5 text-violet-500" />
-                <h3 className="font-medium text-foreground">{persona.name} 的告别信</h3>
+                <h3 className="font-semibold text-foreground text-sm">{persona.name} 的告别书信</h3>
               </div>
-              <button onClick={() => setShowLetter(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => setShowLetter(false)} className="text-muted-foreground hover:text-foreground transition-colors">✕</button>
             </div>
-            <div className="bg-muted/30 border border-border rounded-xl p-5">
-              <p className="text-foreground text-sm leading-relaxed whitespace-pre-wrap">{persona.farewellLetter}</p>
-              <p className="text-right text-muted-foreground text-xs mt-4">—— {persona.name}</p>
+            <div className="bg-muted/40 border border-border/50 rounded-xl p-5 shadow-inner leading-relaxed">
+              <p className="text-foreground text-sm whitespace-pre-wrap font-sans">{persona.farewellLetter}</p>
+              <p className="text-right text-muted-foreground text-xs mt-5 font-semibold">—— {persona.name}</p>
             </div>
             {persona.graduatedAt && (
-              <p className="text-xs text-muted-foreground text-center mt-3">
-                毕业于 {new Date(persona.graduatedAt).toLocaleDateString("zh-CN")}
+              <p className="text-[10px] text-muted-foreground/60 text-center mt-4">
+                书于 {new Date(persona.graduatedAt).toLocaleDateString("zh-CN")}
               </p>
             )}
           </div>
@@ -1343,10 +1345,10 @@ function QuickChatBar({ personas, onChat }: { personas: any[]; onChat: (id: numb
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium text-foreground">继续对话</h2>
+        <h2 className="text-sm font-medium text-foreground mr-4">继续对话</h2>
         <span className="text-xs text-muted-foreground">{readyPersonas.length} 个分身在线</span>
       </div>
-      <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+      <div className="flex gap-4 overflow-x-auto pt-3 px-3 pb-2 -mx-3 scrollbar-hide">
         {readyPersonas.map((p: any) => {
           const emotion = EMOTIONAL_STATES[p.emotionalState] || EMOTIONAL_STATES.warm;
           const miss = getMissYouLevel(p.lastChatAt);
@@ -1395,13 +1397,13 @@ function MemoryHighlights({ personas }: { personas: any[] }) {
         <Sparkles className="w-3.5 h-3.5 text-amber-400" />
         <h2 className="text-sm font-medium text-foreground">回忆碎片</h2>
       </div>
-      <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+      <div className="flex gap-3 overflow-x-auto pt-3 px-3 pb-2 -mx-3 scrollbar-hide">
         {highlights.map((h, i) => (
           <div key={i} className="warm-card p-3 flex-shrink-0 w-[220px]">
             <div className="flex items-center gap-1.5 mb-2">
               <img src={generateAvatar(h.name)} alt="" className="w-5 h-5 rounded-md" />
               <span className="text-[10px] font-medium text-foreground">{h.name}</span>
-              <span className="text-[10px] text-muted-foreground/50">{h.type === "touching" ? "感动瞬间" : "共同回忆"}</span>
+              <span className="text-[10px] text-muted-foreground/80">{h.type === "touching" ? "感动瞬间" : "共同回忆"}</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{h.text}</p>
           </div>
@@ -1438,12 +1440,12 @@ function RecentActivity({ onNavigate }: { onNavigate: (personaId: number) => voi
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-foreground">{item.role === "user" ? "你" : item.personaName}</span>
-                  <span className="text-[10px] text-muted-foreground/40">→</span>
+                  <span className="text-[10px] text-muted-foreground/75">→</span>
                   <span className="text-xs text-muted-foreground">{item.role === "user" ? item.personaName : "你"}</span>
                 </div>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">{item.content}</p>
               </div>
-              <span className="text-[10px] text-muted-foreground/40 flex-shrink-0">{relativeTime(item.createdAt)}</span>
+              <span className="text-[10px] text-muted-foreground/75 flex-shrink-0">{relativeTime(item.createdAt)}</span>
             </button>
           );
         })}
@@ -1559,7 +1561,7 @@ function CreatePersonaDialog({ open, onOpenChange, onCreated }: {
           <div className="space-y-1.5">
             <Label className="text-sm text-foreground/70">关系描述</Label>
             <Input value={relationshipDesc} onChange={e => setRelationshipDesc(e.target.value)}
-              placeholder="例如：我的女朋友" className="h-10 bg-muted/50 border-border rounded-xl" />
+              placeholder="例如：我的爱人" className="h-10 bg-muted/50 border-border rounded-xl" />
           </div>
           <div className="space-y-1.5">
             <Label className="text-sm text-foreground/70">在一起的日期</Label>
@@ -1660,7 +1662,7 @@ export default function Lobby() {
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
       <div className="gradient-mesh-bg" />
-      <FloatingParticles />
+      {/* FloatingParticles 已移除 */}
 
       <header className="sticky top-0 z-40 app-header">
         <div className="container app-nav">
@@ -1716,25 +1718,24 @@ export default function Lobby() {
         )}
 
         {hasPersonas ? (
-          <>
-            {readyCount === 0 && analyzingCount > 0 && (
-              <div className="mb-4 p-4 rounded-xl bg-primary/5 border border-primary/10 text-center">
-                <p className="text-sm text-muted-foreground">
-                  所有分身正在解析中，完成后即可开始对话
-                </p>
-              </div>
-            )}
-            <ChatStreak />
-            <TodayRecommendation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
-            <DailyMessages personas={personas as any[]} />
-            <EmotionalWeather personas={personas as any[]} />
-            <QuickChatBar personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
-            <PersonaConstellation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
-            <ConversationStarters personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
-            <ActivityHeatmap />
-            <MiniCalendar />
-            <MemoryHighlights personas={personas as any[]} />
-            <AchievementBadges stats={stats} />
+          <Tabs defaultValue="companions" className="space-y-6 animate-fade-in-up">
+            <TabsList className="lobby-tab-list grid h-auto w-full grid-cols-3 gap-1 p-1 rounded-xl mb-2">
+              <TabsTrigger value="companions" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">🌸 我的分身</TabsTrigger>
+              <TabsTrigger value="memories" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">🌌 记忆星河</TabsTrigger>
+              <TabsTrigger value="stats" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">📊 陪伴印记</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="companions" className="space-y-6 focus-visible:outline-none focus:outline-none">
+              {readyCount === 0 && analyzingCount > 0 && (
+                <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 text-center animate-pulse-soft">
+                  <p className="text-sm text-muted-foreground">
+                    所有分身正在解析中，完成后即可开始对话
+                  </p>
+                </div>
+              )}
+              <TodayRecommendation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
+              <QuickChatBar personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
+              <DailyMessages personas={personas as any[]} />
 
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
@@ -1816,11 +1817,24 @@ export default function Lobby() {
                 )}
               </div>
             </div>
+            </TabsContent>
 
-            <RecentActivity onNavigate={(id) => navigate(`/chat/${id}`)} />
-            <PersonaLeaderboard personas={personas as any[]} />
-            <TipsSection />
-          </>
+            <TabsContent value="memories" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+              <PersonaConstellation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
+              <MemoryHighlights personas={personas as any[]} />
+              <ConversationStarters personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
+            </TabsContent>
+
+            <TabsContent value="stats" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+              <ChatStreak />
+              <RecentActivity onNavigate={(id) => navigate(`/chat/${id}`)} />
+              <ActivityHeatmap />
+              <MiniCalendar />
+              <PersonaLeaderboard personas={personas as any[]} />
+              <AchievementBadges stats={stats} />
+              <TipsSection />
+            </TabsContent>
+          </Tabs>
         ) : (
           <EmptyState onCreate={() => setShowCreate(true)} />
         )}

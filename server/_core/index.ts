@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
 import { startProactiveScheduler } from "../wechat/proactive-scheduler";
+import { startDailyMemoryScheduler } from "../social/daily-memory";
 import { registerQqRoutes } from "../qq/routes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -78,6 +79,7 @@ async function startServer() {
   }
 
   startProactiveScheduler();
+  startDailyMemoryScheduler();
 }
 
 startServer().catch(console.error);

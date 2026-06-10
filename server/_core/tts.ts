@@ -5,6 +5,8 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { ENV } from "./env";
+import { recordOperationsEvent } from "./operations-events";
+import { getCurrentLlmEconomyPolicy } from "../llm/economy";
 import {
   selectVoxcpmVoiceProfile,
   type SelectedVoxcpmVoiceProfile,
@@ -19,6 +21,10 @@ const MINIMAX_CACHE_VERSION = "minimax-t2a-v1";
 type TTSProvider = "edge" | "windows-sapi" | "voxcpm" | "minimax" | "auto" | "none";
 type MiniMaxAudioFormat = "mp3" | "wav" | "flac";
 type MiniMaxResponseFormat = "hex" | "url";
+type GenerateTTSFileOptions = {
+  maxTextLength?: number | null;
+  timeoutMs?: number;
+};
 type TTSResult = {
   filePath: string;
   urlPath: string;
@@ -41,46 +47,92 @@ function getCacheKey(text: string, voice: string, provider: string): string {
 export async function generateTTS(
   text: string,
   voice: string = DEFAULT_VOICE,
+  options: GenerateTTSFileOptions = {},
 ): Promise<string> {
-  const result = await generateTTSFile(text, voice);
+  const result = await generateTTSFile(text, voice, undefined, options);
   return result.urlPath;
+}
+
+function applyTtsTextLimit(text: string, options: GenerateTTSFileOptions): string {
+  const normalized = text.trim();
+  const maxTextLength = options.maxTextLength === undefined
+    ? MAX_TEXT_LENGTH
+    : options.maxTextLength;
+
+  if (maxTextLength == null || maxTextLength <= 0) {
+    if (Array.from(normalized).length > MAX_TEXT_LENGTH) {
+      console.info(`tts_text_limit_bypassed chars=${Array.from(normalized).length}`);
+    }
+    return normalized;
+  }
+
+  return Array.from(normalized).slice(0, maxTextLength).join("");
 }
 
 export async function generateTTSFile(
   text: string,
   voice: string = DEFAULT_VOICE,
   provider: TTSProvider = normalizeProvider(ENV.ttsProvider),
+  options: GenerateTTSFileOptions = {},
 ): Promise<TTSResult> {
-  const trimmed = text.slice(0, MAX_TEXT_LENGTH);
+  const preparedText = applyTtsTextLimit(text, options);
   if (provider === "none") {
     throw new Error("TTS provider is disabled");
   }
   if (provider === "windows-sapi") {
-    return generateWindowsSapiTTSFile(trimmed, voice);
+    return generateWindowsSapiTTSFile(preparedText, voice);
   }
   if (provider === "voxcpm") {
     try {
-      return await generateVoxcpmTTSFile(trimmed, voice);
+      return await generateVoxcpmTTSFile(preparedText, voice, options);
     } catch (err) {
-      console.warn(`tts_voxcpm_failed fallback=${ENV.ttsFallbackProvider}`, err);
-      return generateTTSFile(trimmed, voice, fallbackProviderFor("voxcpm"));
+      const fallbackProvider = fallbackProviderFor("voxcpm");
+      console.warn(`tts_voxcpm_failed fallback=${fallbackProvider}`, err);
+      recordOperationsEvent({
+        id: "voice.tts_voxcpm_failed",
+        scope: "voice",
+        title: "VoxCPM TTS 失败",
+        detail: "VoxCPM 语音生成失败，系统会按 fallback 策略退回其他 TTS 或文字。",
+        rawError: err,
+        evidence: `fallback=${fallbackProvider}`,
+      });
+      if (fallbackProvider === "none") throw err;
+      return generateTTSFile(preparedText, voice, fallbackProvider, options);
     }
   }
   if (provider === "minimax") {
     try {
-      return await generateMinimaxTTSFile(trimmed, voice);
+      return await generateMinimaxTTSFile(preparedText, voice);
     } catch (err) {
-      console.warn(`tts_minimax_failed fallback=${ENV.ttsFallbackProvider}`, err);
-      return generateTTSFile(trimmed, voice, fallbackProviderFor("minimax"));
+      const fallbackProvider = fallbackProviderFor("minimax");
+      console.warn(`tts_minimax_failed fallback=${fallbackProvider}`, err);
+      recordOperationsEvent({
+        id: "voice.tts_minimax_failed",
+        scope: "voice",
+        title: "MiniMax TTS 失败",
+        detail: "MiniMax 语音生成失败，系统会按 fallback 策略退回其他 TTS 或文字。",
+        rawError: err,
+        evidence: `fallback=${fallbackProvider}`,
+      });
+      if (fallbackProvider === "none") throw err;
+      return generateTTSFile(preparedText, voice, fallbackProvider, options);
     }
   }
 
   try {
-    return await generateEdgeTTSFile(trimmed, voice);
+    return await generateEdgeTTSFile(preparedText, voice);
   } catch (err) {
     console.warn("tts_edge_failed fallback=windows-sapi", err);
+    recordOperationsEvent({
+      id: "voice.tts_edge_failed",
+      scope: "voice",
+      title: "Edge TTS 失败",
+      detail: "Edge TTS 生成失败；Windows 环境会尝试退回 SAPI。",
+      rawError: err,
+      evidence: "fallback=windows-sapi",
+    });
     if (process.platform !== "win32") throw err;
-    return generateWindowsSapiTTSFile(trimmed, voice);
+    return generateWindowsSapiTTSFile(preparedText, voice);
   }
 }
 
@@ -250,6 +302,8 @@ async function buildLlmVoxcpmSpeechPerformance(
       provider: ENV.voxcpmSpeechEnrichmentProvider || undefined,
       maxTokens: 260,
       temperature: 0.25,
+      purpose: "tts_enrichment",
+      route: "tts.voxcpm_enrichment",
     },
   });
   const parsed = extractJsonObject(response);
@@ -285,6 +339,12 @@ async function prepareVoxcpmSpeechPerformance(text: string): Promise<VoxcpmSpeec
     };
   }
   if (mode !== "llm") return localPerformance;
+
+  const economy = await getCurrentLlmEconomyPolicy();
+  if (!economy.tts.allowLlmSpeechEnrichment) {
+    console.info(`tts_voxcpm_speech_enrichment_skipped_by_llm_budget level=${economy.level}`);
+    return localPerformance;
+  }
 
   try {
     const enriched = await buildLlmVoxcpmSpeechPerformance(text, localPerformance);
@@ -360,10 +420,15 @@ function voxcpmCacheKey(
   ].join("\n");
 }
 
-async function generateVoxcpmTTSFile(text: string, voice: string): Promise<TTSResult> {
+async function generateVoxcpmTTSFile(
+  text: string,
+  voice: string,
+  options: GenerateTTSFileOptions = {},
+): Promise<TTSResult> {
   const startedAt = Date.now();
   const performance = await prepareVoxcpmSpeechPerformance(text);
   const preparedAt = Date.now();
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? ENV.voxcpmTimeoutMs);
   const hash = getCacheKey(
     voxcpmCacheKey(performance.speechText, voice, performance.control, performance.voiceProfile),
     "voxcpm",
@@ -382,10 +447,10 @@ async function generateVoxcpmTTSFile(text: string, voice: string): Promise<TTSRe
   if (!existsSync(TTS_DIR)) mkdirSync(TTS_DIR, { recursive: true });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ENV.voxcpmTimeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     console.info(
-      `tts_voxcpm_request_start chars=${Array.from(performance.speechText).length} profile=${performance.voiceProfile.profile.id} prepareMs=${preparedAt - startedAt} timeoutMs=${ENV.voxcpmTimeoutMs}`,
+      `tts_voxcpm_request_start chars=${Array.from(performance.speechText).length} profile=${performance.voiceProfile.profile.id} prepareMs=${preparedAt - startedAt} timeoutMs=${timeoutMs}`,
     );
     const response = await fetch(`${ENV.voxcpmServiceUrl.replace(/\/+$/, "")}/tts`, {
       method: "POST",

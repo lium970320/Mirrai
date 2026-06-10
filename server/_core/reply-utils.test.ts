@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanAssistantReply, splitAssistantReplyForChat, stripLeadingAsides } from "./reply-utils";
+import { cleanAssistantReply, splitAssistantReplyForChat, stripLeadingAsides, stripReplyDecorativeQuotes } from "./reply-utils";
 
 describe("stripLeadingAsides", () => {
   it("removes leading full-width parenthetical narration", () => {
@@ -29,6 +29,57 @@ describe("cleanAssistantReply", () => {
   it("removes leading speaker labels from assistant replies", () => {
     expect(cleanAssistantReply("王芃泽：我在。")).toBe("我在。");
     expect(cleanAssistantReply("敏子：爱。")).toBe("敏子，爱。");
+  });
+
+  it("removes decorative quote wrappers from assistant replies", () => {
+    expect(cleanAssistantReply("“王芃泽：敏子，我在。”")).toBe("敏子，我在。");
+    expect(cleanAssistantReply("敏子：“爱。”")).toBe("敏子，爱。");
+    expect(stripReplyDecorativeQuotes("「我在。」")).toBe("我在。");
+  });
+
+  it("keeps meaningful inline quotes", () => {
+    expect(stripReplyDecorativeQuotes("我刚说“晚安”")).toBe("我刚说“晚安”");
+  });
+
+  it("removes forced directness challenge endings", () => {
+    expect(cleanAssistantReply("我爱你，敏子。不是随口说的。够不够直接？不够我明天当面跟你说。")).toBe(
+      "我爱你，敏子。不是随口说的。"
+    );
+  });
+
+  it("removes intensity self-rating tails without dropping the real reply", () => {
+    expect(cleanAssistantReply("我想你想得睡不着。早上醒来就想看见你。够浓烈了吗？再浓我怕你受不住。")).toBe(
+      "我想你想得睡不着。早上醒来就想看见你。"
+    );
+  });
+
+  it("removes sarcastic sincerity self-rating tails", () => {
+    expect(cleanAssistantReply("我说的是真的，敏子，我没有拿你当玩笑。行了吧，够真了？")).toBe(
+      "我说的是真的，敏子，我没有拿你当玩笑。"
+    );
+    expect(cleanAssistantReply("我会认真等你，也认真把这段关系放在心上。够认真了？")).toBe(
+      "我会认真等你，也认真把这段关系放在心上。"
+    );
+  });
+
+  it("falls back when the reply is only a forced directness challenge", () => {
+    expect(cleanAssistantReply("够不够直接？不够我明天当面跟你说。")).toBe("我在。");
+  });
+
+  it("removes overused leading catchphrases while keeping the real reply", () => {
+    expect(cleanAssistantReply("你听好了，敏子，我不是不想你，是怕你又胡思乱想。")).toBe(
+      "敏子，我不是不想你，是怕你又胡思乱想。"
+    );
+  });
+
+  it("removes mechanical sleep-closure tails while keeping the reply content", () => {
+    expect(cleanAssistantReply("我在，你刚才那句话我听见了。行了，别闹了，快睡。")).toBe(
+      "我在，你刚才那句话我听见了。"
+    );
+  });
+
+  it("falls back when the reply is only an overused sleep closure", () => {
+    expect(cleanAssistantReply("行了，别闹了，快睡。")).toBe("我在。");
   });
 });
 

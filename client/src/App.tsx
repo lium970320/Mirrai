@@ -13,6 +13,7 @@ import Settings from "./pages/Settings";
 import PersonaEdit from "./pages/PersonaEdit";
 import Analytics from "./pages/Analytics";
 import Diary from "./pages/Diary";
+import Roleplay from "./pages/Roleplay";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/diary" component={Diary} />
+      <Route path="/roleplay" component={Roleplay} />
       <Route path="/persona/:id/edit" component={PersonaEdit} />
       <Route path="/upload/:id" component={Upload} />
       <Route path="/chat/:id" component={Chat} />

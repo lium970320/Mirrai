@@ -1,4 +1,5 @@
 import { ENV } from "../_core/env";
+import { getCurrentLlmEconomyPolicy, type LlmEconomyPolicy } from "../llm/economy";
 
 export type VoiceReplyMode = "never" | "requested" | "smart" | "sometimes" | "always";
 export type VoiceReplySource = "text" | "voice";
@@ -15,17 +16,27 @@ export type VoiceReplyPolicyConfig = {
   smartMinConfidence: number;
 };
 
+export type VoiceRequestDecision = {
+  explicitVoiceRequest: boolean;
+  confidence?: number;
+  reason?: string;
+};
+
 export type VoiceReplyPolicyInput = {
   contactId: string;
   contactKind: "private" | "group";
   inputText: string;
+  conversationContext?: string;
   replyText: string;
   replyChunks?: string[];
   source: VoiceReplySource;
   nowMs?: number;
   random?: () => number;
   config?: Partial<VoiceReplyPolicyConfig>;
+  voiceRequestDecision?: VoiceRequestDecision | null;
   smartJudge?: VoiceReplySmartJudge;
+  voiceRequestJudge?: VoiceRequestJudge;
+  economyPolicy?: LlmEconomyPolicy;
 };
 
 export type VoiceReplyPolicyResult = {
@@ -42,6 +53,7 @@ export type VoiceReplySmartJudgeResult = {
 };
 
 export type VoiceReplySmartJudge = (input: VoiceReplyPolicyInput) => Promise<VoiceReplySmartJudgeResult>;
+export type VoiceRequestJudge = (input: VoiceReplyPolicyInput) => Promise<VoiceRequestDecision>;
 
 const lastVoiceReplyAt = new Map<string, number>();
 const MAX_NON_EXPLICIT_VOICE_CHUNKS = 3;
@@ -68,6 +80,10 @@ function currentConfig(overrides?: Partial<VoiceReplyPolicyConfig>): VoiceReplyP
   };
 }
 
+export function getVoiceReplyPolicyConfig(overrides?: Partial<VoiceReplyPolicyConfig>): VoiceReplyPolicyConfig {
+  return currentConfig(overrides);
+}
+
 function textLength(text: string): number {
   return Array.from(text.replace(/\s+/g, "")).length;
 }
@@ -77,8 +93,143 @@ function replyChunksForPolicy(input: VoiceReplyPolicyInput): string[] {
   return chunks?.length ? chunks : [input.replyText];
 }
 
-function explicitVoiceRequest(text: string): boolean {
-  return /语音回|发语音|用语音|说出来|念出来|读出来|用声音/.test(text);
+const EXPLICIT_VOICE_REQUEST_PATTERNS = [
+  /用语音/,
+  /语音(?:回|回复|说|发|来|给我|一下|一段|一条)/,
+  /发(?:一段|一条|个|个儿|长(?:一点)?的?|久(?:一点)?的?)?语音/,
+  /听.{0,8}发.{0,8}语音/,
+  /语音(?:长|久)(?:一点)?/,
+  /(?:说|念|读)(?:出来|给我听|给我|一下|一遍|两遍|三遍|几遍)/,
+  /(?:给我|跟我|对我)说(?:话|句话|一声)/,
+  /说话给我听/,
+  /(?:我要|我想|想要|要|想|让我|给我).{0,8}(?:听|听听).{0,6}(?:你的?)?声音/,
+  /听(?:听)?(?:你的?)?声音/,
+  /用声音/,
+  /开口(?:说|回)/,
+];
+
+export function isExplicitVoiceRequest(text: string): boolean {
+  const compact = text
+    .replace(/\s+/g, "")
+    .replace(/[，,。.!！?？、；;：:\-—_“”"'‘’「」『』（）()[\]{}]/g, "");
+  return EXPLICIT_VOICE_REQUEST_PATTERNS.some(pattern => pattern.test(compact));
+}
+
+function isNegatedVoiceRequest(text: string): boolean {
+  const compact = text
+    .replace(/\s+/g, "")
+    .replace(/[，,。.!！?？、；;：:\-—_“”"'‘’「」『』（）()[\]{}]/g, "");
+  return /不是(?:让|叫|要|想要)?你?发语音|不是(?:让|叫|要|想要)?你?用语音|不用语音|不要语音|别发语音/.test(compact);
+}
+
+function looksLikeVoiceContinuation(text: string): boolean {
+  const compact = text
+    .replace(/\s+/g, "")
+    .replace(/[，,。.!！?？、；;：:\-—_“”"'‘’「」『』（）()[\]{}]/g, "");
+  return /^(再来|继续|接着|多说|多讲|再说|长一点|长点|久一点|说久一点|说长一点|多一点|别这么短|太短|不够|换个说法|一长段)/.test(compact)
+    || /(?:再|继续).{0,6}(?:说|讲|语音|声音)/.test(compact)
+    || /(?:长一点|长点|久一点|多一点|一长段).{0,6}(?:语音|声音|说|讲)/.test(compact);
+}
+
+function contextHasRecentVoiceRequest(context: string | undefined): boolean {
+  if (!context) return false;
+  return isExplicitVoiceRequest(context) || /听.{0,12}(?:你的?)?声音|发.{0,12}语音|用语音|一条语音|一段语音/.test(context);
+}
+
+function buildVoiceRequestJudgeFallback(input: VoiceReplyPolicyInput): VoiceRequestDecision {
+  if (isNegatedVoiceRequest(input.inputText)) {
+    return {
+      explicitVoiceRequest: false,
+      confidence: 0.55,
+      reason: "fallback_negated_voice_request",
+    };
+  }
+  if (isExplicitVoiceRequest(input.inputText)) {
+    return {
+      explicitVoiceRequest: true,
+      confidence: 0.35,
+      reason: "fallback_regex",
+    };
+  }
+  if (looksLikeVoiceContinuation(input.inputText) && contextHasRecentVoiceRequest(input.conversationContext)) {
+    return {
+      explicitVoiceRequest: true,
+      confidence: 0.5,
+      reason: "fallback_context_voice_continuation",
+    };
+  }
+  return {
+    explicitVoiceRequest: false,
+    confidence: 0.35,
+    reason: "fallback_regex",
+  };
+}
+
+async function judgeVoiceRequestWithLlm(
+  input: VoiceReplyPolicyInput,
+  config: VoiceReplyPolicyConfig,
+): Promise<VoiceRequestDecision> {
+  const { llmService } = await import("../llm");
+  console.info(`voice_reply_request_judge_start contact=${input.contactId}`);
+  const response = await llmService.invoke({
+    messages: [
+      {
+        role: "system",
+        content: [
+          "你是中文聊天中的语音意图分类器。",
+          "只判断用户这一轮是否明确要求机器人用语音回复、开口说话、发语音、念出来或读出来。",
+          "要结合上下文和语气，不要只看表面关键词。",
+          "如果只是提到语音功能、讨论语音本身、引用语音、或者没有要求对方用语音回答，就判 false。",
+          "如果上一轮语境里已经在要求语音，这一轮像“再来一段”“继续”“长一点”也算 true。",
+          "只返回 JSON：{\"explicitVoiceRequest\":true,\"confidence\":0.82,\"reason\":\"...\"}",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `用户输入：${input.inputText}`,
+          input.conversationContext ? `上下文：${input.conversationContext}` : "",
+          `聊天类型：${input.contactKind}`,
+          `输入来源：${input.source}`,
+        ].filter(Boolean).join("\n"),
+      },
+    ],
+    options: {
+      provider: config.smartProvider || undefined,
+      maxTokens: 120,
+      temperature: 0,
+      purpose: "voice_policy",
+      route: "voice.request_judge",
+    },
+  });
+  const parsed = extractJsonObject(response);
+  if (!parsed) {
+    throw new Error("voice request judge returned non-JSON output");
+  }
+  const explicitVoiceRequest = parsed.explicitVoiceRequest === true;
+  const confidenceValue = typeof parsed.confidence === "number" ? parsed.confidence : Number(parsed.confidence);
+  const confidence = Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : undefined;
+  const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 120) : undefined;
+  console.info(`voice_reply_request_judge_result contact=${input.contactId} explicit=${explicitVoiceRequest} confidence=${confidence ?? "unknown"} reason=${reason ?? ""}`);
+  return { explicitVoiceRequest, confidence, reason };
+}
+
+export async function detectVoiceRequestDecision(
+  input: VoiceReplyPolicyInput,
+  overrides?: Partial<VoiceReplyPolicyConfig>,
+): Promise<VoiceRequestDecision> {
+  const config = currentConfig(overrides ?? input.config);
+  if (!config.smartProvider) {
+    return buildVoiceRequestJudgeFallback(input);
+  }
+
+  try {
+    const judge = input.voiceRequestJudge ?? ((judgeInput: VoiceReplyPolicyInput) => judgeVoiceRequestWithLlm(judgeInput, config));
+    return await judge(input);
+  } catch (err) {
+    console.warn(`voice_reply_request_judge_failed contact=${input.contactId}`, err);
+    return buildVoiceRequestJudgeFallback(input);
+  }
 }
 
 function looksSeriousOrTechnical(text: string): boolean {
@@ -133,6 +284,8 @@ async function judgeVoiceSuitabilityWithLlm(
       provider: config.smartProvider || undefined,
       maxTokens: 180,
       temperature: 0.1,
+      purpose: "voice_policy",
+      route: "voice.smart_judge",
     },
   });
   const parsed = extractJsonObject(response);
@@ -151,7 +304,9 @@ export async function checkVoiceReplyPolicy(input: VoiceReplyPolicyInput): Promi
   const config = currentConfig(input.config);
   const now = input.nowMs ?? Date.now();
   const random = input.random ?? Math.random;
-  const explicit = explicitVoiceRequest(input.inputText);
+  const voiceRequestDecision = input.voiceRequestDecision ?? await detectVoiceRequestDecision(input, config);
+  const explicit = voiceRequestDecision.explicitVoiceRequest;
+  const economy = input.economyPolicy ?? await getCurrentLlmEconomyPolicy(new Date(now));
   console.info(`voice_reply_policy_checked contact=${input.contactId} source=${input.source}`);
 
   if (!config.enabled || config.mode === "never") {
@@ -159,6 +314,9 @@ export async function checkVoiceReplyPolicy(input: VoiceReplyPolicyInput): Promi
   }
   if (explicit) {
     return { shouldSendVoice: true, reason: "voice_reply_selected_by_request", fallbackToText: true };
+  }
+  if (!economy.voice.allowNonExplicitVoice) {
+    return { shouldSendVoice: false, reason: "voice_reply_skipped_by_llm_budget", fallbackToText: true };
   }
   if (input.contactKind === "group" && !config.allowInGroup) {
     return { shouldSendVoice: false, reason: "voice_reply_skipped_by_group", fallbackToText: true };
@@ -189,6 +347,9 @@ export async function checkVoiceReplyPolicy(input: VoiceReplyPolicyInput): Promi
   }
 
   if (config.mode === "smart") {
+    if (!economy.voice.allowSmartJudge) {
+      return { shouldSendVoice: false, reason: "voice_reply_skipped_by_llm_budget", fallbackToText: true };
+    }
     try {
       const judge = input.smartJudge ?? ((judgeInput: VoiceReplyPolicyInput) => judgeVoiceSuitabilityWithLlm(judgeInput, config));
       const decision = await judge(input);

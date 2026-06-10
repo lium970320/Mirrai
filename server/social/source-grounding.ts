@@ -1,7 +1,8 @@
 import { cleanAssistantReply } from "../_core/reply-utils";
+import { getCurrentLlmEconomyPolicy, type LlmEconomyPolicy } from "../llm/economy";
 import { llmService, type LLMMessage, type LLMOptions } from "../llm";
 
-const SOURCE_GROUNDED_MAX_TOKENS = 320;
+const SOURCE_GROUNDED_MAX_TOKENS = 480;
 const SOURCE_GROUNDED_TEMPERATURE = 0.25;
 
 type SourceGroundingRewriteOptions = {
@@ -10,6 +11,7 @@ type SourceGroundingRewriteOptions = {
   sourceContext: string;
   draftReply: string;
   llmOptions?: LLMOptions;
+  economyPolicy?: LlmEconomyPolicy;
 };
 
 function boundedMaxTokens(maxTokens: unknown, fallback = SOURCE_GROUNDED_MAX_TOKENS): number {
@@ -24,12 +26,26 @@ function boundedTemperature(temperature: unknown): number {
     : SOURCE_GROUNDED_TEMPERATURE;
 }
 
-export function sourceGroundedLlmOptions(options: LLMOptions = {}): LLMOptions {
+export function sourceGroundedLlmOptions(options: LLMOptions = {}, maxTokensLimit = SOURCE_GROUNDED_MAX_TOKENS): LLMOptions {
   return {
     ...options,
     temperature: boundedTemperature(options.temperature),
-    maxTokens: boundedMaxTokens(options.maxTokens),
+    maxTokens: Math.min(boundedMaxTokens(options.maxTokens), maxTokensLimit),
+    purpose: "source_recall",
   };
+}
+
+export function sourceRecallFallbackReply(userQuestion = ""): string {
+  const compact = userQuestion.replace(/\s+/g, "");
+  if (/爱|感情|喜欢|在乎|舍得|放下|柱子/.test(compact)) {
+    return "这事我不能拿一句“我在”糊弄你。对柱子，最早是心疼和责任，后来也有放不下的牵挂；再具体的地方，我得按记得准的说，不能乱编。";
+  }
+  return "这段我不敢乱说。记得准的我会告诉你，记不准的地方，我不能编给你听。";
+}
+
+export function isUnhelpfulSourceRecallReply(reply: string): boolean {
+  const compact = reply.replace(/\s+/g, "").replace(/[。.!！]+$/g, "");
+  return compact === "我在" || compact === "在" || compact === "嗯";
 }
 
 export function withSourceGroundingInstruction(baseInstruction: string, sourceContext: string): string {
@@ -73,16 +89,27 @@ export function buildSourceGroundingRewriteMessages(options: SourceGroundingRewr
 }
 
 export async function enforceSourceGroundedReply(options: SourceGroundingRewriteOptions): Promise<string> {
-  const draft = cleanAssistantReply(options.draftReply);
+  const fallback = sourceRecallFallbackReply(options.userQuestion);
+  const draft = cleanAssistantReply(options.draftReply, fallback);
+  if (isUnhelpfulSourceRecallReply(draft)) {
+    console.warn("[SourceRecall] source_grounding_unhelpful_draft fallback=source_recall_specific");
+    return fallback;
+  }
   if (!options.sourceContext.trim() || !draft.trim()) return draft;
 
   try {
+    const economy = options.economyPolicy ?? await getCurrentLlmEconomyPolicy();
     const rewritten = await llmService.invoke({
       messages: buildSourceGroundingRewriteMessages({ ...options, draftReply: draft }),
-      options: sourceGroundedLlmOptions(options.llmOptions),
+      options: sourceGroundedLlmOptions(options.llmOptions, economy.sourceRecall.maxRewriteTokens),
     });
 
-    return cleanAssistantReply(rewritten, draft);
+    const finalReply = cleanAssistantReply(rewritten, draft);
+    if (isUnhelpfulSourceRecallReply(finalReply)) {
+      console.warn("[SourceRecall] source_grounding_unhelpful_rewrite fallback=draft");
+      return draft;
+    }
+    return finalReply;
   } catch (err) {
     console.warn("[SourceRecall] source_grounding_rewrite_failed", err);
     return draft;

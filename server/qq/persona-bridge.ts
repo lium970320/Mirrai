@@ -1,7 +1,11 @@
 import * as db from "../db";
 import { ENV } from "../_core/env";
 import { handleSocialPersonaMediaChat, type SocialMediaInput } from "../social/persona-media-chat";
-import { handleSocialPersonaTextChat } from "../social/persona-text-chat";
+import {
+  handleSocialPersonaTextChatDetailed,
+  type SocialPersonaTextChatResult,
+} from "../social/persona-text-chat";
+import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
 
 export type QqPersonaChatOptions = {
   batchMessageCount?: number;
@@ -37,10 +41,20 @@ export async function handleQqPersonaChat(
   messageText: string,
   options: QqPersonaChatOptions = {},
 ): Promise<string | null> {
+  const result = await handleQqPersonaChatDetailed(contactId, contactName, messageText, options);
+  return result?.replyText ?? null;
+}
+
+export async function handleQqPersonaChatDetailed(
+  contactId: string,
+  contactName: string,
+  messageText: string,
+  options: QqPersonaChatOptions = {},
+): Promise<SocialPersonaTextChatResult | null> {
   const binding = await resolveQqBinding(contactId, contactName);
   if (!binding) return null;
 
-  return handleSocialPersonaTextChat({
+  return handleSocialPersonaTextChatDetailed({
     platform: "qq",
     binding,
     contactName,
@@ -48,7 +62,8 @@ export async function handleQqPersonaChat(
     batchMessageCount: options.batchMessageCount,
     batchMessages: options.batchMessages,
     shouldAbortReply: options.shouldAbortReply,
-    channel: "web",
+    channel: "qq",
+    outputPreference: defaultOutputPreferenceForPlatform("qq"),
   });
 }
 
@@ -65,7 +80,8 @@ export async function handleQqPersonaMediaChat(
     binding,
     contactName,
     media,
-    channel: "web",
+    channel: "qq",
     storagePrefix: "qq",
+    outputPreference: defaultOutputPreferenceForPlatform("qq"),
   });
 }

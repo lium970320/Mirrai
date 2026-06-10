@@ -1,6 +1,7 @@
 import * as db from "../db";
 import { handleSocialPersonaMediaChat, type SocialMediaInput } from "../social/persona-media-chat";
 import { handleSocialPersonaTextChat } from "../social/persona-text-chat";
+import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
 
 export type WeChatMediaInput = SocialMediaInput;
 
@@ -28,6 +29,7 @@ export async function handlePersonaChat(
     batchMessages: options.batchMessages,
     shouldAbortReply: options.shouldAbortReply,
     channel: "wechat",
+    outputPreference: defaultOutputPreferenceForPlatform("wechat"),
   });
 }
 
@@ -46,5 +48,6 @@ export async function handlePersonaMediaChat(
     media,
     channel: "wechat",
     storagePrefix: "wechat",
+    outputPreference: defaultOutputPreferenceForPlatform("wechat"),
   });
 }

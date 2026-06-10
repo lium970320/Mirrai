@@ -11,7 +11,27 @@ export type LLMOptions = {
   maxTokens?: number;
   temperature?: number;
   provider?: string;
+  purpose?: LLMPurpose;
+  userId?: number;
+  personaId?: number;
+  route?: string;
 };
+
+export type LLMPurpose =
+  | "chat"
+  | "media_reply"
+  | "source_recall"
+  | "roleplay"
+  | "reflection"
+  | "proactive"
+  | "voice_policy"
+  | "tts_enrichment"
+  | "persona_analysis"
+  | "skill_pipeline"
+  | "graduation"
+  | "memory_extract"
+  | "diary"
+  | "utility";
 
 export type InvokeParams = {
   messages: LLMMessage[];

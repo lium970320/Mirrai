@@ -163,11 +163,65 @@ DEEPSEEK_THINKING=enabled
 DEEPSEEK_REASONING_EFFORT=max
 ```
 
-本机 PostgreSQL 只是备用方案。只有运行 `corepack pnpm run dev:local` 时，项目才会使用嵌入式 PostgreSQL，并把数据放到 `F:/.mirrai-local/Mirrai/postgres`。
+本机 PostgreSQL 适合需要长期在线运行 QQ 机器人、避免 Neon 免费额度影响的电脑。项目提供两个准备命令，默认把本地数据库放到 `F:/.mirrai-local/Mirrai/postgres`，不会进入 Google Drive，也不会自动修改 `.env`：
+
+```powershell
+cd F:\Code\Mirrai
+corepack pnpm run db:local:prepare
+corepack pnpm run db:local:copy
+```
+
+`db:local:prepare` 只启动嵌入式 PostgreSQL、创建本地库并跑迁移；`db:local:copy` 会在本地库准备好后，把当前 Neon `DATABASE_URL` 的应用表复制到本地库。复制完成并确认没问题后，再把 `F:/Code/Mirrai/.env` 的 `DATABASE_URL` 改为：
+
+```dotenv
+DATABASE_URL=postgresql://postgres:password@127.0.0.1:5434/mirrai
+MIRRAI_PGDATA=F:/.mirrai-local/Mirrai/postgres-main
+```
+
+切换后运行 `corepack pnpm run dev:local`，项目才会使用嵌入式本机 PostgreSQL。使用一键启动时，加上 `-UseLocalDb`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1 -UseLocalDb
+```
+
+两台电脑如果都切成本机库，就不再自动共享账号、聊天、记忆和主动消息状态；需要定期备份/恢复，或者固定一台电脑作为主运行机器。
 
 ## 如果又出现 `(1)` 冲突文件
 
 先看冲突是否集中在生成物目录。如果都在 `node_modules`、`dist`、`uploads` 或日志里，可以停止项目后删除这些生成物，再从本机运行目录重新安装或构建。不要删除源码、`drizzle/` 迁移文件、`package.json`、`pnpm-lock.yaml` 或还没备份的 `.env`。
+
+## 本机运行产物清理
+
+清理本机运行产物时，先使用 dry run。脚本只允许操作 `F:/Code/Mirrai` 和 `F:/.mirrai-local/Mirrai` 之内的目标：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/cleanup-local-runtime.ps1 -IncludeTtsCache -IncludeTmp -IncludePlaywright
+```
+
+常见可清目标：
+
+- `-IncludeUploads`：本机上传文件目录。
+- `-IncludeTtsCache`：TTS 缓存。
+- `-IncludeLogs`：本机日志。
+- `-IncludeTmp`：本机临时目录。
+- `-IncludePlaywright`：浏览器测试临时目录。
+- `-IncludeWechatSession`：微信登录态。
+- `-IncludeScreenshots`：本机 smoke 截图。
+- `-IncludeNapCatDownloads`：NapCat 下载缓存。
+
+只有确认 dry run 列出的目标正确后，才加 `-Apply`。
+
+NapCat 登录态、VoxCPM runtime、torch runtime、Hugging Face / ModelScope 模型缓存属于大型或登录态运行时。它们可能需要重新登录 QQ、重新安装 VoxCPM 或重新下载模型，所以不会默认删除。预览：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/cleanup-local-runtime.ps1 -IncludeNapCatRuntime -IncludeVoxcpmRuntime -IncludeTorchRuntime -IncludeModelCaches
+```
+
+如果确实要删除这些大型 / 登录态目标，必须显式确认：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/cleanup-local-runtime.ps1 -IncludeNapCatRuntime -IncludeVoxcpmRuntime -IncludeTorchRuntime -IncludeModelCaches -Apply -ConfirmLargeRuntimeCleanup 'DELETE LARGE MIRRAI RUNTIME'
+```
 
 ## 本地登录跳回首页
 

@@ -46,6 +46,10 @@ function currentConfig(overrides?: Partial<StickerReplyPolicyConfig>): StickerRe
   };
 }
 
+export function getStickerReplyPolicyConfig(overrides?: Partial<StickerReplyPolicyConfig>): StickerReplyPolicyConfig {
+  return currentConfig(overrides);
+}
+
 function textLength(text: string): number {
   return Array.from(text.replace(/\s+/g, "")).length;
 }

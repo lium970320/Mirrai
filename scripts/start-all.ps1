@@ -14,7 +14,8 @@ param(
   [switch]$Restart,
   [switch]$RestartMirrai,
   [switch]$RestartQQ,
-  [switch]$OptimizeVoxCPM
+  [switch]$OptimizeVoxCPM,
+  [switch]$UseLocalDb
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,7 +84,16 @@ function Test-MirraiRunning([string]$Root) {
         ($_.CommandLine -match "pnpm run dev|server[/\\]_core[/\\]index\.ts|tsx|cross-env|corepack")
       }
   )
-  return $processes.Count -gt 0
+  if ($processes.Count -gt 0) {
+    return $true
+  }
+
+  try {
+    $response = Invoke-WebRequest -Uri "http://localhost:$MirraiPort/" -UseBasicParsing -TimeoutSec 3
+    return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
+  } catch {
+    return $false
+  }
 }
 
 function Test-VoxcpmRunning([string]$Root) {
@@ -168,7 +178,8 @@ if (-not $SkipVoxCPM) {
     "-RunRoot", $runRootFull,
     "-RuntimeRoot", (Join-Path $runtimeRootFull "voxcpm"),
     "-LogRoot", $logRoot,
-    "-Port", "$VoxcpmPort"
+    "-Port", "$VoxcpmPort",
+    "-SkipWarmup"
   )
   if ($OptimizeVoxCPM) {
     $voxcpmArgs += "-Optimize"
@@ -176,7 +187,7 @@ if (-not $SkipVoxCPM) {
 
   if (Test-VoxcpmRunning $runRootFull) {
     Write-Host ""
-    Write-Host ">>> VoxCPM already appears to be running; checking warmup."
+    Write-Host ">>> VoxCPM already appears to be running; skipping warmup."
     Invoke-ProjectScript (Join-Path $localScripts "start-voxcpm.ps1") $voxcpmArgs
   } else {
     Invoke-ProjectScript (Join-Path $localScripts "start-voxcpm.ps1") $voxcpmArgs
@@ -190,11 +201,15 @@ if (Test-MirraiRunning $runRootFull) {
   Write-Host ""
   Write-Host ">>> Mirrai already appears to be running."
 } else {
-  Invoke-ProjectScript (Join-Path $localScripts "start-mirrai.ps1") @(
+  $mirraiArgs = @(
     "-RunRoot", $runRootFull,
     "-Port", "$MirraiPort",
     "-LogRoot", $logRoot
   )
+  if ($UseLocalDb) {
+    $mirraiArgs += "-UseLocalDb"
+  }
+  Invoke-ProjectScript (Join-Path $localScripts "start-mirrai.ps1") $mirraiArgs
 }
 
 if (-not $SkipQQ) {

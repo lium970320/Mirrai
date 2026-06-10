@@ -24,6 +24,9 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
 
   defaultLlmProvider: process.env.DEFAULT_LLM_PROVIDER ?? "openai",
+  llmDailySoftTokenLimit: envInt("LLM_DAILY_SOFT_TOKEN_LIMIT", 0),
+  llmMonthlySoftTokenLimit: envInt("LLM_MONTHLY_SOFT_TOKEN_LIMIT", 0),
+  llmBudgetWarningRatio: envFloat("LLM_BUDGET_WARNING_RATIO", 0.8),
 
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
@@ -33,6 +36,8 @@ export const ENV = {
   deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? "",
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
   deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash",
+  deepseekFlashModel: firstNonEmpty(process.env.DEEPSEEK_FLASH_MODEL) || "deepseek-v4-flash",
+  deepseekProModel: firstNonEmpty(process.env.DEEPSEEK_PRO_MODEL) || "deepseek-v4-pro",
   deepseekThinking: firstNonEmpty(process.env.DEEPSEEK_THINKING) || "enabled",
   deepseekReasoningEffort: firstNonEmpty(process.env.DEEPSEEK_REASONING_EFFORT) || "high",
 
@@ -145,6 +150,14 @@ export const ENV = {
   minimaxEmotion: firstNonEmpty(process.env.MINIMAX_EMOTION),
   minimaxTextHumanize: process.env.MINIMAX_TEXT_HUMANIZE !== "false",
   minimaxTimeoutMs: envInt("MINIMAX_TIMEOUT_MS", 120_000),
+
+  dailyMemoryEnabled: process.env.DAILY_MEMORY_ENABLED !== "false",
+  dailyMemoryHour: envInt("DAILY_MEMORY_HOUR", 3),
+  dailyMemoryMinute: envInt("DAILY_MEMORY_MINUTE", 20),
+  dailyMemoryIntervalMinutes: envInt("DAILY_MEMORY_INTERVAL_MINUTES", 10),
+  dailyMemoryCatchUpDays: envInt("DAILY_MEMORY_CATCH_UP_DAYS", 3),
+  dailyMemoryMinMessages: envInt("DAILY_MEMORY_MIN_MESSAGES", 4),
+  dailyMemoryMaxChars: envInt("DAILY_MEMORY_MAX_CHARS", 8000),
 
   pythonPath: process.env.PYTHON_PATH ?? "python3",
   skillEngineDir: process.env.SKILL_ENGINE_DIR ?? "./skill-engine",

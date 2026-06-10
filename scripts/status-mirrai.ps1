@@ -13,13 +13,17 @@ function Get-MirraiProcess {
     Where-Object {
       $_.ProcessId -ne $PID -and
       $_.CommandLine -match $rootPattern -and
-      ($_.CommandLine -match "pnpm run dev|server/_core/index.ts|tsx|cross-env|corepack")
+      ($_.CommandLine -match "pnpm run dev|server[/\\]_core[/\\]index\.ts|tsx|cross-env|corepack")
     } |
     Sort-Object ProcessId
 }
 
 $processes = @(Get-MirraiProcess)
 $url = "http://localhost:$Port/"
+$portOwners = @(
+  Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+)
 
 Write-Host "Mirrai status"
 Write-Host "Run root: $RunRoot"
@@ -30,6 +34,13 @@ if ($processes.Count -gt 0) {
   Write-Host "Process: RUNNING ($($processes.Count) related process(es))"
   $processes |
     Select-Object ProcessId, Name, @{ Name = "Command"; Expression = { $_.CommandLine } } |
+    Format-Table -AutoSize |
+    Out-String -Width 220 |
+    Write-Host
+} elseif ($portOwners.Count -gt 0) {
+  Write-Host "Process: PORT LISTENER ($($portOwners -join ', '))"
+  Get-Process -Id $portOwners -ErrorAction SilentlyContinue |
+    Select-Object Id, ProcessName, Path, StartTime |
     Format-Table -AutoSize |
     Out-String -Width 220 |
     Write-Host

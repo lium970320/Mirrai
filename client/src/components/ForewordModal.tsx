@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  Dialog, DialogContent, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,7 +11,7 @@ const STORAGE_KEY = "foreword_dismissed";
 
 export default function ForewordModal() {
   const [open, setOpen] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(true);
 
   useEffect(() => {
     if (!localStorage.getItem(STORAGE_KEY)) {
@@ -29,17 +29,25 @@ export default function ForewordModal() {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent
-        className="bg-card border-border rounded-2xl max-w-lg p-0 gap-0 max-h-[85vh] flex flex-col overflow-hidden"
-        showCloseButton={false}
+        className="w-[min(92vw,720px)] max-w-none rounded-xl border-border bg-card p-0 gap-0 max-h-[86vh] flex flex-col overflow-hidden shadow-2xl"
       >
-        <div className="flex items-center gap-2 p-5 pb-3 border-b border-border/60 shrink-0">
-          <BookOpen className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold text-foreground">前序</h3>
-        </div>
+        <DialogHeader className="border-b border-border/60 px-5 py-4 text-left shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <BookOpen className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="text-base font-semibold text-foreground">前序</DialogTitle>
+              <DialogDescription className="mt-0.5 text-xs text-muted-foreground">
+                项目缘起。读完后默认不再自动弹出，可在需要时重新查看文档。
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
 
         <ScrollArea className="h-0 flex-1 overflow-hidden">
-          <div className="p-5 pt-4 text-sm text-foreground/90 leading-relaxed space-y-5">
-            <blockquote className="border-l-2 border-primary/40 pl-3 text-muted-foreground text-[0.8125rem] leading-relaxed">
+          <div className="px-6 py-5 text-[0.9375rem] text-foreground/90 leading-7 space-y-5">
+            <blockquote className="rounded-lg border-l-2 border-primary/50 bg-muted/30 px-4 py-3 text-muted-foreground text-sm leading-7">
               写在前面：这篇文章里的所有情绪都是真实的，但它只是我自己的内心独白，不代表我们的关系有任何问题。她是一个很好的人，从来没有做错过什么。所有的不安全感都来自我自己，不来自她。我写这些不是为了让任何人同情我，更不是为了绑架谁。如果她看到这篇文章，我希望她知道的是：这不是你的错，这是我在学着面对自己。发出来，只是因为我觉得可能有人跟我一样，需要知道自己不是一个人。
             </blockquote>
 
@@ -210,7 +218,7 @@ export default function ForewordModal() {
           </div>
         </ScrollArea>
 
-        <div className="border-t border-border/60 p-5 pt-4 space-y-4 shrink-0">
+        <div className="border-t border-border/60 bg-card px-5 py-4 space-y-4 shrink-0">
           <label className="flex items-center gap-2.5 cursor-pointer select-none">
             <Checkbox
               checked={dontShowAgain}

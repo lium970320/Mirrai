@@ -4,9 +4,11 @@ param(
   [string]$BaseUrl,
   [string]$AccessToken,
   [string]$QuickLoginUin,
+  [string]$LogDir = "F:\.mirrai-local\Mirrai\logs",
   [int]$WebUiPort = 6099,
   [int]$WaitSeconds = 60,
-  [switch]$Restart
+  [switch]$Restart,
+  [switch]$VisibleConsole
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +36,7 @@ function Read-DotEnvValue([string]$Path, [string]$Name) {
 
 $runRootFull = Resolve-FullPath $RunRoot
 $napCatRootFull = Resolve-FullPath $NapCatRoot
+$logDirFull = Resolve-FullPath $LogDir
 $envPath = Join-Path $runRootFull ".env"
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
@@ -262,10 +265,46 @@ function Invoke-NapCatQuickLogin([string]$Uin) {
   }
 }
 
+function Start-NapCatLauncherUtf8([string]$Launcher, [string]$QuickLogin) {
+  $workingDir = Split-Path -Parent $Launcher
+  New-Item -ItemType Directory -Path $logDirFull -Force | Out-Null
+  $outLog = Join-Path $logDirFull "qq-napcat.out.log"
+  $errLog = Join-Path $logDirFull "qq-napcat.err.log"
+  $launchCommand = "`"$Launcher`""
+  if (-not [string]::IsNullOrWhiteSpace($QuickLogin)) {
+    $launchCommand = "$launchCommand `"$QuickLogin`""
+  }
+
+  $command = @(
+    "chcp 65001 > nul",
+    "set LANG=zh_CN.UTF-8",
+    "set LC_ALL=zh_CN.UTF-8",
+    "set PYTHONUTF8=1",
+    "set PYTHONIOENCODING=utf-8",
+    $launchCommand
+  ) -join " && "
+
+  $startArgs = @{
+    FilePath = "cmd.exe"
+    ArgumentList = @("/d", "/c", $command)
+    WorkingDirectory = $workingDir
+    RedirectStandardOutput = $outLog
+    RedirectStandardError = $errLog
+    PassThru = $true
+  }
+
+  if (-not $VisibleConsole) {
+    $startArgs.WindowStyle = "Hidden"
+  }
+
+  Start-Process @startArgs
+}
+
 Write-Host "QQ/NapCat startup"
 Write-Host "Run root   : $runRootFull"
 Write-Host "NapCat root: $napCatRootFull"
 Write-Host "OneBot URL : $BaseUrl"
+Write-Host "Log dir    : $logDirFull"
 
 if (-not (Test-Path -LiteralPath $napCatRootFull)) {
   Write-Warning "NapCat root not found: $napCatRootFull"
@@ -307,10 +346,11 @@ if ($existing.Count -gt 0) {
 
   Write-Host ""
   Write-Host "Starting NapCat launcher: $launcher"
-  $process = Start-Process `
-    -FilePath $launcher `
-    -WorkingDirectory (Split-Path -Parent $launcher) `
-    -PassThru
+  $launchQuickLoginTarget = Get-InferredQuickLoginUin
+  if (-not [string]::IsNullOrWhiteSpace($launchQuickLoginTarget)) {
+    Write-Host "Quick login target: $launchQuickLoginTarget"
+  }
+  $process = Start-NapCatLauncherUtf8 $launcher $launchQuickLoginTarget
   Write-Host "Started NapCat launcher process: $($process.Id)"
 }
 
