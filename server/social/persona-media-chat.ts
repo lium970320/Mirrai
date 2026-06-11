@@ -198,10 +198,17 @@ export async function handleSocialPersonaMediaChatDetailed(
     maxDescriptionChars: economy.memoryRecall.maxDescriptionChars,
   });
 
+  let pinnedFacts: string[] = [];
+  try {
+    pinnedFacts = await db.getPinnedMemoryFacts(options.binding.personaId, options.binding.userId);
+  } catch {
+    pinnedFacts = [];
+  }
   const systemPrompt = [
     buildSystemPrompt(personaForPrompt, {
       sceneOverlay: options.sceneOverlay,
       now,
+      pinnedFacts,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),

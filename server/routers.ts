@@ -17,7 +17,7 @@ import {
   getSkillJobById, getLlmConfigsByUserId, upsertLlmConfig, setDefaultLlmConfig, getDefaultLlmConfig,
   updateUserProfile, updateUserPassword, deleteUserAccount, getAccountStats, exportUserData,
   getUserById,
-  createMemory, getMemoriesByPersonaId, getActiveMemoriesByPersonaId, updateMemory, deleteMemory,
+  createMemory, getMemoriesByPersonaId, getActiveMemoriesByPersonaId, getPinnedMemoryFacts, updateMemory, deleteMemory,
   createEmotionSnapshot, getEmotionSnapshots, getEmotionReport, getTodaySnapshot,
   getIntimacyData, updateIntimacy,
   getMessageVolume, getEmotionTimeline, getPersonaEngagement, getHourlyDistribution, getAnalyticsStats,
@@ -241,7 +241,8 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         const persona = await getPersonaById(input.id, ctx.user.id);
         if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
-        return { prompt: buildSystemPrompt(persona) };
+        const pinnedFacts = await getPinnedMemoryFacts(input.id, ctx.user.id).catch(() => []);
+        return { prompt: buildSystemPrompt(persona, { pinnedFacts }) };
       }),
 
     getRuntimeState: protectedProcedure
@@ -253,6 +254,7 @@ export const appRouter = router({
         const personaRuntime = getPersonaRuntimeState(personaData);
         const sourceLibrary = await getPersonaSourceLibraryStats(input.id, ctx.user.id);
         const activeMemories = await getActiveMemoriesByPersonaId(input.id, ctx.user.id);
+        const pinnedFacts = await getPinnedMemoryFacts(input.id, ctx.user.id).catch(() => []);
         const now = new Date();
         const recentlyAccessedMemories = [...activeMemories]
           .filter(memory => memory.lastAccessedAt)
@@ -281,7 +283,9 @@ export const appRouter = router({
             highImportance: activeMemories.filter(memory => (memory.importance ?? 3) >= 4).length,
             lowConfidence: activeMemories.filter(memory => (memory.confidence ?? 3) <= 2).length,
             recentlyAccessed: recentlyAccessedMemories.length,
+            pinnedFacts: pinnedFacts.length,
           },
+          pinnedFacts,
           recentlyAccessedMemories,
           personaDataKeys: Object.keys(personaData).sort(),
           architecture: {
@@ -294,7 +298,7 @@ export const appRouter = router({
             lifeSchedule: "server/_core/life-schedule.ts",
           },
           llmUsage: getLlmUsageSnapshot(),
-          prompt: buildSystemPrompt(persona, { now }),
+          prompt: buildSystemPrompt(persona, { now, pinnedFacts }),
         };
       }),
 

@@ -2288,6 +2288,32 @@ export async function getActiveMemoriesByPersonaId(personaId: number, userId: nu
     .orderBy(desc(memories.createdAt));
 }
 
+const PINNED_FACT_MEMORY_TYPES = ["user_fact", "promise", "preference"] as const;
+
+/**
+ * 常驻用户状态事实：高重要度的 user_fact / promise / preference 记忆，
+ * 每轮直接注入系统提示词，不依赖召回判断，用于防止"说了多遍仍遗忘"。
+ */
+export async function getPinnedMemoryFacts(personaId: number, userId: number, limit = 6): Promise<string[]> {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(memories)
+    .where(and(
+      eq(memories.personaId, personaId),
+      eq(memories.userId, userId),
+      eq(memories.status, "active"),
+      inArray(memories.memoryType, [...PINNED_FACT_MEMORY_TYPES]),
+      gte(memories.importance, 4),
+    ))
+    .orderBy(desc(memories.importance), desc(memories.createdAt))
+    .limit(limit);
+  return rows.map(row => {
+    const desc = (row.description || "").trim();
+    return desc ? `${row.title}：${desc}` : row.title;
+  });
+}
+
 export async function getMemoryByTitleAndDate(personaId: number, userId: number, title: string, date: string) {
   await ensureMemoryTableColumns();
   const db = await getDb();

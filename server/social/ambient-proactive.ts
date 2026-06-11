@@ -5,6 +5,7 @@ import {
   getDefaultLlmConfig,
   getMessagesByPersonaId,
   getPersonaById,
+  getPinnedMemoryFacts,
   updatePersona,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
@@ -188,13 +189,19 @@ export async function generateAmbientMessageDetailed(
   });
   const recentContext = formatRecentConversationTimeline(history, persona.name, 10);
   const continuityInstruction = buildConversationContinuityInstruction(history, persona.name, "proactive");
+  let pinnedFacts: string[] = [];
+  try {
+    pinnedFacts = await getPinnedMemoryFacts(persona.id, persona.userId);
+  } catch {
+    pinnedFacts = [];
+  }
 
   const response = await llmService.invoke({
     messages: [
       {
         role: "system",
         content: [
-          buildSystemPrompt(persona, { now }),
+          buildSystemPrompt(persona, { now, pinnedFacts }),
           runtimePlan.instruction,
         ].filter(Boolean).join("\n\n"),
       },
