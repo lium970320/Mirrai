@@ -175,7 +175,7 @@ function MessageBubble({ msg, personaName, showState = true }: { msg: Message; p
   };
 
   return (
-    <div className={`flex gap-2.5 ${isUser ? "flex-row-reverse" : "flex-row"} mb-4`}>
+    <div className={`bubble-enter flex gap-2.5 ${isUser ? "flex-row-reverse" : "flex-row"} mb-4`}>
       {!isUser && (
         <img src={generateAvatar(personaName)} alt="" className="w-9 h-9 rounded-xl flex-shrink-0 mt-0.5" />
       )}
@@ -676,7 +676,7 @@ export default function Chat() {
                 onKeyDown={handleKeyDown} placeholder={`对 ${persona?.name || "TA"} 说点什么...`}
                 rows={1} className="flex-1 resize-none bg-muted/50 border-border text-foreground placeholder:text-muted-foreground/75 focus:border-primary/50 rounded-xl min-h-[44px] max-h-32" />
               <Button onClick={handleSend} disabled={!input.trim() || isSending || !isOnline}
-                className="h-11 w-11 p-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl flex-shrink-0">
+                className="btn-sheen h-11 w-11 p-0 bg-primary hover:bg-primary/90 text-primary-foreground border-0 rounded-xl flex-shrink-0">
                 {isSending ? <Sparkles className="w-5 h-5 animate-pulse" /> : <Send className="w-5 h-5" />}
               </Button>
             </div>

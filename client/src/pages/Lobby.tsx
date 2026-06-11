@@ -374,7 +374,7 @@ function TodayRecommendation({ personas, onChat }: { personas: any[]; onChat: (i
             </p>
           </div>
           <Button size="sm" onClick={() => onChat(recommended.id)}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-xs h-8 px-3">
+            className="btn-sheen bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-xs h-8 px-3">
             <MessageCircle className="w-3 h-3 mr-1" /> 聊聊
           </Button>
         </div>
@@ -1648,7 +1648,7 @@ export default function Lobby() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
-      <div className="gradient-mesh-bg" />
+      <div className="gradient-mesh-bg" /><div className="tech-particles" /><div className="tech-scan-sweep" />
       {/* FloatingParticles 已移除 */}
 
       <header className="sticky top-0 z-40 app-header">

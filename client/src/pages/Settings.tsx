@@ -251,7 +251,7 @@ function DiagnosticRow({ label, value, mono = false, badge }: {
 
 function DiagGroup({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+    <div className="hud-corners rounded-lg border border-border/50 bg-muted/10 p-3">
       <div className="flex items-baseline justify-between gap-2 pb-2 mb-1 border-b border-border/40">
         <span className="text-xs font-semibold tracking-wide text-foreground/80">{title}</span>
         {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
@@ -1650,7 +1650,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="gradient-mesh-bg" />
+      <div className="gradient-mesh-bg" /><div className="tech-particles" /><div className="tech-scan-sweep" />
       <header className="sticky top-0 z-40 app-header">
         <div className="container app-nav">
           <button onClick={() => navigate("/")}
