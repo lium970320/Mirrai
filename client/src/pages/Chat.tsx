@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { Fragment, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -117,7 +117,27 @@ function TTSButton({ text }: { text: string }) {
   );
 }
 
-function MessageBubble({ msg, personaName }: { msg: Message; personaName: string }) {
+function DateDivider({ date }: { date: string | Date }) {
+  const d = new Date(date);
+  const now = new Date();
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const label = sameDay(d, now) ? "今天"
+    : sameDay(d, yesterday) ? "昨天"
+    : d.toLocaleDateString("zh-CN", d.getFullYear() === now.getFullYear()
+        ? { month: "long", day: "numeric" }
+        : { year: "numeric", month: "long", day: "numeric" });
+  return (
+    <div className="flex items-center justify-center my-5">
+      <span className="text-[11px] text-muted-foreground/75 bg-muted/50 border border-border/40 px-2.5 py-0.5 rounded-full">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function MessageBubble({ msg, personaName, showState = true }: { msg: Message; personaName: string; showState?: boolean }) {
   const isUser = msg.role === "user";
   const state = msg.emotionalState ? STATES[msg.emotionalState] : null;
   const [imgExpanded, setImgExpanded] = useState(false);
@@ -160,7 +180,7 @@ function MessageBubble({ msg, personaName }: { msg: Message; personaName: string
         <img src={generateAvatar(personaName)} alt="" className="w-9 h-9 rounded-xl flex-shrink-0 mt-0.5" />
       )}
       <div className={`max-w-[75%] flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
-        {!isUser && state && (
+        {!isUser && state && showState && (
           <span className={`text-xs px-2 py-0.5 rounded-full border state-bg-${msg.emotionalState} state-${msg.emotionalState}`}>
             {state.emoji} {state.label}
           </span>
@@ -464,26 +484,6 @@ export default function Chat() {
             className="app-nav-icon hidden md:inline-flex">
             <Activity className="w-4 h-4" />
           </button>
-          <button onClick={() => setShowTimeline(true)} title="记忆时间线"
-            className="app-nav-icon hidden md:inline-flex">
-            <Clock className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowSourceLibrary(true)} title="资料库"
-            className="app-nav-icon hidden md:inline-flex">
-            <Database className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowEmotionReport(true)} title="情绪报告"
-            className="app-nav-icon hidden md:inline-flex">
-            <BarChart3 className="w-4 h-4" />
-          </button>
-          <button onClick={() => navigate(`/diary`)} title="对话日记"
-            className="app-nav-icon hidden md:inline-flex">
-            <BookOpen className="w-4 h-4" />
-          </button>
-          <button onClick={handleExport} title="导出对话" disabled={exportMutation.isPending}
-            className="app-nav-icon hidden lg:inline-flex disabled:opacity-50">
-            <Download className="w-4 h-4" />
-          </button>
           <button onClick={() => setShowScenePanel(!showScenePanel)} title="场景模式"
             className={`app-nav-icon hidden sm:inline-flex ${activeScene ? "app-nav-icon-active" : ""}`}>
             <Theater className="w-4 h-4" />
@@ -500,33 +500,34 @@ export default function Chat() {
                   <Search className="w-3.5 h-3.5" />搜索消息
                 </button>
                 <button onClick={() => { setShowDiagnostics(true); setShowMenu(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  className="md:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
                   <Activity className="w-3.5 h-3.5" />运行诊断
-                </button>
-                <button onClick={() => { setShowTimeline(true); setShowMenu(false); }}
-                  className="md:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
-                  <Clock className="w-3.5 h-3.5" />记忆时间线
-                </button>
-                <button onClick={() => { setShowSourceLibrary(true); setShowMenu(false); }}
-                  className="md:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
-                  <Database className="w-3.5 h-3.5" />资料库
-                </button>
-                <button onClick={() => { setShowEmotionReport(true); setShowMenu(false); }}
-                  className="md:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
-                  <BarChart3 className="w-3.5 h-3.5" />情绪报告
-                </button>
-                <button onClick={() => { navigate(`/diary`); setShowMenu(false); }}
-                  className="md:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
-                  <BookOpen className="w-3.5 h-3.5" />对话日记
-                </button>
-                <button onClick={() => { handleExport(); setShowMenu(false); }} disabled={exportMutation.isPending}
-                  className="lg:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50">
-                  <Download className="w-3.5 h-3.5" />导出对话
                 </button>
                 <button onClick={() => { setShowScenePanel(!showScenePanel); setShowMenu(false); }}
                   className="sm:hidden w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
                   <Theater className="w-3.5 h-3.5" />场景模式
                 </button>
+                <button onClick={() => { setShowTimeline(true); setShowMenu(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  <Clock className="w-3.5 h-3.5" />记忆时间线
+                </button>
+                <button onClick={() => { setShowSourceLibrary(true); setShowMenu(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  <Database className="w-3.5 h-3.5" />资料库
+                </button>
+                <button onClick={() => { setShowEmotionReport(true); setShowMenu(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  <BarChart3 className="w-3.5 h-3.5" />情绪报告
+                </button>
+                <button onClick={() => { navigate(`/diary`); setShowMenu(false); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                  <BookOpen className="w-3.5 h-3.5" />对话日记
+                </button>
+                <button onClick={() => { handleExport(); setShowMenu(false); }} disabled={exportMutation.isPending}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                  <Download className="w-3.5 h-3.5" />导出对话
+                </button>
+                <div className="my-1 border-t border-border/60" />
                 <button onClick={() => clearMutation.mutate({ personaId })}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors">
                   <Trash2 className="w-3.5 h-3.5" />清空对话
@@ -604,9 +605,27 @@ export default function Chat() {
               </div>
             </div>
           )}
-          {messages.map(msg => (
-            <MessageBubble key={msg.id} msg={msg} personaName={persona?.name || "?"} />
-          ))}
+          {messages.map((msg, index) => {
+            const prev = index > 0 ? messages[index - 1] : null;
+            const showDateDivider = Boolean(msg.createdAt) && (
+              !prev?.createdAt ||
+              new Date(prev.createdAt).toDateString() !== new Date(msg.createdAt!).toDateString()
+            );
+            let prevAssistantState: string | null = null;
+            for (let i = index - 1; i >= 0; i -= 1) {
+              if (messages[i].role === "assistant") {
+                prevAssistantState = messages[i].emotionalState ?? null;
+                break;
+              }
+            }
+            const showState = msg.role === "assistant" && Boolean(msg.emotionalState) && msg.emotionalState !== prevAssistantState;
+            return (
+              <Fragment key={msg.id}>
+                {showDateDivider && msg.createdAt && <DateDivider date={msg.createdAt} />}
+                <MessageBubble msg={msg} personaName={persona?.name || "?"} showState={showState} />
+              </Fragment>
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
       </div>

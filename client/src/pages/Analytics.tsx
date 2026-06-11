@@ -69,7 +69,7 @@ export default function Analytics() {
         </div>
 
         <div className="warm-card p-4">
-          <p className="text-sm font-medium text-foreground mb-3">每日消息量</p>
+          <p className="text-sm font-semibold text-foreground mb-3">每日消息量</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data?.messageVolume || []}>
@@ -91,7 +91,7 @@ export default function Analytics() {
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="warm-card p-4">
-            <p className="text-sm font-medium text-foreground mb-3">情绪分布趋势</p>
+            <p className="text-sm font-semibold text-foreground mb-3">情绪分布趋势</p>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={emotionChartData}>
@@ -108,7 +108,7 @@ export default function Analytics() {
           </div>
 
           <div className="warm-card p-4">
-            <p className="text-sm font-medium text-foreground mb-3">聊天时段分布</p>
+            <p className="text-sm font-semibold text-foreground mb-3">聊天时段分布</p>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={hourlyData.filter((_, i) => i % 2 === 0)}>
@@ -122,7 +122,7 @@ export default function Analytics() {
         </div>
 
         <div className="warm-card p-4">
-          <p className="text-sm font-medium text-foreground mb-3">Persona 互动排名</p>
+          <p className="text-sm font-semibold text-foreground mb-3">Persona 互动排名</p>
           {(data?.personaEngagement || []).length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">暂无数据</p>
           ) : (

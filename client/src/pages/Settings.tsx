@@ -42,7 +42,6 @@ function SliderField({ label, value, onChange, min, max, step, unit }: {
         <Label className="text-sm font-semibold text-foreground/90">{label}</Label>
         <span className="text-sm font-bold text-primary bg-primary/8 px-2.5 py-0.5 rounded-full">{value}{unit}</span>
       </div>
-// ─── SLIDER_PLACEHOLDER ──────────────────────────────────────────────────────
       <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
         className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer accent-primary" />
@@ -171,30 +170,66 @@ function BoolBadge({ value, trueLabel = "已配置", falseLabel = "未配置" }:
   return <StatusBadge label={value ? trueLabel : falseLabel} tone={toneForEnabled(value)} />;
 }
 
-function DiagnosticCard({ icon: Icon, title, subtitle, action, children }: {
+const SECTION_HUES = {
+  emerald: "oklch(0.54 0.12 164)",
+  sky: "oklch(0.55 0.13 235)",
+  violet: "oklch(0.55 0.15 290)",
+  amber: "oklch(0.62 0.13 70)",
+  rose: "oklch(0.60 0.15 15)",
+  teal: "oklch(0.55 0.12 195)",
+  indigo: "oklch(0.52 0.14 265)",
+  pink: "oklch(0.62 0.15 340)",
+} as const;
+type SectionHue = keyof typeof SECTION_HUES;
+
+function SectionHeader({ icon: Icon, title, subtitle, action, tone = "default", hue }: {
   icon: any;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
+  tone?: "default" | "danger";
+  hue?: SectionHue;
+}) {
+  const chipColor = tone === "danger" ? "var(--color-destructive)" : hue ? SECTION_HUES[hue] : undefined;
+  const titleClass = tone === "danger" ? "text-destructive" : "text-foreground";
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className="section-chip" style={chipColor ? ({ "--chip-color": chipColor } as any) : undefined}>
+          <Icon className="w-4.5 h-4.5" />
+        </div>
+        <div className="min-w-0">
+          <h2 className={`font-semibold leading-tight ${titleClass}`}>{title}</h2>
+          {subtitle && <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{subtitle}</p>}
+        </div>
+      </div>
+      {action && <div className="flex-shrink-0 sm:pt-1">{action}</div>}
+    </div>
+  );
+}
+
+function DiagnosticCard({ icon, title, subtitle, action, hue, children }: {
+  icon: any;
+  title: string;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  hue?: SectionHue;
   children: ReactNode;
 }) {
   return (
     <section className="warm-card p-5 space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <Icon className="w-4.5 h-4.5 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="font-semibold text-foreground">{title}</h2>
-            {subtitle && <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{subtitle}</p>}
-          </div>
-        </div>
-        {action && <div className="flex-shrink-0">{action}</div>}
-      </div>
+      <SectionHeader icon={icon} title={title} subtitle={subtitle} action={action} hue={hue} />
       {children}
     </section>
   );
+}
+
+function formatCompact(value: number | undefined | null): string {
+  const num = Number(value ?? 0);
+  if (!Number.isFinite(num)) return "0";
+  if (Math.abs(num) >= 100000000) return `${(num / 100000000).toFixed(1)} 亿`;
+  if (Math.abs(num) >= 10000) return `${(num / 10000).toFixed(1)} 万`;
+  return num.toLocaleString("zh-CN");
 }
 
 function DiagnosticRow({ label, value, mono = false, badge }: {
@@ -204,11 +239,55 @@ function DiagnosticRow({ label, value, mono = false, badge }: {
   badge?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-1 border-t border-border/50 py-2.5 first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <span className="text-xs text-muted-foreground flex-shrink-0 sm:pt-0.5">{label}</span>
       <span className={`min-w-0 text-sm text-foreground sm:text-right ${mono ? "font-mono text-xs break-all" : "break-words"}`}>
         {badge ?? value}
       </span>
+    </div>
+  );
+}
+
+function DiagGroup({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+      <div className="flex items-baseline justify-between gap-2 pb-2 mb-1 border-b border-border/40">
+        <span className="text-xs font-semibold tracking-wide text-foreground/80">{title}</span>
+        {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StatTile({ value, label, sub, tone }: { value: ReactNode; label: string; sub?: string; tone?: StatusTone }) {
+  const display = typeof value === "number" ? formatCompact(value) : value;
+  const fullValue = typeof value === "number" ? value.toLocaleString("zh-CN") : undefined;
+  const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
+    : tone === "warn" ? "text-amber-600 dark:text-amber-400"
+    : "stat-tile-number";
+  return (
+    <div className="stat-tile px-3 py-2.5 min-w-0" title={fullValue}>
+      <div className={`text-lg font-bold tabular-nums truncate leading-tight ${numberClass}`}>{display}</div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground leading-tight">{label}</div>
+      {sub && <div className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function KpiTile({ value, text, label, sub, tone }: {
+  value?: number; text?: string; label: string; sub?: string; tone?: StatusTone;
+}) {
+  const display = text ?? formatCompact(value ?? 0);
+  const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
+    : tone === "warn" ? "text-amber-600 dark:text-amber-400"
+    : "stat-tile-number";
+  return (
+    <div className="stat-tile px-4 py-3.5 min-w-0"
+      title={typeof value === "number" ? value.toLocaleString("zh-CN") : undefined}>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums leading-tight truncate ${numberClass}`}>{display}</div>
+      {sub && <div className="mt-1 text-[11px] text-muted-foreground/80 truncate">{sub}</div>}
     </div>
   );
 }
@@ -571,10 +650,8 @@ function ProfileTab() {
 
       {/* Account Stats */}
       {accountStats && (
-        <div className="warm-card p-5">
-          <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
-            <Database className="w-4 h-4 text-primary/60" /> 账户统计
-          </h3>
+        <div className="warm-card p-5 space-y-4">
+          <SectionHeader icon={Database} title="账户统计" subtitle="账号内各类数据的总量" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatItem icon={Users} label="数字分身" value={accountStats.totalPersonas} />
             <StatItem icon={MessageCircle} label="总对话次数" value={accountStats.totalChats} />
@@ -587,10 +664,8 @@ function ProfileTab() {
       )}
 
       {/* Security */}
-      <div className="warm-card p-5">
-        <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-primary/60" /> 安全设置
-        </h3>
+      <div className="warm-card p-5 space-y-4">
+        <SectionHeader icon={Shield} title="安全设置" subtitle="密码与登录方式" />
         <div className="space-y-3">
           <div className="flex items-center justify-between p-3 bg-muted/20 rounded-xl">
             <div className="flex items-center gap-3">
@@ -704,15 +779,12 @@ function AISettingsTab() {
   return (
     <div className="space-y-6">
       <section className="warm-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Settings2 className="w-5 h-5 text-primary" />
-          <h2 className="font-semibold text-foreground">AI 提供商</h2>
-          {defaultConfig.data && (
-            <span className="text-xs text-muted-foreground ml-auto">
+        <SectionHeader icon={Settings2} title="AI 提供商" subtitle="配置 API Key 并选择默认提供商"
+          action={defaultConfig.data && (
+            <span className="text-xs text-muted-foreground">
               当前默认: <span className="text-primary font-medium">{defaultConfig.data.providerName}</span>
             </span>
-          )}
-        </div>
+          )} />
         <div className="space-y-2">
           {providers.data?.map(p => (
             <ProviderConfigRow key={p.name} provider={p}
@@ -723,10 +795,7 @@ function AISettingsTab() {
       </section>
 
       <section className="warm-card p-5 space-y-5">
-        <div className="flex items-center gap-2">
-          <Sliders className="w-5 h-5 text-primary" />
-          <h2 className="font-semibold text-foreground">对话参数</h2>
-        </div>
+        <SectionHeader icon={Sliders} title="对话参数" subtitle="创造性、回复长度与上下文窗口" />
         <SliderField label="Temperature（创造性）" value={temperature} onChange={setTemperature}
           min={0} max={2} step={0.1} />
         <SliderField label="Max Tokens（最大回复长度）" value={maxTokens} onChange={setMaxTokens}
@@ -804,13 +873,10 @@ function QqTab() {
   return (
     <div className="space-y-6">
       <section className="warm-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          {bot?.status === "connected"
-            ? <Wifi className="w-5 h-5 text-emerald-500" />
-            : <WifiOff className="w-5 h-5 text-muted-foreground" />}
-          <h2 className="font-semibold text-foreground">QQ OneBot 接入</h2>
-          <span className="text-sm text-muted-foreground ml-auto">{statusText}</span>
-        </div>
+        <SectionHeader icon={bot?.status === "connected" ? Wifi : WifiOff} title="QQ OneBot 接入"
+          subtitle="NapCat 独立运行，Mirrai 通过 OneBot HTTP API 收发消息"
+          action={<StatusBadge label={statusText}
+            tone={bot?.status === "connected" ? "ok" : bot?.status === "error" ? "error" : "muted"} />} />
 
         <div className="p-4 bg-muted/20 rounded-xl space-y-3">
           <div className="flex items-center gap-3">
@@ -849,11 +915,9 @@ function QqTab() {
       </section>
 
       <section className="warm-card p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-primary/70" />
-          <h2 className="font-semibold text-foreground">QQ 联系人绑定</h2>
-          <span className="text-sm text-muted-foreground ml-auto">{bindings.data?.length ?? 0} 个已绑定</span>
-        </div>
+        <SectionHeader icon={Users} title="QQ 联系人绑定" subtitle="把私聊联系人绑定到 ready 状态的分身"
+          action={<StatusBadge label={`${bindings.data?.length ?? 0} 个已绑定`}
+            tone={(bindings.data?.length ?? 0) > 0 ? "ok" : "muted"} />} />
 
         <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
           <div className="space-y-2">
@@ -1011,27 +1075,31 @@ function OperationsDiagnosticsTab() {
   return (
     <div className="space-y-6">
       <section className="warm-card p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-primary" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-foreground">运维诊断</h2>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {formatDiagnosticTime(data.generatedAt)} · {data.runtime?.nodeEnv ?? "development"}
-              </p>
-            </div>
-          </div>
-          <Button size="sm" variant="outline" className="rounded-xl border-border"
-            onClick={() => diagnostics.refetch()} disabled={diagnostics.isFetching}>
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${diagnostics.isFetching ? "animate-spin" : ""}`} />
-            {diagnostics.isFetching ? "刷新中..." : "刷新"}
-          </Button>
-        </div>
+        <SectionHeader icon={Activity} title="运维诊断"
+          subtitle={`${formatDiagnosticTime(data.generatedAt)} · ${data.runtime?.nodeEnv ?? "development"}`}
+          action={
+            <Button size="sm" variant="outline" className="rounded-xl border-border"
+              onClick={() => diagnostics.refetch()} disabled={diagnostics.isFetching}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${diagnostics.isFetching ? "animate-spin" : ""}`} />
+              {diagnostics.isFetching ? "刷新中..." : "刷新"}
+            </Button>
+          } />
       </section>
 
-      <DiagnosticCard icon={AlertTriangle} title="运维排障清单"
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiTile value={data.llm?.usage?.today?.totalTokens ?? 0} label="今日 tokens"
+          sub={`${data.llm?.usage?.today?.calls ?? 0} 次调用${(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? ` · 失败 ${data.llm?.usage?.today?.failedCalls}` : ""}`}
+          tone={(data.llm?.usage?.today?.failedCalls ?? 0) > 0 ? "warn" : undefined} />
+        <KpiTile value={data.llm?.usage?.week?.totalTokens ?? 0} label="本周 tokens"
+          sub={`${data.llm?.usage?.week?.calls ?? 0} 次调用`} />
+        <KpiTile value={data.llm?.usage?.month?.totalTokens ?? 0} label="本月 tokens"
+          sub={`${data.llm?.usage?.month?.calls ?? 0} 次调用`} />
+        <KpiTile text={llmBudgetStatusLabel(data.llm?.budget?.status)} label="软额度状态"
+          sub={data.llm?.budget?.recommendation ?? "未配置软额度"}
+          tone={llmBudgetTone(data.llm?.budget?.status) === "ok" ? undefined : llmBudgetTone(data.llm?.budget?.status)} />
+      </div>
+
+      <DiagnosticCard icon={AlertTriangle} title="运维排障清单" hue="amber"
         subtitle={`${data.troubleshooting?.summary?.errors ?? 0} 个错误 · ${data.troubleshooting?.summary?.warnings ?? 0} 个提醒`}>
         {troubleshootingItems.length > 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -1046,101 +1114,188 @@ function OperationsDiagnosticsTab() {
         )}
       </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DiagnosticCard icon={Server} title="运行与数据库"
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <div className="space-y-6 min-w-0">
+        <DiagnosticCard icon={Server} title="运行与数据库" hue="sky"
           subtitle={<span className="font-mono break-all">{data.runtime?.cwd}</span>}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-              <DiagnosticRow label="数据库模式" value=""
-                badge={<StatusBadge label={databaseModeLabel[data.database?.mode] ?? data.database?.mode ?? "未知"} tone={databaseTone[data.database?.mode] ?? "muted"} />} />
+          <div className="space-y-3">
+            <DiagGroup title="数据库"
+              hint={<StatusBadge label={databaseModeLabel[data.database?.mode] ?? data.database?.mode ?? "未知"} tone={databaseTone[data.database?.mode] ?? "muted"} />}>
               <DiagnosticRow label="Host" value={data.database?.host || "未配置"} mono />
               <DiagnosticRow label="Database" value={data.database?.database || "未配置"} mono />
               <DiagnosticRow label="推荐命令" value={data.database?.recommendedDevCommand || "corepack pnpm run dev"} mono />
-            </div>
-            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            </DiagGroup>
+            <DiagGroup title="本机目录">
               <DiagnosticRow label="运行副本" value={data.runtime?.localWorktree || "F:/Code/Mirrai"} mono />
               <DiagnosticRow label="运行数据" value={data.runtime?.localDataRoot || "F:/.mirrai-local/Mirrai"} mono />
               <DiagnosticRow label="上传目录" value={data.runtime?.uploadDir || "未配置"} mono />
               <DiagnosticRow label="贴图目录" value={data.runtime?.stickerBaseDir || "未配置"} mono />
-            </div>
+            </DiagGroup>
           </div>
         </DiagnosticCard>
 
-        <DiagnosticCard icon={Cpu} title="LLM 路由"
-          subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个提供商已配置`}>
+        <DiagnosticCard icon={MessageCircle} title="平台接入" hue="teal"
+          subtitle="QQ 实时状态与绑定策略">
+          <DiagGroup title="QQ / OneBot"
+            hint={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />}>
+            <DiagnosticRow label="QQ 开关" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
+            <DiagnosticRow label="OneBot" value={data.qq?.onebotEndpoint?.origin || "未配置"} mono />
+            <DiagnosticRow label="Webhook token" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.webhookSecretConfigured)} />} />
+            <DiagnosticRow label="群聊" value=""
+              badge={<BoolBadge value={Boolean(data.qq?.allowGroups)} trueLabel="允许" falseLabel="关闭" />} />
+            {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
+            <div className="mt-2">
+              <AdvisoryBox advice={qqAdvice} />
+            </div>
+          </DiagGroup>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Volume2} title="语音" hue="emerald">
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="回复策略" value=""
+              badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.voice?.policy?.probability ?? 0} · ${data.voice?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="ASR" value={`${data.voice?.asr?.provider ?? "未知"} · ${data.voice?.asr?.model ?? "未知"}`} />
+            <DiagnosticRow label="TTS" value={`${ttsProviderLabel(data.voice?.tts?.provider)} -> ${ttsProviderLabel(data.voice?.tts?.fallbackProvider)}`} />
+            <DiagnosticRow label="VoxCPM" value={data.voice?.tts?.voxcpmEndpoint?.origin ?? "未配置"} mono />
+            <DiagnosticRow label="MiniMax" value=""
+              badge={<BoolBadge value={Boolean(data.voice?.tts?.minimaxConfigured)} />} />
+          </div>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={ImageIcon} title="表情包" hue="pink">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="策略" value=""
+              badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
+            <DiagnosticRow label="总量 / 启用" value={`${data.stickers?.total ?? 0} / ${data.stickers?.enabled ?? 0}`} />
+            <DiagnosticRow label="类型" value={enabledStickerTypes} />
+            <DiagnosticRow label="概率 / 冷却" value={`${data.stickers?.policy?.probability ?? 0} · ${data.stickers?.policy?.cooldownSeconds ?? 0}s`} />
+            <DiagnosticRow label="目录" value={data.stickers?.baseDir ?? "未配置"} mono />
+          </div>
+        </DiagnosticCard>
+        </div>
+
+        <div className="space-y-6 min-w-0">
+        <DiagnosticCard icon={Cpu} title="LLM 路由" hue="violet"
+          subtitle="动态路由、成本归属与额度策略">
+          <DiagGroup title="路由">
             <DiagnosticRow label="默认提供商" value={data.llm?.defaultProvider || "未设置"} />
             <DiagnosticRow label="DeepSeek 动态路由" value=""
               badge={<BoolBadge value={Boolean(data.llm?.dynamicDeepSeekRouting)} trueLabel="启用" falseLabel="未启用" />} />
-            <DiagnosticRow label="用量来源" value={llmUsageSourceLabel(data.llm?.usage?.source)} />
-            <DiagnosticRow label="今日调用" value={`${data.llm?.usage?.today?.calls ?? 0} 次 · 失败 ${data.llm?.usage?.today?.failedCalls ?? 0}`} />
-            <DiagnosticRow label="今日 tokens" value={data.llm?.usage?.today?.totalTokens ?? 0} />
-            <DiagnosticRow label="本周 tokens" value={`${data.llm?.usage?.week?.totalTokens ?? 0} · ${data.llm?.usage?.week?.calls ?? 0} 次`} />
-            <DiagnosticRow label="本月 tokens" value={`${data.llm?.usage?.month?.totalTokens ?? 0} · ${data.llm?.usage?.month?.calls ?? 0} 次`} />
-            <DiagnosticRow label="今日用户归属" value={llmUsageBucketText(data.llm?.usage?.byUser, "userId")} />
-            <DiagnosticRow label="今日角色归属" value={llmUsageBucketText(data.llm?.usage?.byPersona, "personaId")} />
-            <DiagnosticRow label="今日入口归属" value={llmUsageBucketText(data.llm?.usage?.byRoute, "route")} />
-            <DiagnosticRow label="软额度状态" value=""
-              badge={<StatusBadge label={llmBudgetStatusLabel(data.llm?.budget?.status)} tone={llmBudgetTone(data.llm?.budget?.status)} />} />
+          </DiagGroup>
+
+          <DiagGroup title="今日成本归属" hint={llmUsageSourceLabel(data.llm?.usage?.source)}>
+            <DiagnosticRow label="用户" value={llmUsageBucketText(data.llm?.usage?.byUser, "userId")} />
+            <DiagnosticRow label="角色" value={llmUsageBucketText(data.llm?.usage?.byPersona, "personaId")} />
+            <DiagnosticRow label="入口" value={llmUsageBucketText(data.llm?.usage?.byRoute, "route")} />
+          </DiagGroup>
+
+          <DiagGroup title="软额度"
+            hint={<StatusBadge label={llmBudgetStatusLabel(data.llm?.budget?.status)} tone={llmBudgetTone(data.llm?.budget?.status)} />}>
             <DiagnosticRow label="每日软额度" value={tokenBudgetText(data.llm?.budget?.daily)} />
             <DiagnosticRow label="月度软额度" value={tokenBudgetText(data.llm?.budget?.monthly)} />
             <DiagnosticRow label="额度建议" value={data.llm?.budget?.recommendation ?? "未配置软额度"} />
-            <DiagnosticRow label="省额度模式" value=""
-              badge={<StatusBadge label={llmEconomyLevelLabel(data.llm?.economy?.level)} tone={llmEconomyTone(data.llm?.economy?.level)} />} />
+          </DiagGroup>
+
+          <DiagGroup title="省额度模式"
+            hint={<StatusBadge label={llmEconomyLevelLabel(data.llm?.economy?.level)} tone={llmEconomyTone(data.llm?.economy?.level)} />}>
             <DiagnosticRow label="自动降成本" value={llmEconomyActionText(data.llm?.economy)} />
             <DiagnosticRow label="上下文上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "context")} />
             <DiagnosticRow label="记忆召回上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "memory")} />
             <DiagnosticRow label="资料库召回上限" value={llmEconomyLimitText(data.llm?.economy?.limitsSummary, "source")} />
             <DiagnosticRow label="执行建议" value={data.llm?.economy?.recommendation ?? "省额度模式未启用。"} />
             <DiagnosticRow label="上限说明" value={data.llm?.economy?.limitsSummary?.safeguards?.[0] ?? "这些数字是每轮保护上限，不是质量目标。"} />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {(data.llm?.providers ?? []).map((provider: any) => (
-              <div key={provider.name} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2 min-w-0">
+          </DiagGroup>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Radio} title="Runtime 收敛" hue="indigo"
+          subtitle="Web / QQ 的人物运行时能力">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
+              <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground truncate">{provider.name}</span>
-                  <BoolBadge value={provider.configured} />
+                  <span className="text-sm font-semibold uppercase text-foreground">{platform}</span>
+                  <BoolBadge value={Boolean(runtime.enabled)} trueLabel="启用" falseLabel="关闭" />
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground font-mono break-all">
-                  {provider.model || provider.endpoint?.origin || "未设置模型"}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(runtime)
+                    .filter(([key]) => key !== "enabled")
+                    .map(([key, value]) => (
+                      <StatusBadge key={key} label={runtimeCapabilityLabel(key)} tone={value ? "ok" : "muted"} />
+                    ))}
                 </div>
               </div>
             ))}
           </div>
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">用量明细</h3>
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {usageDetailsData
-                    ? `${llmUsageSourceLabel(usageDetailsData.source)} · ${usageDetailsData.summary?.calls ?? 0} 次 · ${usageDetailsData.summary?.totalTokens ?? 0} tokens`
-                    : "读取中..."}
-                </div>
+          <DiagGroup title="运行时模块">
+            <DiagnosticRow label="文本 runtime" value={data.architecture?.textRuntime} mono />
+            <DiagnosticRow label="媒体 runtime" value={data.architecture?.mediaRuntime} mono />
+            <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
+          </DiagGroup>
+        </DiagnosticCard>
+
+        <DiagnosticCard icon={Terminal} title="主动消息" hue="amber">
+          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+            <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
+            <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
+            <DiagnosticRow label="定时槽位" value={data.proactiveMessages?.configuredSlotCount ?? 0} />
+            <DiagnosticRow label="时间" value={compactList(data.proactiveMessages?.uniqueTimes)} />
+            <DiagnosticRow label="风格提示" value={`${data.proactiveMessages?.stylePromptConfiguredPersonas ?? 0} 个角色`} />
+            <DiagnosticRow label="角色模型覆盖" value={providerOverrideText} />
+          </div>
+        </DiagnosticCard>
+        </div>
+      </div>
+
+      <DiagnosticCard icon={Cpu} title="AI 提供商" hue="sky"
+        subtitle={`${configuredProviders.length}/${data.llm?.providers?.length ?? 0} 个已配置`}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {(data.llm?.providers ?? []).map((provider: any) => (
+            <div key={provider.name} className="stat-tile px-3 py-2.5 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-foreground truncate">{provider.name}</span>
+                <BoolBadge value={provider.configured} />
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
-                  onClick={() => usageDetails.refetch()} disabled={usageDetails.isFetching}>
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${usageDetails.isFetching ? "animate-spin" : ""}`} />
-                  刷新
-                </Button>
-                <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
-                  onClick={() => setUsageFilters({
-                    from: "",
-                    to: "",
-                    userId: "",
-                    personaId: "",
-                    route: "",
-                    provider: "",
-                    purpose: "",
-                    success: "all",
-                    limit: "50",
-                  })}>
-                  清空
-                </Button>
+              <div className="mt-1 text-[11px] text-muted-foreground font-mono truncate">
+                {provider.model || provider.endpoint?.origin || "未设置模型"}
               </div>
             </div>
+          ))}
+        </div>
+      </DiagnosticCard>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <DiagnosticCard icon={Activity} title="用量明细" hue="violet"
+        subtitle={usageDetailsData
+          ? `${llmUsageSourceLabel(usageDetailsData.source)} · ${usageDetailsData.summary?.calls ?? 0} 次 · ${formatCompact(usageDetailsData.summary?.totalTokens ?? 0)} tokens`
+          : "读取中..."}
+        action={
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+              onClick={() => usageDetails.refetch()} disabled={usageDetails.isFetching}>
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${usageDetails.isFetching ? "animate-spin" : ""}`} />
+              刷新
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 rounded-lg border-border text-xs"
+              onClick={() => setUsageFilters({
+                from: "",
+                to: "",
+                userId: "",
+                personaId: "",
+                route: "",
+                provider: "",
+                purpose: "",
+                success: "all",
+                limit: "50",
+              })}>
+              清空
+            </Button>
+          </div>
+        }>
+        <div className="space-y-3">
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
               <div className="space-y-1">
                 <Label className="text-[11px] text-muted-foreground">开始时间</Label>
                 <Input type="datetime-local" value={usageFilters.from}
@@ -1243,7 +1398,7 @@ function OperationsDiagnosticsTab() {
             )}
 
             {usageRecords.length > 0 && (
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
                 {usageRecords.map((record: any) => (
                   <div key={record.id} className="rounded-lg border border-border/50 bg-background/45 px-3 py-2.5 min-w-0">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1283,75 +1438,30 @@ function OperationsDiagnosticsTab() {
                 ))}
               </div>
             )}
-          </div>
-        </DiagnosticCard>
-      </div>
+        </div>
+      </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DiagnosticCard icon={MessageCircle} title="平台接入"
-          subtitle="QQ 实时状态与绑定策略">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="QQ 开关" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.enabled)} trueLabel="已启用" falseLabel="未启用" />} />
-            <DiagnosticRow label="QQ 实时状态" value=""
-              badge={<StatusBadge label={platformStatusLabel("qq", qqLive?.status)} tone={qqStatusTone} />} />
-            <DiagnosticRow label="OneBot" value={data.qq?.onebotEndpoint?.origin || "未配置"} mono />
-            <DiagnosticRow label="Webhook token" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.webhookSecretConfigured)} />} />
-            <DiagnosticRow label="群聊" value=""
-              badge={<BoolBadge value={Boolean(data.qq?.allowGroups)} trueLabel="允许" falseLabel="关闭" />} />
-            {qqLive?.lastError && <DiagnosticRow label="QQ 原始错误" value={qqLive.lastError} />}
-            <AdvisoryBox advice={qqAdvice} />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={Radio} title="Runtime 收敛"
-          subtitle="Web / QQ 的人物运行时能力">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {Object.entries(data.platformRuntime ?? {}).map(([platform, runtime]: [string, any]) => (
-              <div key={platform} className="rounded-lg border border-border/50 bg-muted/10 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold uppercase text-foreground">{platform}</span>
-                  <BoolBadge value={Boolean(runtime.enabled)} trueLabel="启用" falseLabel="关闭" />
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {Object.entries(runtime)
-                    .filter(([key]) => key !== "enabled")
-                    .map(([key, value]) => (
-                      <StatusBadge key={key} label={runtimeCapabilityLabel(key)} tone={value ? "ok" : "muted"} />
-                    ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="文本 runtime" value={data.architecture?.textRuntime} mono />
-            <DiagnosticRow label="媒体 runtime" value={data.architecture?.mediaRuntime} mono />
-            <DiagnosticRow label="请求规范" value={data.architecture?.runtimeRequest} mono />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={Database} title="持久化与数据安全"
-          subtitle="运行态、导出、删除和迁移覆盖">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="角色运行态" value={data.persistence?.runtimeStorage?.personaRuntime ?? "persona_runtime_states"} mono />
-            <DiagnosticRow label="LLM 用量" value={data.persistence?.runtimeStorage?.llmUsage ?? "llm_usage_records"} mono />
-            <DiagnosticRow label="本机清理脚本" value={data.persistence?.localRuntimeCleanupScript ?? "scripts/cleanup-local-runtime.ps1"} mono />
-            <DiagnosticRow label="同步脚本" value={data.persistence?.syncScript ?? "scripts/sync-local-worktree.ps1"} mono />
-            <DiagnosticRow label="正式迁移" value={compactList(data.persistence?.requiredMigrations, "暂无")} mono />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-              <div className="text-xs font-semibold text-foreground">导出覆盖</div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground break-words">
-                {compactList(data.persistence?.exportSections)}
-              </p>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-              <div className="text-xs font-semibold text-foreground">删除覆盖</div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground break-words">
-                {compactList(data.persistence?.deleteSections)}
-              </p>
+      <DiagnosticCard icon={Database} title="持久化与数据安全" hue="rose"
+        subtitle="运行态、导出、删除和迁移覆盖">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            <DiagGroup title="存储与脚本">
+              <DiagnosticRow label="角色运行态" value={data.persistence?.runtimeStorage?.personaRuntime ?? "persona_runtime_states"} mono />
+              <DiagnosticRow label="LLM 用量" value={data.persistence?.runtimeStorage?.llmUsage ?? "llm_usage_records"} mono />
+              <DiagnosticRow label="本机清理脚本" value={data.persistence?.localRuntimeCleanupScript ?? "scripts/cleanup-local-runtime.ps1"} mono />
+              <DiagnosticRow label="同步脚本" value={data.persistence?.syncScript ?? "scripts/sync-local-worktree.ps1"} mono />
+              <DiagnosticRow label="正式迁移" value={compactList(data.persistence?.requiredMigrations, "暂无")} mono />
+            </DiagGroup>
+            <div className="space-y-3">
+              <DiagGroup title="导出覆盖">
+                <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
+                  {compactList(data.persistence?.exportSections)}
+                </p>
+              </DiagGroup>
+              <DiagGroup title="删除覆盖">
+                <p className="text-[11px] leading-relaxed text-muted-foreground break-words">
+                  {compactList(data.persistence?.deleteSections)}
+                </p>
+              </DiagGroup>
             </div>
           </div>
           <div className="space-y-2">
@@ -1361,45 +1471,8 @@ function OperationsDiagnosticsTab() {
               </div>
             ))}
           </div>
-        </DiagnosticCard>
-      </div>
+      </DiagnosticCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <DiagnosticCard icon={Volume2} title="语音">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="回复策略" value=""
-              badge={<StatusBadge label={voiceModeLabel(data.voice?.policy?.mode)} tone={data.voice?.policy?.enabled ? "ok" : "muted"} />} />
-            <DiagnosticRow label="概率 / 冷却" value={`${data.voice?.policy?.probability ?? 0} · ${data.voice?.policy?.cooldownSeconds ?? 0}s`} />
-            <DiagnosticRow label="ASR" value={`${data.voice?.asr?.provider ?? "未知"} · ${data.voice?.asr?.model ?? "未知"}`} />
-            <DiagnosticRow label="TTS" value={`${ttsProviderLabel(data.voice?.tts?.provider)} -> ${ttsProviderLabel(data.voice?.tts?.fallbackProvider)}`} />
-            <DiagnosticRow label="VoxCPM" value={data.voice?.tts?.voxcpmEndpoint?.origin ?? "未配置"} mono />
-            <DiagnosticRow label="MiniMax" value=""
-              badge={<BoolBadge value={Boolean(data.voice?.tts?.minimaxConfigured)} />} />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={ImageIcon} title="表情包">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="策略" value=""
-              badge={<BoolBadge value={Boolean(data.stickers?.policy?.enabled)} trueLabel="启用" falseLabel="关闭" />} />
-            <DiagnosticRow label="总量 / 启用" value={`${data.stickers?.total ?? 0} / ${data.stickers?.enabled ?? 0}`} />
-            <DiagnosticRow label="类型" value={enabledStickerTypes} />
-            <DiagnosticRow label="概率 / 冷却" value={`${data.stickers?.policy?.probability ?? 0} · ${data.stickers?.policy?.cooldownSeconds ?? 0}s`} />
-            <DiagnosticRow label="目录" value={data.stickers?.baseDir ?? "未配置"} mono />
-          </div>
-        </DiagnosticCard>
-
-        <DiagnosticCard icon={Terminal} title="主动消息">
-          <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
-            <DiagnosticRow label="总角色 / Ready" value={`${data.proactiveMessages?.totalPersonas ?? 0} / ${data.proactiveMessages?.readyPersonas ?? 0}`} />
-            <DiagnosticRow label="启用角色" value={data.proactiveMessages?.enabledPersonas ?? 0} />
-            <DiagnosticRow label="定时槽位" value={data.proactiveMessages?.configuredSlotCount ?? 0} />
-            <DiagnosticRow label="时间" value={compactList(data.proactiveMessages?.uniqueTimes)} />
-            <DiagnosticRow label="风格提示" value={`${data.proactiveMessages?.stylePromptConfiguredPersonas ?? 0} 个角色`} />
-            <DiagnosticRow label="角色模型覆盖" value={providerOverrideText} />
-          </div>
-        </DiagnosticCard>
-      </div>
     </div>
   );
 }
@@ -1447,10 +1520,8 @@ function DataManagementTab() {
     <div className="space-y-6">
       {/* Storage Overview */}
       {accountStats && (
-        <section className="warm-card p-5">
-          <h3 className="text-sm font-medium text-foreground mb-4 flex items-center gap-2">
-            <HardDrive className="w-4 h-4 text-primary/60" /> 存储概览
-          </h3>
+        <section className="warm-card p-5 space-y-4">
+          <SectionHeader icon={HardDrive} title="存储概览" subtitle="数据库记录与上传文件占用" />
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">已用空间</span>
@@ -1460,54 +1531,24 @@ function DataManagementTab() {
               <div className="h-full bg-primary/60 rounded-full transition-all"
                 style={{ width: `${Math.min(100, (accountStats.storageUsed / (100 * 1048576)) * 100)}%` }} />
             </div>
-            <div className="grid grid-cols-3 gap-3 mt-3">
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalPersonas}</div>
-                <div className="text-[10px] text-muted-foreground">分身</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalMessages}</div>
-                <div className="text-[10px] text-muted-foreground">消息</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalFiles}</div>
-                <div className="text-[10px] text-muted-foreground">文件</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalMemories ?? 0}</div>
-                <div className="text-[10px] text-muted-foreground">记忆</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalSources ?? 0}</div>
-                <div className="text-[10px] text-muted-foreground">资料</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalRoleplayChannels ?? 0}</div>
-                <div className="text-[10px] text-muted-foreground">频道</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalLlmUsageRecords ?? 0}</div>
-                <div className="text-[10px] text-muted-foreground">用量</div>
-              </div>
-              <div className="text-center p-2 bg-muted/20 rounded-lg">
-                <div className="text-sm font-semibold text-foreground">{accountStats.totalRuntimeStates ?? 0}</div>
-                <div className="text-[10px] text-muted-foreground">运行态</div>
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+              <StatTile value={accountStats.totalPersonas} label="分身" />
+              <StatTile value={accountStats.totalMessages} label="消息" />
+              <StatTile value={accountStats.totalFiles} label="文件" />
+              <StatTile value={accountStats.totalMemories ?? 0} label="记忆" />
+              <StatTile value={accountStats.totalSources ?? 0} label="资料" />
+              <StatTile value={accountStats.totalRoleplayChannels ?? 0} label="Roleplay 频道" />
+              <StatTile value={accountStats.totalLlmUsageRecords ?? 0} label="用量记录" />
+              <StatTile value={accountStats.totalRuntimeStates ?? 0} label="运行态" />
             </div>
           </div>
         </section>
       )}
 
       {/* Export */}
-      <section className="warm-card p-5">
-        <h3 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
-          <Download className="w-4 h-4 text-primary/60" /> 数据导出
-        </h3>
-        <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-          导出账户资料、分身、角色运行态、对话、记忆、资料库、日记、Roleplay 频道、平台绑定和 LLM 用量记录。JSON 不包含密码哈希、会话 Cookie、LLM API Key、本机上传文件实体、TTS 缓存或本机数据库文件。
-        </p>
+      <section className="warm-card p-5 space-y-4">
+        <SectionHeader icon={Download} title="数据导出"
+          subtitle="导出账户资料、分身、角色运行态、对话、记忆、资料库、日记、Roleplay 频道、平台绑定和 LLM 用量记录。JSON 不包含密码哈希、会话 Cookie、LLM API Key、本机上传文件实体、TTS 缓存或本机数据库文件。" />
         <Button size="sm" variant="outline" className="rounded-xl border-border"
           onClick={() => exportData.mutate()}
           disabled={exportData.isPending}>
@@ -1517,10 +1558,8 @@ function DataManagementTab() {
       </section>
 
       {/* Danger Zone */}
-      <section className="warm-card p-5 border-destructive/20">
-        <h3 className="text-sm font-medium text-destructive mb-3 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4" /> 危险操作
-        </h3>
+      <section className="warm-card p-5 space-y-4 border-destructive/20">
+        <SectionHeader icon={AlertTriangle} title="危险操作" tone="danger" subtitle="不可撤销的账户级操作" />
         <div className="p-4 bg-destructive/5 rounded-xl border border-destructive/10">
           <p className="text-sm text-foreground font-medium mb-1">删除账户</p>
           <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
@@ -1577,7 +1616,16 @@ function DataManagementTab() {
 export default function SettingsPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth({ redirectOnUnauthenticated: true });
-  const [activeTab, setActiveTab] = useState<TabKey>("profile");
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("tab");
+    return TABS.some(tab => tab.key === fromUrl) ? (fromUrl as TabKey) : "profile";
+  });
+  const setActiveTab = (key: TabKey) => {
+    setActiveTabState(key);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", key);
+    window.history.replaceState({}, "", url);
+  };
 
   if (!user) return null;
 
@@ -1602,7 +1650,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="container py-6 max-w-5xl mx-auto px-4">
+      <main className="container py-6 max-w-6xl mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-8 items-start">
           {/* 左侧侧边栏 (大屏常驻，移动端横向滚动) */}
           <aside className="flex md:flex-col gap-1 p-1.5 bg-card/60 backdrop-blur-md border border-border/40 rounded-2xl md:sticky md:top-20 overflow-x-auto scrollbar-hide">
@@ -1613,8 +1661,8 @@ export default function SettingsPage() {
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                   className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium transition-all flex-shrink-0 md:w-full relative ${
                     isActive
-                      ? "bg-primary/8 text-primary font-semibold"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                      ? "bg-gradient-to-r from-primary/15 to-primary/5 text-primary font-semibold shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30 hover:translate-x-0.5"
                   }`}>
                   {isActive && (
                     <span className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-full hidden md:block" />

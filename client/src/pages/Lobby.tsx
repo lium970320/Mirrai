@@ -6,7 +6,7 @@ import { getLoginUrl } from "@/const";
 import {
   Plus, MessageCircle, Upload, Trash2, Sparkles, Clock, LogOut,
   Settings, Leaf, Pencil, Users, CalendarDays, FileText,
-  Wifi, Heart, Brain, Star, TrendingUp, Lightbulb,
+  Heart, Brain, Star, TrendingUp, Lightbulb,
   Zap, Coffee, Search, Quote, Flame, Gift,
   ArrowUpDown, Eye, Bookmark, Activity, Palette, Volume2, BookOpen,
   GraduationCap, Sunrise,
@@ -264,7 +264,7 @@ function useAnimatedCounter(target: number, duration = 800): number {
 
 // ─── HERO BANNER ─────────────────────────────────────────────────────────────
 
-function HeroBanner({ username, stats }: { username?: string; stats?: any }) {
+function HeroBanner({ username, stats, readyCount = 0 }: { username?: string; stats?: any; readyCount?: number }) {
   const greeting = getGreeting();
   const quote = useMemo(() => LOVE_QUOTES[Math.floor(Math.random() * LOVE_QUOTES.length)], []);
   const memberDays = stats?.memberSince
@@ -275,12 +275,14 @@ function HeroBanner({ username, stats }: { username?: string; stats?: any }) {
   const animatedToday = useAnimatedCounter(stats?.todayChats || 0);
 
   return (
-    <div className="lobby-hero rounded-xl p-5 sm:p-6 mb-6 relative overflow-hidden">
-      <div className="lobby-hero-dots" />
+    <div className="lobby-hero rounded-2xl p-5 sm:p-7 mb-6 relative overflow-hidden">
+      <div className="hero-orb hero-orb-1" />
+      <div className="hero-orb hero-orb-2" />
+      <div className="hero-orb hero-orb-3" />
       <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-2xl">{greeting.emoji}</span>
-          <h1 className="text-xl font-semibold text-foreground">
+        <div className="flex items-center gap-2.5 mb-1.5">
+          <span className="text-3xl animate-float">{greeting.emoji}</span>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             {username ? `${username}，${greeting.text}` : greeting.text}
           </h1>
         </div>
@@ -291,12 +293,20 @@ function HeroBanner({ username, stats }: { username?: string; stats?: any }) {
           <p className="text-xs text-muted-foreground/80 italic leading-relaxed">{quote}</p>
         </div>
 
-        {memberDays > 0 && (
-          <div className="flex items-center gap-4 mt-4">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <CalendarDays className="w-3.5 h-3.5 text-primary" />
-              <span>已陪伴 <span className="text-foreground font-medium count-up">{animatedDays}</span> 天</span>
-            </div>
+        {(memberDays > 0 || (stats && stats.totalPersonas > 0)) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4">
+            {stats && stats.totalPersonas > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Users className="w-3.5 h-3.5 text-primary" />
+                <span><span className="text-foreground font-medium">{stats.totalPersonas}</span> 个分身 · 在线 <span className="text-foreground font-medium">{readyCount}</span></span>
+              </div>
+            )}
+            {memberDays > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CalendarDays className="w-3.5 h-3.5 text-primary" />
+                <span>已陪伴 <span className="text-foreground font-medium count-up">{animatedDays}</span> 天</span>
+              </div>
+            )}
             {stats && stats.totalChats > 0 && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <MessageCircle className="w-3.5 h-3.5 text-primary" />
@@ -318,24 +328,6 @@ function HeroBanner({ username, stats }: { username?: string; stats?: any }) {
 
 // ─── STAT CARDS (ANIMATED) ───────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, value, label, accent }: {
-  icon: any; value: string | number; label: string; accent?: boolean;
-}) {
-  const animated = useAnimatedCounter(typeof value === "number" ? value : 0);
-  const display = typeof value === "number" ? animated : value;
-  return (
-    <div className={`warm-card p-4 flex items-center gap-3 ${accent ? "ring-1 ring-primary/20" : ""}`}>
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${accent ? "bg-primary/15" : "bg-primary/10"}`}>
-        <Icon className={`w-4 h-4 ${accent ? "text-primary" : "text-primary/70"}`} />
-      </div>
-      <div>
-        <div className="text-lg font-semibold text-foreground leading-tight">{display}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-}
-
 // ─── TODAY'S RECOMMENDATION ──────────────────────────────────────────────────
 
 function TodayRecommendation({ personas, onChat }: { personas: any[]; onChat: (id: number) => void }) {
@@ -355,12 +347,12 @@ function TodayRecommendation({ personas, onChat }: { personas: any[]; onChat: (i
   const missLevel = getMissYouLevel(recommended.lastChatAt);
 
   return (
-    <div className="mb-6 recommend-glow warm-card p-4 relative overflow-hidden">
+    <div className="recommend-glow warm-card p-4 relative overflow-hidden">
       <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -translate-y-8 translate-x-8" />
       <div className="relative z-10">
         <div className="flex items-center gap-2 mb-3">
-          <Bookmark className="w-3.5 h-3.5 text-primary" />
-          <h3 className="text-xs font-medium text-foreground">今日推荐</h3>
+          <Bookmark className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">今日推荐</h3>
           {missLevel && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20">
               {missLevel}
@@ -415,10 +407,10 @@ function DailyMessages({ personas }: { personas: any[] }) {
   if (messages.length === 0) return null;
 
   return (
-    <div className="mb-6">
+    <div>
       <div className="flex items-center gap-2 mb-3">
-        <Volume2 className="w-3.5 h-3.5 text-primary/60" />
-        <h2 className="text-sm font-medium text-foreground">TA 想对你说</h2>
+        <Volume2 className="w-4 h-4 text-primary/70" />
+        <h2 className="text-sm font-semibold text-foreground">TA 想对你说</h2>
       </div>
       <div className="space-y-2">
         {messages.map((m, i) => {
@@ -1338,9 +1330,9 @@ function QuickChatBar({ personas, onChat }: { personas: any[]; onChat: (id: numb
   if (readyPersonas.length === 0) return null;
 
   return (
-    <div className="mb-6">
+    <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium text-foreground mr-4">继续对话</h2>
+        <h2 className="text-sm font-semibold text-foreground mr-4">继续对话</h2>
         <span className="text-xs text-muted-foreground">{readyPersonas.length} 个分身在线</span>
       </div>
       <div className="flex gap-4 overflow-x-auto pt-3 px-3 pb-2 -mx-3 scrollbar-hide">
@@ -1701,23 +1693,20 @@ export default function Lobby() {
       </header>
 
       <main className="container py-6 max-w-3xl mx-auto flex-1 relative z-10">
-        <HeroBanner username={user?.username} stats={stats} />
-
-        {stats && (stats.totalPersonas > 0 || stats.totalChats > 0) && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <StatCard icon={Users} value={stats.totalPersonas} label="数字分身" />
-            <StatCard icon={MessageCircle} value={stats.totalChats} label="总对话" accent={stats.totalChats > 0} />
-            <StatCard icon={TrendingUp} value={stats.todayChats} label="今日对话" accent={stats.todayChats > 0} />
-            <StatCard icon={Star} value={readyCount} label="在线分身" />
-          </div>
-        )}
+        <HeroBanner username={user?.username} stats={stats} readyCount={readyCount} />
 
         {hasPersonas ? (
           <Tabs defaultValue="companions" className="space-y-6 animate-fade-in-up">
             <TabsList className="lobby-tab-list grid h-auto w-full grid-cols-3 gap-1 p-1 rounded-xl mb-2">
-              <TabsTrigger value="companions" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">🌸 我的分身</TabsTrigger>
-              <TabsTrigger value="memories" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">🌌 记忆星河</TabsTrigger>
-              <TabsTrigger value="stats" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">📊 陪伴印记</TabsTrigger>
+              <TabsTrigger value="companions" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">
+                <Heart className="w-3.5 h-3.5 mr-1.5" />我的分身
+              </TabsTrigger>
+              <TabsTrigger value="memories" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">
+                <Sparkles className="w-3.5 h-3.5 mr-1.5" />记忆星河
+              </TabsTrigger>
+              <TabsTrigger value="stats" className="lobby-tab-trigger text-xs py-2.5 rounded-lg transition-all cursor-pointer">
+                <TrendingUp className="w-3.5 h-3.5 mr-1.5" />陪伴印记
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="companions" className="space-y-6 focus-visible:outline-none focus:outline-none">
@@ -1732,9 +1721,9 @@ export default function Lobby() {
               <QuickChatBar personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
               <DailyMessages personas={personas as any[]} />
 
-            <div className="mb-6">
+            <div>
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-medium text-foreground">我的分身</h2>
+                <h2 className="text-sm font-semibold text-foreground">我的分身</h2>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <button onClick={() => setShowSort(!showSort)}
