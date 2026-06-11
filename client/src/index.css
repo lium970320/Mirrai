@@ -633,6 +633,7 @@ html.dark .bubble-ai {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  overflow: hidden;
   background:
     radial-gradient(at 0% 0%, color-mix(in oklab, var(--color-primary) 4%, transparent) 0px, transparent 50%),
     radial-gradient(at 100% 100%, color-mix(in oklab, var(--color-chart-3) 3%, transparent) 0px, transparent 50%),
@@ -1277,31 +1278,6 @@ html.dark .gradient-mesh-bg::after { opacity: 0.8; }
 html.dark .tech-particles::before { opacity: 0.9; }
 html.dark .tech-particles::after { opacity: 0.7; }
 
-/* ─── Full-page Scan Sweep (全页扫描光带) ─── */
-.tech-scan-sweep {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: -35%;
-  height: 30%;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    color-mix(in oklab, var(--color-primary) 4%, transparent) 45%,
-    color-mix(in oklab, var(--color-primary) 7%, transparent) 50%,
-    color-mix(in oklab, var(--color-primary) 4%, transparent) 55%,
-    transparent 100%);
-  animation: scanSweep 9s ease-in-out infinite;
-  will-change: transform;
-}
-@keyframes scanSweep {
-  0%, 18% { transform: translate3d(0, 0, 0); opacity: 0; }
-  22% { opacity: 1; }
-  58% { opacity: 1; }
-  62%, 100% { transform: translate3d(0, 480%, 0); opacity: 0; }
-}
-html.dark .tech-scan-sweep { opacity: 0.85; }
 
 /* ─── HUD Corners (HUD 四角准星装饰) ─── */
 .hud-corners {
@@ -1357,38 +1333,22 @@ html.dark .tech-scan-sweep { opacity: 0.85; }
   pointer-events: none;
 }
 
-/* ─── Icon Chip Glow Pulse (图标徽章呼吸光晕) ─── */
-@keyframes chipGlow {
-  0%, 100% { box-shadow: 0 3px 10px -3px color-mix(in oklab, var(--chip-color, var(--color-primary)) 45%, transparent); }
-  50% { box-shadow: 0 3px 16px -2px color-mix(in oklab, var(--chip-color, var(--color-primary)) 70%, transparent); }
-}
+/* ─── Icon Chip Hover (图标徽章悬停微动) ─── */
 .section-chip {
-  animation: chipGlow 3.2s ease-in-out infinite;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+}
+.warm-card:hover .section-chip,
+section:hover > div > .section-chip {
+  transform: scale(1.08) rotate(-5deg);
+  box-shadow: 0 4px 16px -3px color-mix(in oklab, var(--chip-color, var(--color-primary)) 65%, transparent);
 }
 
-/* ─── Mood Ring Glow (头像情绪光环呼吸) ─── */
-@keyframes moodGlow {
-  0%, 100% { box-shadow: 0 0 6px 0 color-mix(in oklab, var(--mood-color, var(--color-primary)) 35%, transparent); }
-  50% { box-shadow: 0 0 14px 2px color-mix(in oklab, var(--mood-color, var(--color-primary)) 60%, transparent); }
-}
-.mood-ring,
-.mood-ring-sm {
-  animation: moodGlow 3.5s ease-in-out infinite;
-}
 
-/* ─── Nav Mark Pulse (顶栏 Logo 呼吸) ─── */
-@keyframes navMarkGlow {
-  0%, 100% { box-shadow: 0 1px 2px color-mix(in oklab, var(--color-primary) 6%, transparent); }
-  50% { box-shadow: 0 0 12px 1px color-mix(in oklab, var(--color-primary) 38%, transparent); }
-}
-.app-nav-mark {
-  animation: navMarkGlow 4s ease-in-out infinite;
-}
 
 /* ─── Primary Button Sheen (主按钮流光) ─── */
 @keyframes btnSheen {
-  0%, 60% { transform: translateX(-130%) skewX(-18deg); }
-  100% { transform: translateX(240%) skewX(-18deg); }
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to { transform: translateX(240%) skewX(-18deg); }
 }
 .btn-sheen {
   position: relative;
@@ -1402,8 +1362,11 @@ html.dark .tech-scan-sweep { opacity: 0.85; }
   width: 40%;
   left: 0;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-  animation: btnSheen 3.6s ease-in-out infinite;
+  transform: translateX(-130%) skewX(-18deg);
   pointer-events: none;
+}
+.btn-sheen:hover::after {
+  animation: btnSheen 0.6s ease-out;
 }
 
 /* ─── Gradient Scrollbar (渐变滚动条) ─── */
@@ -1447,14 +1410,48 @@ html.dark ::-webkit-scrollbar-thumb {
 @media (prefers-reduced-motion: reduce) {
   .tech-particles::before,
   .tech-particles::after,
-  .tech-scan-sweep,
-  .section-chip-glow,
-  .mood-ring,
-  .mood-ring-sm,
-  .app-nav-mark,
   .btn-sheen::after,
   .bubble-enter {
     animation: none !important;
   }
-  .tech-scan-sweep { display: none; }
+  .tilt-card {
+    transform: none !important;
+  }
+}
+
+/* ═══ Micro Interactions (交互巧思) ═══════════════════════════════════════ */
+
+/* ─── 3D Tilt Card (卡片倾斜跟随鼠标) ─── */
+.tilt-card {
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform 0.18s ease-out;
+  will-change: transform;
+}
+
+/* ─── Click Ripple (按钮点击涟漪) ─── */
+.ripple-ink {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  transform: scale(0);
+  animation: rippleInk 0.55s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes rippleInk {
+  to { transform: scale(2.6); opacity: 0; }
+}
+
+/* ─── Typewriter Caret (打字机光标) ─── */
+.typewriter-caret::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--color-primary);
+  animation: caretBlink 0.9s steps(2) infinite;
+}
+@keyframes caretBlink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple-ink, .typewriter-caret::after { animation: none !important; }
 }

@@ -16,6 +16,7 @@ import {
   Leaf, Eye, EyeOff, Activity, Server, Cpu, Volume2, ImageIcon, Radio,
   RefreshCw, Terminal,
 } from "lucide-react";
+import { useTilt } from "@/hooks/useTilt";
 import { toast } from "sonner";
 
 // ─── TAB CONFIG ──────────────────────────────────────────────────────────────
@@ -297,12 +298,14 @@ function KpiTile({ value, text, label, sub, tone }: {
   value?: number; text?: string; label: string; sub?: string; tone?: StatusTone;
 }) {
   const animated = useCountUp(value ?? 0);
+  const tilt = useTilt(6);
   const display = text ?? formatCompact(animated);
   const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
     : tone === "warn" ? "text-amber-600 dark:text-amber-400"
     : "stat-tile-number";
   return (
-    <div className="stat-tile glow-border rounded-xl px-4 py-3.5 min-w-0"
+    <div ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}
+      className="stat-tile glow-border tilt-card rounded-xl px-4 py-3.5 min-w-0"
       title={typeof value === "number" ? value.toLocaleString("zh-CN") : undefined}>
       <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div className={`mt-1 text-2xl font-bold tabular-nums leading-tight truncate ${numberClass}`}>{display}</div>
@@ -1650,7 +1653,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="gradient-mesh-bg" /><div className="tech-particles" /><div className="tech-scan-sweep" />
+      <div className="gradient-mesh-bg" /><div className="tech-particles" />
       <header className="sticky top-0 z-40 app-header">
         <div className="container app-nav">
           <button onClick={() => navigate("/")}
