@@ -482,9 +482,9 @@ function buildDatabaseTroubleshootingAdvice(database: ReturnType<typeof getDatab
       tone: "error",
       evidence: "DATABASE_URL 为空",
       actions: [
-        "在本机运行目录 .env 配置 DATABASE_URL。",
-        "普通开发优先使用 Neon 配置运行 corepack pnpm run dev。",
-        "仅测试本机 PostgreSQL fallback 时再运行 corepack pnpm run dev:local。",
+        "在本机运行目录 .env 配置 DATABASE_URL（默认本地嵌入式库 127.0.0.1:5434/mirrai）。",
+        "普通开发使用本地嵌入式数据库运行 corepack pnpm run dev:local。",
+        "仅在 DATABASE_URL 指向可用远程库（如 Neon）时运行 corepack pnpm run dev。",
       ],
     };
   }

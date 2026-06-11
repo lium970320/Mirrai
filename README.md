@@ -187,15 +187,15 @@
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933.svg)](https://nodejs.org)
 
-上传聊天记录，AI 重建 TA 的数字分身 — 用 TA 的语气回你消息，用 TA 的方式撒娇，知道 TA 什么时候会突然变冷漠。
+上传聊天记录和人物素材，AI 通过多阶段性格蒸馏重建 TA 的数字分身——用 TA 的语气回你消息，记得你们的过去，在 QQ 上主动想起你，偶尔给你发一条语音或一个表情包。
 
-**随时随地，TA 都在。**
+**Web 端沉浸对话，QQ 端真实陪伴。**
 
 ---
 
 ## 目录
 
-- [创新点](#创新点)
+- [核心能力](#核心能力)
 - [功能概览](#功能概览)
 - [技术架构](#技术架构)
 - [快速开始](#快速开始)
@@ -203,63 +203,62 @@
 - [项目结构](#项目结构)
 - [API 接口](#api-接口)
 - [开发指南](#开发指南)
+- [文档索引](#文档索引)
 - [注意事项](#注意事项)
 
 ---
 
-## 创新点
+## 核心能力
 
-### 1. 多阶段性格蒸馏引擎
+### 1. 多阶段性格蒸馏 + 分区画像
 
-不是简单地把聊天记录丢给 AI 让它"模仿"。系统采用多阶段 pipeline 对原始素材进行深度分析：
+不是简单把聊天记录丢给 AI 让它"模仿"。系统采用多阶段 pipeline 对原始素材做深度分析：
 
 ```
 上传素材 → 人物维度提取 → 结构化人设构建 → 多源融合 → 数字分身
 ```
 
-最终生成的 persona 包含 7 层结构：性格特质、说话方式、口头禅、依恋类型、爱的语言、争吵风格、触动瞬间。不是"像他"，而是"就是他"。
+生成的人设按 `profileSections` 分区管理：核心画像、性格情感、关系记忆、说话方式、原著资料、行为策略、运行时状态。人物编辑页按分区可视化编辑，运行时状态（临时生活状态、主动消息计划、回合诊断）独立存储在 `persona_runtime_states` 表，与稳定画像分离。
 
-### 2. 动态情感状态机
+### 2. 社交人物运行时（共享回复引擎）
 
-每个数字分身拥有 6 种情感状态，会根据对话内容实时切换：
+Web 和 QQ 的文本、媒体入口共用一套 social runtime contract，保证人物在不同平台表现一致：
 
-| 状态 | 触发词示例 | 表现 |
-|------|-----------|------|
-| 🌸 温柔 | 默认状态 | 温柔体贴，充满关怀 |
-| 😄 俏皮 | "哈哈""好玩""搞笑" | 轻松活泼，爱开玩笑 |
-| 🌙 思念 | "想你""那时候""记得吗" | 触景生情，回忆过去 |
-| 🌧️ 忧郁 | "难过""伤心""委屈" | 情绪低落，需要安慰 |
-| ✨ 开心 | "开心""太好了""爱你" | 充满活力，心情很好 |
-| ❄️ 疏离 | "随便""无所谓""算了" | 话不多，有距离感 |
+```
+消息进入 → 回合规划（意图 / 记忆模式 / 回复长度 / 风险约束）
+        → 多路召回（长期记忆 + 原著资料库证据 + 对话连续性时间线）
+        → 省额度策略按 intent / route 降级召回体量
+        → 构建系统提示词（精简认知锚点，不常驻长篇背景）
+        → LLM 动态路由 → 输出诊断 + 用量记录
+```
 
-情感状态不仅影响回复语气，还会在聊天界面实时显示，用户也可以手动切换。
+- **长期记忆**：每日记忆提炼、记忆整合、记忆治理、召回排序
+- **原著资料库**：导入原著文本后分块索引，回答原著问题时只引用检索到的证据，没有证据就说记不准，不编造剧情；支持连续追问识别
+- **回合规划器**：每轮回复前生成内部规划，显式约束短句、连续消息、原著幻觉、睡眠状态等风险
 
-### 3. 统一 LLM 抽象层 — 10 家 AI 提供商即插即用
+### 3. QQ 数字分身（NapCat / OneBot）
 
-一套统一接口，支持国内外主流 AI 服务，用户可在设置页面自由切换：
+分身走出浏览器，通过 NapCat + OneBot 协议接入 QQ 私聊：
 
-| 提供商 | 协议 | 默认模型 |
-|--------|------|---------|
-| OpenAI | REST | gpt-4o |
-| Claude | REST | claude-sonnet-4-6 |
-| DeepSeek | OpenAI 兼容 | deepseek-v4-flash / deepseek-v4-pro |
-| Kimi (月之暗面) | OpenAI 兼容 | moonshot-v1-8k |
-| 通义千问 | OpenAI 兼容 | qwen-turbo |
-| 豆包 | OpenAI 兼容 | 自定义 |
-| 302.ai | OpenAI 兼容 | 自定义 |
-| Ollama | REST | llama3 (本地) |
-| Dify | Workflow API | 自定义 |
-| 讯飞星火 | WebSocket + HMAC | v3.5 |
+- **文本对话**：消息合批（多条短消息合并理解）、拟人化分条回复（带打字延迟）
+- **语音双向**：收到语音 → silk/amr 转码 → 智谱 ASR 转写 → 进入人设回复；回复时按策略经 VoxCPM 本地 TTS 生成语音发回，按文本情绪自动选择 calm / comfort / tease / angry_soft / sad_low 音色 profile
+- **表情包**：低频、可控的角色主动表情包（策略 → 意图 → 选择器 → 发送器），严肃话题自动屏蔽
+- **主动消息**：固定时间点 ±10 分钟随机窗口 + 环境感知型"突然想起你"，像真实的人在生活间隙想到你
+- 任一环节失败都自动降级回文字，不中断主对话
 
-OpenAI 兼容协议的提供商共用一个适配器，通过 `baseUrl` / `model` 区分，零代码接入新服务。
+### 4. LLM 抽象层 + 成本控制
 
-### 4. 微信机器人 — 数字分身走出浏览器
+一套统一接口支持 10 家提供商（OpenAI / Claude / DeepSeek / Kimi / 通义 / 豆包 / 302.ai / Ollama / Dify / 讯飞星火），OpenAI 兼容协议共用一个适配器。
 
-集成 Wechaty 框架，扫码登录后，将微信联系人绑定到对应的数字分身。朋友给你发消息，数字分身自动用 TA 的语气回复。Web 端和微信端共享同一套人设和记忆，消息记录标记来源渠道（web / wechat）。
+- **DeepSeek 动态路由**：`DEFAULT_LLM_PROVIDER=deepseek` 时，普通聊天 / 主动消息 / 媒体回复走 Flash，原著证据召回 / 人物画像构建 / 技能管线 / 毕业信走 Pro
+- **用量可观测**：每次调用记录 provider、model、purpose、token 估算、耗时、用户 / 角色 / 入口成本归属，持久化到 `llm_usage_records`
+- **软额度与省额度**：日 / 月软额度提醒；接近上限自动暂停环境主动消息和 TTS 润色，超限进一步缩短历史窗口和召回体量，但不跳过原著事实核查
 
-### 5. 全链路类型安全
+### 5. 运维诊断
 
-从数据库 schema 到前端组件，全程 TypeScript + tRPC，零运行时类型错误：
+设置页内置"运维诊断"：数据库运行模式、LLM 路由与用量分桶、QQ / OneBot 接入状态、语音 / 表情包配置、主动消息计划、排障清单（带脱敏原始错误和可执行步骤）。聊天页可打开"运行诊断"面板查看每一轮的回合规划、召回详情和用量。
+
+### 6. 全链路类型安全
 
 ```
 Drizzle Schema → DB Helpers → tRPC Router → React Query Hook → UI 组件
@@ -270,58 +269,63 @@ Drizzle Schema → DB Helpers → tRPC Router → React Query Hook → UI 组件
 
 ## 功能概览
 
-- **创建数字分身** — 输入名字、关系描述、在一起时间，创建一个新的数字分身
-- **上传素材** — 支持微信聊天记录 (.txt)、CSV、照片、视频，拖拽上传
+- **创建数字分身** — 输入名字、关系描述、在一起时间
+- **上传素材** — 微信/QQ 聊天记录 (.txt)、CSV、人物设定文本、照片，拖拽上传
 - **AI 性格分析** — 多阶段 pipeline 自动提取人物画像，实时显示进度
-- **沉浸式对话** — 暗色系 UI，情感状态实时变化，支持文本/图片/语音消息
-- **多分身管理** — 大厅页面管理所有数字分身，一键切换
-- **亲密度系统** — 初识→熟悉→亲密→知己→灵魂伴侣，随对话自然成长
-- **毕业机制** — 亲密度达到灵魂伴侣后可触发毕业，AI 生成告别信，分身进入休眠（可唤醒）
-- **TTS 语音朗读** — AI 回复旁的播放按钮，使用 Edge TTS 中文语音朗读消息
-- **对话导出** — 导出完整对话记录为自包含 HTML 文件（含情感时间线 SVG 图表）
-- **记忆管理** — 手动或 AI 自动提取关系记忆节点（里程碑/纪念日）
-- **对话日记** — AI 根据聊天记录生成每日日记（摘要/亮点/情感弧线/金句）
-- **场景模式** — 内置 + 自定义对话场景，切换不同情境下的互动风格
-- **数据分析** — 消息量趋势、情感时线、分身互动热力图、时段分布
-- **人设编辑** — 可视化编辑分身的性格特质、说话方式、口头禅等
-- **微信集成** — 扫码登录，绑定联系人，自动回复
-- **LLM 自由切换** — 设置页面配置 API Key，随时切换 AI 后端
+- **沉浸式对话** — 情感状态实时变化，支持文本 / 图片 / 语音消息
+- **QQ 接入** — 绑定 QQ 联系人，文本 / 语音 / 表情包 / 主动消息全链路
+- **原著资料库** — 导入原著文本，证据式召回，不编造剧情
+- **长期记忆** — 每日记忆提炼、整合、治理，跨对话记住重要的事
+- **Roleplay 频道（Beta）** — 多角色群聊频道，角色自动接话
+- **亲密度系统** — 初识 → 熟悉 → 亲密 → 知己 → 灵魂伴侣
+- **毕业机制** — 亲密度满级可触发毕业，AI 生成告别信，分身休眠（可唤醒）
+- **TTS 语音朗读** — Web 端消息朗读；QQ 端 VoxCPM 多情绪音色语音回复
+- **对话导出** — 导出自包含 HTML（含情感时间线 SVG 图表）
+- **记忆节点** — 手动或 AI 自动提取里程碑 / 纪念日
+- **对话日记** — AI 生成每日日记（摘要 / 亮点 / 情感弧线 / 金句）
+- **场景模式** — 内置 + 自定义对话场景
+- **数据分析** — 消息量趋势、情感时线、互动热力图、时段分布
+- **人设编辑** — 按 profileSections 分区可视化编辑
+- **运维诊断** — 数据库 / LLM / QQ / 语音 / 表情包集中诊断 + 排障清单
+- **数据安全** — 用户数据导出、账户 / 角色删除、本机运行数据清理脚本
 - **本地认证** — 用户名密码注册登录，JWT 会话管理
-- **国际化** — 支持多语言
-- **暗色/亮色主题** — 可切换
+- **暗色/亮色主题、国际化**
 
 ---
 
 ## 技术架构
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    客户端 (React 19)                      │
-│  Wouter 路由 · Radix UI · Tailwind CSS · Framer Motion  │
-│  tRPC React Query · Streamdown (Markdown 渲染)           │
-└──────────────────────┬──────────────────────────────────┘
-                       │ tRPC (HTTP Batch + SuperJSON)
-┌──────────────────────▼──────────────────────────────────┐
-│                   服务端 (Express)                        │
-│                                                          │
-│  ┌─────────┐  ┌──────────┐  ┌────────────┐              │
-│  │ Auth    │  │ tRPC     │  │ Static     │              │
-│  │ Routes  │  │ Middleware│  │ / Vite Dev │              │
-│  └────┬────┘  └────┬─────┘  └────────────┘              │
-│       │            │                                     │
-│  ┌────▼────────────▼─────────────────────────────┐      │
-│  │              tRPC Routers                      │      │
-│  │  auth · user · persona · file · chat           │      │
-│  │  memory · emotion · diary · scene · analytics  │      │
-│  │  wechat · skillEngine · llmConfig              │      │
-│  └──┬──────────┬──────────────┬──────────────┬───┘      │
-│     │          │              │              │           │
-│  ┌──▼───┐  ┌──▼──────┐  ┌───▼────┐  ┌──────▼────┐     │
-│  │ DB   │  │ LLM     │  │ WeChat │  │ Skill     │     │
-│  │Drizzle│  │ Service │  │ Bot    │  │ Engine    │     │
-│  │ PG   │  │ 10 提供商│  │Wechaty │  │ Pipeline  │     │
-│  └──────┘  └─────────┘  └────────┘  └───────────┘     │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      客户端 (React 19)                        │
+│   Wouter 路由 · Radix UI · Tailwind CSS · Framer Motion     │
+│   tRPC React Query · Streamdown (Markdown 渲染)              │
+└───────────────────────┬─────────────────────────────────────┘
+                        │ tRPC (HTTP Batch + SuperJSON)
+┌───────────────────────▼─────────────────────────────────────┐
+│                     服务端 (Express)                          │
+│                                                              │
+│  ┌────────┐ ┌──────────┐ ┌─────────────────┐                │
+│  │ Auth   │ │ tRPC     │ │ QQ Webhook      │                │
+│  │ Routes │ │ Routers  │ │ /api/qq/onebot  │                │
+│  └───┬────┘ └────┬─────┘ └────────┬────────┘                │
+│      │           │                │                          │
+│  ┌───▼───────────▼────────────────▼────────────────────┐    │
+│  │            Social Persona Runtime                    │    │
+│  │  回合规划 · 长期记忆 · 资料库召回 · 连续性时间线        │    │
+│  │  主动消息调度 · 环境主动消息 · Roleplay 频道           │    │
+│  └──┬─────────┬──────────┬──────────┬──────────┬───────┘    │
+│     │         │          │          │          │            │
+│  ┌──▼───┐ ┌──▼──────┐ ┌─▼──────┐ ┌─▼──────┐ ┌─▼────────┐   │
+│  │ DB   │ │ LLM     │ │ Voice  │ │Stickers│ │ Skill    │   │
+│  │Drizzle│ │ 10提供商 │ │ASR+TTS │ │表情包  │ │ Engine   │   │
+│  │ PG   │ │ 动态路由 │ │VoxCPM  │ │策略链  │ │ Pipeline │   │
+│  └──────┘ └─────────┘ └────────┘ └────────┘ └──────────┘   │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ OneBot HTTP API
+                    ┌──────▼──────┐
+                    │ NapCat / QQ │
+                    └─────────────┘
 ```
 
 ### 核心技术栈
@@ -333,403 +337,197 @@ Drizzle Schema → DB Helpers → tRPC Router → React Query Hook → UI 组件
 | 样式 | Tailwind CSS + Radix UI | 4.1 |
 | 路由 | Wouter | 3.3 |
 | API 层 | tRPC (端到端类型安全) | 11.6 |
-| 服务端 | Express | 4.21 |
-| 数据库 | PostgreSQL + Drizzle ORM | 0.44 |
-| 认证 | JWT (jose) + SHA256 | 6.1 |
-| 微信 | Wechaty + puppet-wechat4u | 1.20 |
+| 服务端 | Express | 4.22 |
+| 数据库 | PostgreSQL + Drizzle ORM | 0.45 |
+| 认证 | JWT (jose) | 6.1 |
+| QQ 接入 | NapCat + OneBot 11 (HTTP + Webhook) | - |
+| 语音 | 智谱 ASR + VoxCPM / Windows SAPI / Edge TTS / MiniMax | - |
+| 音频处理 | ffmpeg + silk-wasm | - |
 | 测试 | Vitest | 2.1 |
 
 ### 数据库设计
 
 ```sql
-users              -- 用户账户 (JWT 认证, SHA256 密码哈希)
-personas           -- 数字分身 (人设数据 JSON, 情感状态, 亲密度, 场景绑定, 毕业状态/告别信)
-persona_files      -- 上传素材 (聊天记录/照片/视频, 提取文本)
-messages           -- 对话记录 (web/wechat 渠道标记, 文本/图片/语音, 情感状态快照)
-wechat_bindings    -- 微信联系人 ↔ 分身绑定
-wechat_bot_state   -- 机器人状态 (二维码/登录状态)
-skill_jobs         -- 性格蒸馏 pipeline 任务跟踪
-llm_configs        -- 每用户 LLM 提供商配置
-memories           -- 关系记忆节点 (里程碑/记忆/纪念日)
-emotion_snapshots  -- 每日情感快照 (情绪状态 + 消息量)
-diary_entries      -- AI 生成的对话日记 (摘要/亮点/情感弧线/金句)
-scenes             -- 对话场景模板 (内置 + 自定义, 含开场白)
+users                  -- 用户账户 (JWT 认证)
+personas               -- 数字分身 (人设 JSON / profileSections, 情感状态, 亲密度, 毕业状态)
+persona_runtime_states -- 人物运行时状态 (临时生活状态, 主动消息计划, 回合诊断) — 与稳定画像分离
+persona_files          -- 上传素材 (聊天记录/照片, 提取文本)
+persona_sources        -- 原著资料库来源
+persona_source_chunks  -- 原著资料分块索引 (证据召回)
+messages               -- 对话记录 (web/qq 渠道标记, 文本/图片/语音, 情感快照)
+memories               -- 长期记忆节点 (里程碑/记忆/纪念日)
+emotion_snapshots      -- 每日情感快照
+diary_entries          -- AI 生成的对话日记
+scenes                 -- 对话场景模板
+roleplay_channels      -- Roleplay 频道 (Beta)
+roleplay_channel_members / roleplay_messages
+wechat_bindings        -- 联系人绑定表 (QQ 绑定以 qq: 前缀存储于此; 微信集成已移除, 表保留兼容历史数据)
+wechat_bot_state       -- 历史遗留表 (微信集成已移除)
+skill_jobs             -- 性格蒸馏 pipeline 任务跟踪
+llm_configs            -- 每用户 LLM 提供商配置
+llm_usage_records      -- LLM 用量记录 (token/成本归属/purpose)
 ```
 
 ---
 
 ## 快速开始
 
-> Windows + Google Drive 同步盘用户请先阅读 `docs/windows-google-drive-workflow.md`。同步盘目录只保存源码；依赖、构建产物和运行数据放在本机目录。
+> **Windows + Google Drive 同步盘用户必读**：[docs/windows-google-drive-workflow.md](docs/windows-google-drive-workflow.md)。同步盘目录只保存源码；依赖、构建产物和运行数据放在本机目录（默认运行目录 `F:/Code/Mirrai`，运行数据 `F:/.mirrai-local/Mirrai`）。
 
 ### 前置要求
 
-- **Node.js** 20+
-- **pnpm** (推荐) 或 npm
-- **PostgreSQL** 14+
-- **Python 3.9+** (可选，性格蒸馏引擎需要)
+- **Node.js** 20+ 与 **pnpm**（推荐 `corepack`）
+- **Python 3.9+**（可选：性格蒸馏引擎、VoxCPM 本地 TTS）
+- **NapCat**（可选：QQ 接入）
 
-### 1. 克隆项目
+PostgreSQL **不需要单独安装**——默认使用内置的嵌入式本地数据库。
 
-```bash
-git clone https://github.com/OpenDemon/girlfriend.git
-cd girlfriend
-```
-
-### 2. 安装依赖
+### 1. 克隆与安装
 
 ```bash
-pnpm install
-
-# 可选：安装 Python 依赖（性格蒸馏引擎）
-pip3 install -r skill-engine/requirements.txt
+git clone https://github.com/lium970320/Mirrai.git
+cd Mirrai
+corepack pnpm install
 ```
 
-### 3. 配置环境变量
+### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，至少配置以下必填项：
+至少配置：
 
 ```env
-# 必填
-DATABASE_URL=postgresql://postgres:password@localhost:5432/girlfriend
-JWT_SECRET=your-secret-key-change-me    # 生产环境请用随机字符串
+# 本地嵌入式数据库（默认主路径，由 dev:local 自动启动和管理）
+DATABASE_URL=postgresql://postgres:password@127.0.0.1:5434/mirrai
+JWT_SECRET=随机32位以上字符串
 
-# AI 提供商（至少配置一个）
-DEFAULT_LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-your-key-here
+# AI 提供商（推荐 DeepSeek，自动启用 Flash/Pro 动态路由）
+DEFAULT_LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-your-key
 ```
 
-### 4. 初始化数据库
+### 3. 启动（本地数据库模式，默认推荐）
 
 ```bash
-# 创建数据库
-createdb girlfriend
-
-# 生成并执行迁移
-pnpm db:push
-```
-
-### 5. 启动开发服务器
-
-```bash
-pnpm dev
+corepack pnpm run db:local:prepare   # 首次：初始化嵌入式 PostgreSQL (127.0.0.1:5434)
+corepack pnpm run dev:local          # 启动嵌入式数据库 + 开发服务器
 ```
 
 访问 http://localhost:3000 ，注册账号即可开始使用。
 
-### 6. 生产部署
+> 如使用远程 PostgreSQL（如 Neon），将 `DATABASE_URL` 指向远程库后运行 `corepack pnpm run dev`。当前项目以本地数据库为主。
 
-```bash
-pnpm build
-pnpm start
+### 4. Windows 一键全栈启动（含 QQ + 语音）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-all.ps1 -UseLocalDb
 ```
 
-### macOS 一键安装（无需任何依赖）
+依次拉起：源码同步 → VoxCPM TTS 服务 → Mirrai → NapCat/QQ，并输出各服务状态。配套脚本：`status-mirrai.ps1` / `status-qq.ps1` / `stop-mirrai.ps1` 等。
 
-下载 `Mirrai-macOS-arm64.dmg`，拖入 Applications 即可使用。内置 Node.js 和 PostgreSQL，双击启动，浏览器自动打开。
-
-如需自行构建 DMG：
+### 5. 生产构建
 
 ```bash
-bash scripts/build-macos-app.sh
+corepack pnpm run build
+corepack pnpm start
 ```
 
-详见 [docs/macos-build-guide.md](docs/macos-build-guide.md)。
+macOS 自包含安装包（.dmg）构建见 [docs/macos-build-guide.md](docs/macos-build-guide.md)。
 
 ---
 
 ## 环境变量配置
 
-### 必填
+完整清单见 [.env.example](.env.example)，核心分组：
 
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `DATABASE_URL` | PostgreSQL 连接字符串 | `postgresql://postgres:pass@localhost:5432/girlfriend` |
-| `JWT_SECRET` | JWT 签名密钥 | 随机 32+ 字符 |
-
-### AI 提供商（至少配置一个）
-
-| 变量 | 说明 |
-|------|------|
-| `DEFAULT_LLM_PROVIDER` | 默认提供商名称 (`openai` / `claude` / `deepseek` / `kimi` / `ollama` / `dify` / `xunfei` / `tongyi` / `doubao` / `302ai`) |
-| `OPENAI_API_KEY` | OpenAI API Key |
-| `OPENAI_BASE_URL` | OpenAI 接口地址 (默认 `https://api.openai.com/v1`) |
-| `OPENAI_MODEL` | 模型名称 (默认 `gpt-4o`) |
-| `CLAUDE_API_KEY` | Anthropic API Key |
-| `CLAUDE_MODEL` | Claude 模型 (默认 `claude-sonnet-4-6`) |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key |
-| `DEEPSEEK_BASE_URL` | DeepSeek 接口地址 (默认 `https://api.deepseek.com`) |
-| `DEEPSEEK_MODEL` | DeepSeek 模型，建议使用 `deepseek-v4-flash` 或 `deepseek-v4-pro` |
-| `DEEPSEEK_THINKING` / `DEEPSEEK_REASONING_EFFORT` | V4 思考模式配置，例如 `enabled` / `max` |
-| `KIMI_API_KEY` | 月之暗面 API Key |
-| `OLLAMA_URL` | Ollama 地址 (默认 `http://localhost:11434`) |
-| `OLLAMA_MODEL` | Ollama 模型 (默认 `llama3`) |
-| `DIFY_API_KEY` / `DIFY_URL` | Dify 配置 |
-| `XUNFEI_APP_ID` / `XUNFEI_API_KEY` / `XUNFEI_API_SECRET` | 讯飞星火配置 |
-| `TONGYI_API_KEY` / `TONGYI_MODEL` | 通义千问配置 |
-| `DOUBAO_API_KEY` / `DOUBAO_BASE_URL` / `DOUBAO_MODEL` | 豆包配置 |
-| `_302AI_API_KEY` | 302.ai API Key |
-
-### 微信机器人（可选）
-
-| 变量 | 说明 |
-|------|------|
-| `WECHAT_ENABLED` | 是否启用 (`true` / `false`) |
-| `WECHAT_PUPPET` | Puppet 类型 (默认 `wechaty-puppet-wechat4u`) |
-
-### 其他
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `UPLOAD_DIR` | 文件上传目录 | `./uploads` |
-| `PYTHON_PATH` | Python 路径 | `python3` |
-| `SKILL_ENGINE_DIR` | 蒸馏引擎目录 | `./skill-engine` |
-| `PORT` | 服务端口 | `3000` |
+| 分组 | 关键变量 | 说明 |
+|------|---------|------|
+| 必填 | `DATABASE_URL` / `JWT_SECRET` | 默认本地嵌入式库 `127.0.0.1:5434/mirrai` |
+| LLM | `DEFAULT_LLM_PROVIDER` + 各家 `*_API_KEY` | 推荐 `deepseek`（Flash/Pro 动态路由）|
+| LLM 额度 | `LLM_DAILY_SOFT_TOKEN_LIMIT` / `LLM_MONTHLY_SOFT_TOKEN_LIMIT` / `LLM_BUDGET_WARNING_RATIO` | 0 为不启用；触发后自动省额度降级 |
+| 视觉 | `VISION_API_KEY` / `VISION_MODEL` | QQ 图片 / 表情包理解（默认 DashScope 兼容）|
+| QQ | `QQ_ENABLED` / `QQ_ONEBOT_BASE_URL` / `QQ_ONEBOT_ACCESS_TOKEN` / `QQ_ONEBOT_WEBHOOK_SECRET` | NapCat + OneBot 11 |
+| QQ 语音 | `QQ_VOICE_REPLY_*` / `QQ_TTS_PROVIDER` | 语音回复策略与 TTS 引擎选择 |
+| QQ 表情包 | `QQ_STICKER_REPLY_*` / `QQ_STICKER_BASE_DIR` | 概率 / 冷却 / 触发条件 |
+| VoxCPM | `VOXCPM_SERVICE_URL` / `VOXCPM_PROFILE_*` | 本地 TTS 服务与多情绪音色 profile |
+| 其他 | `UPLOAD_DIR` / `PYTHON_PATH` / `SKILL_ENGINE_DIR` / `PORT` | |
 
 ---
 
 ## 项目结构
 
 ```
-girlfriend/
-├── client/                          # React 前端
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx                  # 路由定义
-│       ├── main.tsx                 # 入口 (tRPC + React Query)
-│       ├── index.css                # 全局样式 (Glassmorphism 设计系统)
-│       ├── pages/
-│       │   ├── Landing.tsx          # 落地页
-│       │   ├── Lobby.tsx            # 分身大厅
-│       │   ├── Login.tsx            # 登录/注册
-│       │   ├── HomePage.tsx         # 数字分身大厅 + 统计面板
-│       │   ├── Upload.tsx           # 素材上传 + AI 解析进度
-│       │   ├── Chat.tsx             # 沉浸式对话界面
-│       │   ├── Settings.tsx         # LLM 配置 + 微信管理 + 账户
-│       │   ├── PersonaEdit.tsx      # 分身人设编辑
-│       │   ├── Analytics.tsx        # 数据分析仪表盘
-│       │   ├── Diary.tsx            # AI 生成的对话日记
-│       │   └── NotFound.tsx         # 404 页面
-│       ├── components/              # UI 组件 (shadcn/ui + ErrorBoundary + GraduationModal)
-│       ├── contexts/                # ThemeContext · LocaleContext
-│       ├── hooks/                   # useComposition · useMobile · usePersistFn
-│       ├── const.ts                 # 客户端常量 (re-export shared + 路由辅助)
-│       └── lib/
-│           ├── trpc.ts             # tRPC 客户端
-│           ├── i18n.ts             # 国际化
-│           └── utils.ts            # 工具函数
+Mirrai/
+├── client/src/
+│   ├── pages/                    # Landing · Lobby · Login · Upload · Chat
+│   │                             # Settings(LLM/QQ/运维诊断/数据) · PersonaEdit
+│   │                             # Analytics · Diary · Roleplay · NotFound
+│   ├── components/               # shadcn/ui + PersonaStatePanel(运行诊断) 等
+│   ├── contexts/ · hooks/ · lib/ # 主题 · i18n · tRPC 客户端
+│   └── App.tsx · main.tsx
 │
 ├── server/
-│   ├── _core/
-│   │   ├── index.ts                # Express 入口 + 微信启动
-│   │   ├── auth.ts                 # JWT 认证 (注册/登录)
-│   │   ├── trpc.ts                 # tRPC 初始化
-│   │   ├── context.ts              # 请求上下文 (用户鉴权)
-│   │   ├── cookies.ts              # Cookie 配置
-│   │   ├── env.ts                  # 环境变量
-│   │   ├── persona-utils.ts        # 情感状态计算 + 系统 Prompt 构建 + 毕业资格检查
-│   │   ├── tts.ts                  # TTS 语音合成 (edge-tts, 缓存到 uploads/tts/)
-│   │   ├── export-html.ts          # 对话导出 HTML 生成器 (含 SVG 情感时间线)
-│   │   ├── notification.ts         # 通知服务
-│   │   ├── systemRouter.ts         # 系统路由 (健康检查等)
-│   │   └── vite.ts                 # Vite 开发服务器集成
-│   ├── routers.ts                  # 全部 tRPC 路由
-│   ├── db.ts                       # 数据库 CRUD
-│   ├── storage.ts                  # 本地文件存储
-│   ├── llm/
-│   │   ├── types.ts                # LLMProvider 接口定义
-│   │   ├── index.ts                # LLMService 单例
-│   │   ├── provider-registry.ts    # 提供商注册表
-│   │   └── providers/
-│   │       ├── openai.ts           # OpenAI 兼容 (含 DeepSeek/Kimi/豆包/302ai/通义)
-│   │       ├── claude.ts           # Anthropic Claude
-│   │       ├── ollama.ts           # 本地 Ollama
-│   │       ├── dify.ts             # Dify Workflow
-│   │       └── xunfei.ts           # 讯飞星火 (WebSocket)
-│   ├── wechat/
-│   │   ├── bot.ts                  # Wechaty 生命周期管理
-│   │   ├── message-handler.ts      # 消息路由
-│   │   └── persona-bridge.ts       # 微信 ↔ 分身桥接
-│   └── skill-engine/
-│       ├── pipeline.ts             # 多阶段蒸馏 pipeline
-│       ├── runner.ts               # Python 子进程执行器
-│       └── prompts.ts              # Prompt 模板加载
+│   ├── _core/                    # Express 入口 · 认证 · tRPC · 环境变量
+│   │                             # persona-profile(分区画像) · persona-runtime(运行时状态)
+│   │                             # persona-utils(情感/Prompt) · life-schedule(日程)
+│   │                             # tts(多引擎TTS) · time-context · export-html
+│   ├── routers.ts                # 全部 tRPC 路由
+│   ├── db.ts                     # 数据库 CRUD
+│   ├── social/                   # ★ 社交人物运行时（核心）
+│   │   ├── persona-text-chat / persona-media-chat    # 共享回复引擎
+│   │   ├── persona-turn-planner                      # 回合规划
+│   │   ├── runtime-request                           # 平台 contract
+│   │   ├── memory-recall / consolidation / governance / daily-memory
+│   │   ├── source-recall / source-grounding          # 原著资料库证据召回
+│   │   ├── conversation-continuity                   # 连续性时间线
+│   │   ├── proactive-scheduler / proactive-runtime / proactive-delivery
+│   │   ├── ambient-proactive                         # 环境主动消息
+│   │   ├── incoming-message-batcher / reply-sender   # 合批与拟人化发送
+│   │   ├── roleplay-channel                          # Roleplay 频道
+│   │   └── output-diagnostics                        # 运维诊断聚合
+│   ├── qq/                       # NapCat/OneBot 客户端 · 消息处理 · 联系人 · 桥接
+│   ├── voice/                    # 音频转码 · 智谱 ASR · 语音回复策略 · VoxCPM 音色
+│   ├── stickers/                 # 表情包 素材库/策略/意图/选择器/发送器
+│   ├── llm/                      # 提供商注册表 · 适配器 · usage(用量) · economy(省额度)
+│   │                             # deepseek-routing(动态路由)
+│   └── skill-engine/             # 多阶段蒸馏 pipeline (Node 侧)
 │
-├── drizzle/
-│   ├── schema.ts                   # 数据库 Schema (12 张表)
-│   └── relations.ts                # Drizzle 关系定义
-│
-├── shared/
-│   ├── _core/
-│   │   └── errors.ts               # HTTP 错误类
-│   ├── const.ts                    # 前后端共享常量
-│   └── types.ts                    # 共享类型定义
-│
-├── skill-engine/                   # Python 蒸馏工具
-│   ├── tools/                      # Python 脚本
-│   └── prompts/                    # Prompt 模板
-│       └── relationship/           # 恋爱关系专用模板
-│
-├── scripts/                         # 构建与打包脚本
-│   ├── build-macos-app.sh          # macOS .app + .dmg 一键构建
-│   └── macos/                      # macOS 打包资源
-│       ├── Info.plist              # 应用元数据
-│       ├── launcher.sh             # 薄启动器（AppleScript → Terminal）
-│       └── start.sh               # 启动脚本（PG + Node + 迁移）
-│
-├── docs/                            # 文档
-│   └── macos-build-guide.md        # macOS 安装包构建指南
-│
-├── .env.example                    # 环境变量模板
-├── package.json
-├── vite.config.ts
-├── drizzle.config.ts
-├── tsconfig.json
-└── vitest.config.ts
+├── drizzle/                      # Schema (19 张表) + SQL 迁移 0000-0008
+├── shared/                       # 前后端共享常量与类型
+├── skill-engine/                 # Python 蒸馏工具 + Prompt 模板
+├── scripts/                      # 启动/状态/停止脚本 · 本地数据库管理
+│                                 # QQ E2E 预检/证据/smoke · 数据清理 · macOS 打包
+└── docs/                         # 全部文档（见下方文档索引）
 ```
 
 ---
 
 ## API 接口
 
-所有接口通过 tRPC 暴露，前端通过 `trpc.xxx.useQuery()` / `trpc.xxx.useMutation()` 调用，全程类型安全。
+所有业务接口通过 tRPC 暴露，前端 `trpc.xxx.useQuery()` / `useMutation()` 调用，全程类型安全。
 
-### 认证
-
-| 端点 | 类型 | 说明 |
+| 路由 | 端点 | 说明 |
 |------|------|------|
-| `auth.me` | Query | 获取当前登录用户 |
-| `auth.logout` | Mutation | 退出登录 |
-| `POST /api/auth/register` | REST | 注册 (username + password) |
-| `POST /api/auth/login` | REST | 登录 (返回 JWT Cookie) |
+| `auth` | me / logout + REST `/api/auth/register` `/api/auth/login` | 认证与会话 |
+| `user` | getProfile / updateProfile / changePassword / getAccountStats / exportData / deleteAccount | 账户与数据安全 |
+| `persona` | list / get / create / update / updatePersonaData / getSystemPrompt / getRuntimeState / delete / stats / recentActivity / dailyActivity / getIntimacy / getAnalysisStatus / triggerAnalysis / checkGraduation / graduate / declineGraduation / awaken | 分身全生命周期 |
+| `file` | upload / list | 素材上传 |
+| `chat` | send / sendImage / sendVoice / getHistory / search / clear / tts / export | 对话主链路 |
+| `qq` | getStatus / recentContacts / bindContact / unbindContact / listBindings / maybeSendAmbientPresence | QQ 接入与环境主动消息 |
+| `sourceLibrary` | overview | 原著资料库概览 |
+| `memory` | list / create / delete / autoExtract | 记忆节点 |
+| `emotion` | getReport / getDailySnapshots | 情感报告 |
+| `diary` | list / getByDate / getDates / generate / delete | 对话日记 |
+| `roleplay` | list / create / get / postUserMessage / tick / delete | Roleplay 频道 (Beta) |
+| `scene` | list / create / delete / activate / deactivate | 场景模式 |
+| `analytics` | overview | 数据分析 |
+| `skillEngine` | startPipeline / getJobStatus | 性格蒸馏 |
+| `llmConfig` | list / getDefault / listProviders / upsert / updateExtraConfig / setDefault | LLM 配置 |
+| `system` | operationsDiagnostics / llmUsageDetails 等 | 运维诊断 |
 
-### 用户
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `user.getProfile` | Query | 获取用户资料 |
-| `user.updateProfile` | Mutation | 更新昵称/邮箱 |
-| `user.changePassword` | Mutation | 修改密码 |
-| `user.getAccountStats` | Query | 账户统计 (分身数/消息数等) |
-| `user.exportData` | Mutation | 导出全部用户数据 |
-| `user.deleteAccount` | Mutation | 注销账户 (需密码确认) |
-
-### 数字分身
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `persona.list` | Query | 获取所有分身 (含统计) |
-| `persona.get` | Query | 获取单个分身详情 |
-| `persona.create` | Mutation | 创建分身 (名字/关系/时间) |
-| `persona.update` | Mutation | 更新分身信息/情感状态 |
-| `persona.updatePersonaData` | Mutation | 更新分身人设 JSON |
-| `persona.getSystemPrompt` | Query | 获取分身的系统 Prompt |
-| `persona.delete` | Mutation | 删除分身及所有数据 |
-| `persona.stats` | Query | 用户总体统计 |
-| `persona.recentActivity` | Query | 最近活动记录 |
-| `persona.dailyActivity` | Query | 每日聊天量 |
-| `persona.getIntimacy` | Query | 获取亲密度 (分数/等级/下一级) |
-| `persona.getAnalysisStatus` | Query | 轮询 AI 解析进度 |
-| `persona.triggerAnalysis` | Mutation | 触发 AI 性格分析 |
-| `persona.checkGraduation` | Query | 检查毕业资格 |
-| `persona.graduate` | Mutation | 执行毕业 (LLM 生成告别信) |
-| `persona.declineGraduation` | Mutation | 拒绝毕业建议 |
-| `persona.awaken` | Mutation | 唤醒已毕业的休眠分身 |
-
-### 对话
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `chat.send` | Mutation | 发送文本消息，返回 AI 回复 + 新情感状态 |
-| `chat.sendImage` | Mutation | 发送图片消息 |
-| `chat.sendVoice` | Mutation | 发送语音消息 (自动转写) |
-| `chat.getHistory` | Query | 获取历史消息 (默认 50 条) |
-| `chat.search` | Query | 搜索聊天记录 |
-| `chat.clear` | Mutation | 清空对话记录 |
-| `chat.tts` | Mutation | 文本转语音 (返回 audioUrl) |
-| `chat.export` | Mutation | 导出对话为 HTML (返回 html + fileName) |
-
-### 文件
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `file.upload` | Mutation | 上传素材 (Base64 编码) |
-| `file.list` | Query | 获取分身的所有文件 |
-
-### 记忆
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `memory.list` | Query | 获取分身的记忆节点 |
-| `memory.create` | Mutation | 手动创建记忆 (里程碑/记忆/纪念日) |
-| `memory.delete` | Mutation | 删除记忆 |
-| `memory.autoExtract` | Mutation | AI 从聊天记录自动提取记忆 |
-
-### 情感
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `emotion.getReport` | Query | 情感报告 (指定天数) |
-| `emotion.getDailySnapshots` | Query | 每日情感快照 |
-
-### 日记
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `diary.list` | Query | 获取日记列表 |
-| `diary.getByDate` | Query | 按日期获取日记 |
-| `diary.getDates` | Query | 获取有日记的日期列表 |
-| `diary.generate` | Mutation | AI 根据聊天记录生成日记 |
-| `diary.delete` | Mutation | 删除日记 |
-
-### 场景
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `scene.list` | Query | 获取所有场景 (内置 + 自定义) |
-| `scene.create` | Mutation | 创建自定义场景 |
-| `scene.delete` | Mutation | 删除场景 |
-| `scene.activate` | Mutation | 为分身激活场景 |
-| `scene.deactivate` | Mutation | 取消分身的场景 |
-
-### 微信
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `wechat.getStatus` | Query | 获取机器人状态 + 二维码 |
-| `wechat.start` | Mutation | 启动机器人 |
-| `wechat.stop` | Mutation | 停止机器人 |
-| `wechat.bindContact` | Mutation | 绑定微信联系人到分身 |
-| `wechat.unbindContact` | Mutation | 解除绑定 |
-| `wechat.listBindings` | Query | 获取所有绑定关系 |
-
-### LLM 配置
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `llmConfig.list` | Query | 获取用户的 LLM 配置 |
-| `llmConfig.getDefault` | Query | 获取默认提供商配置 |
-| `llmConfig.listProviders` | Query | 获取可用提供商列表 |
-| `llmConfig.upsert` | Mutation | 保存提供商配置 |
-| `llmConfig.updateExtraConfig` | Mutation | 更新高级配置 (温度/上下文长度等) |
-| `llmConfig.setDefault` | Mutation | 设置默认提供商 |
-
-### 数据分析
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `analytics.overview` | Query | 综合分析 (消息量/情感时线/分身互动/时段分布) |
-
-### 性格蒸馏
-
-| 端点 | 类型 | 说明 |
-|------|------|------|
-| `skillEngine.startPipeline` | Mutation | 启动多阶段蒸馏 pipeline |
-| `skillEngine.getJobStatus` | Query | 查询 pipeline 进度 |
+REST 入口：`POST /api/qq/onebot/event`（NapCat webhook 上报，token 鉴权）。
 
 ---
 
@@ -738,58 +536,66 @@ girlfriend/
 ### 常用命令
 
 ```bash
-pnpm dev          # 启动开发服务器 (HMR)
-pnpm build        # 构建生产版本
-pnpm start        # 运行生产版本
-pnpm check        # TypeScript 类型检查
-pnpm test         # 运行测试
-pnpm db:push      # 生成并执行数据库迁移
+corepack pnpm run dev          # 开发服务器（使用 .env 中的 DATABASE_URL）
+corepack pnpm run dev:local    # 嵌入式本地数据库 + 开发服务器（默认推荐）
+corepack pnpm run build        # 构建生产版本
+corepack pnpm start            # 运行生产版本
+corepack pnpm run check        # TypeScript 类型检查
+corepack pnpm test             # 运行测试 (Vitest)
+corepack pnpm run db:push      # 生成并执行数据库迁移
+corepack pnpm run db:check     # 校验迁移与数据库一致性
+corepack pnpm run db:local:prepare  # 初始化/启动嵌入式本地数据库
 ```
+
+### Windows 运维脚本（scripts/）
+
+| 脚本 | 用途 |
+|------|------|
+| `start-all.ps1 -UseLocalDb` | 一键全栈：同步 → VoxCPM → Mirrai → NapCat |
+| `start-mirrai.ps1` / `start-qq.ps1` / `start-voxcpm.ps1` | 单服务启动 |
+| `status-*.ps1` / `stop-*.ps1` | 状态检查 / 停止 |
+| `sync-local-worktree.ps1` | Google Drive 源码 → 本机运行目录镜像 |
+| `check-qq-e2e-readiness.ps1` | QQ 在线 E2E 只读预检 |
+| `check-qq-e2e-evidence.ps1` | QQ E2E 日志证据收集（baseline + 增量分析）|
+| `check-qq-webhook-smoke.ps1` | QQ webhook 入口冒烟 |
+| `cleanup-local-runtime.ps1` | 本机运行数据清理（默认 dry-run，大型目录需确认短语）|
+| `import-persona-source.mjs` | 原著资料库导入 |
 
 ### 添加新的 LLM 提供商
 
-1. 在 `server/llm/providers/` 下创建新文件，实现 `LLMProvider` 接口：
+1. 在 `server/llm/providers/` 创建文件，实现 `LLMProvider` 接口（OpenAI 兼容协议可直接复用 `openai.ts` 适配器）
+2. 在 `server/llm/index.ts` 注册：`registry.register(createMyProvider(ENV.myApiKey))`
 
-```typescript
-import type { LLMProvider, LLMMessage } from "../types";
+---
 
-export function createMyProvider(apiKey: string): LLMProvider {
-  return {
-    name: "my-provider",
-    configured: Boolean(apiKey),
-    async invoke(messages: LLMMessage[]) {
-      // 调用 API，返回回复文本
-      return "response text";
-    },
-  };
-}
-```
+## 文档索引
 
-2. 在 `server/llm/index.ts` 中注册：
-
-```typescript
-registry.register(createMyProvider(ENV.myApiKey));
-```
-
-### 添加新的情感状态
-
-1. `drizzle/schema.ts` — 在 `emotionalStateEnum` 枚举中添加
-2. `server/_core/persona-utils.ts` — 在 `computeEmotionalState()` 中添加触发词
-3. `server/_core/persona-utils.ts` — 在 `getEmotionalStateDesc()` 中添加描述
-4. `client/src/pages/Chat.tsx` — 在情感状态 UI 配置中添加
-5. `client/src/pages/HomePage.tsx` — 在情感状态显示中添加
+| 文档 | 内容 |
+|------|------|
+| [docs/windows-google-drive-workflow.md](docs/windows-google-drive-workflow.md) | Windows + Google Drive 同步盘工作流（必读）|
+| [docs/qq-onebot.md](docs/qq-onebot.md) | QQ / NapCat / OneBot 接入指南 |
+| [docs/qq-e2e-verification.md](docs/qq-e2e-verification.md) | QQ 真实在线端到端验证手册 |
+| [docs/voxcpm-qq-voice.md](docs/voxcpm-qq-voice.md) | VoxCPM 本地 TTS 语音回复 |
+| [docs/minimax-qq-voice.md](docs/minimax-qq-voice.md) | MiniMax TTS 备选方案 |
+| [docs/persona-long-memory-proactive.md](docs/persona-long-memory-proactive.md) | 长期记忆与主动消息设计 |
+| [docs/persona-source-library.md](docs/persona-source-library.md) | 原著资料库与证据召回 |
+| [docs/release-candidate-checklist.md](docs/release-candidate-checklist.md) | 发布候选回归清单 |
+| [docs/macos-build-guide.md](docs/macos-build-guide.md) | macOS 安装包构建 |
+| [docs/todo.md](docs/todo.md) | 路线图与待办 |
+| `MIRRAI_WORK_PLAN*.md` / `MIRRAI_*_AUDIT.md` | 各阶段工作计划与审计记录 |
 
 ---
 
 ## 注意事项
 
-- **原材料质量决定分身质量** — 聊天记录越多越好，建议至少 100 条消息
-- **所有数据本地存储** — 文件保存在 `./uploads/`，不上传第三方
-- **AI 回复质量取决于 LLM** — 推荐使用 GPT-4o 或 Claude 获得最佳效果
-- **微信机器人需要扫码** — 每次启动需要用手机微信扫码登录
+- **原材料质量决定分身质量** — 聊天记录越多越好，建议至少 100 条消息；人物设定文本包效果更佳
+- **所有数据本地存储** — 上传文件在 `./uploads/`（本机运行数据目录），不上传第三方
+- **数据库以本地嵌入式 PostgreSQL 为主** — 无需安装数据库；远程库（Neon 等）为可选项
+- **AI 回复质量取决于 LLM** — 推荐 DeepSeek（动态路由）或 Claude / GPT-4o
+- **QQ 接入需要 NapCat** — 建议使用小号运行机器人；首次登录需扫码或快速登录
+- **微信集成已于 2026-06 移除** — 微信 Web 登录会导致封号，历史微信聊天记录仍可正常查看
 - **这是一个帮你「好好告别」的工具** — 不是让你永远沉浸其中的工具
 
 ---
 
 MIT License
-

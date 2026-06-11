@@ -13,9 +13,10 @@ This repository is stored in a Google Drive sync folder. Treat this folder as th
 
 ## Running The Project
 
-- For the normal setup, run from `F:/Code/Mirrai` with `corepack pnpm run dev`.
-- The normal setup uses Neon PostgreSQL plus the configured LLM provider, currently DeepSeek.
-- Only use `corepack pnpm run dev:local` when explicitly testing the embedded local PostgreSQL fallback.
+- For the normal setup, run from `F:/Code/Mirrai` with `corepack pnpm run dev:local`, or start the full stack with `scripts/start-all.ps1 -UseLocalDb`.
+- The primary database is the embedded local PostgreSQL (`127.0.0.1:5434/mirrai`, managed by `dev:local` / `db:local:prepare`). Neon quota is insufficient, so remote PostgreSQL is optional and not the default.
+- Only use `corepack pnpm run dev` when `DATABASE_URL` points to a reachable remote database (for example a Neon migration check).
+- The configured LLM provider is currently DeepSeek with dynamic Flash/Pro routing.
 
 ## Before Cleanup
 

@@ -28,10 +28,10 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-local-worktree.ps1 -CopyEn
 
 ```powershell
 cd F:\Code\Mirrai
-corepack pnpm run dev
+corepack pnpm run dev:local
 ```
 
-这台电脑默认走 Neon + DeepSeek：使用 `corepack pnpm run dev`。不要使用 `corepack pnpm run dev:local`，除非明确要启用本机嵌入式 PostgreSQL。
+这台电脑默认走本机嵌入式 PostgreSQL + DeepSeek：使用 `corepack pnpm run dev:local`（Neon 免费额度不够，远程库只作为可选项）。只有当 `DATABASE_URL` 指向可用的远程库时才使用 `corepack pnpm run dev`。
 
 ## 日常使用顺序
 
@@ -46,7 +46,7 @@ corepack pnpm run dev
 
    ```powershell
    cd F:\Code\Mirrai
-   corepack pnpm run dev
+   corepack pnpm run dev:local
    ```
 
 4. 如果依赖变了，再安装一次：
@@ -131,7 +131,7 @@ QQ_QUICK_LOGIN_UIN=机器人 QQ 号
 
 - 状态脚本显示 `Process: RUNNING`。
 - 状态脚本显示 `Web: OK (200)`，或浏览器能打开 `http://localhost:3000/`。
-- 日志里显示 `[WeChat] ... logged in`，表示微信机器人已登录。系统会优先复用本机保存的微信登录态；如果显示 `Scan QR` 且长时间没有自动登录，才需要重新扫码。
+- QQ 接入时，`status-qq.ps1` 显示 `OneBot: OK` 表示 NapCat 已就绪。
 
 ## 哪些东西不能放进 Google Drive 同步目录
 
@@ -145,16 +145,16 @@ QQ_QUICK_LOGIN_UIN=机器人 QQ 号
 - `*.tsbuildinfo`
 - PostgreSQL 数据目录
 - 每台电脑自己的 `.env`
-- 微信登录态目录，默认在每台电脑自己的 `F:/.mirrai-local/Mirrai/wechat`
+- NapCat / QQ 登录态目录，默认在每台电脑自己的 `F:/.mirrai-local/Mirrai/tools/napcat`
 
 原因是这些内容和电脑环境强相关。尤其是 `node_modules` 里有大量小文件、Windows 命令包装器和本机路径，放在 Google Drive 里会导致长时间同步、`(1)` 冲突文件、另一台电脑路径不匹配等问题。
 
 ## 数据库选择
 
-默认方案是两台电脑都连接同一个 Neon 数据库，所以账号、对话、角色等数据库内容会共享。`.env` 里需要有：
+默认方案是本机嵌入式 PostgreSQL（Neon 免费额度不够，远程库只作为可选项）。`.env` 里需要有：
 
 ```dotenv
-DATABASE_URL=你的 Neon PostgreSQL 连接串
+DATABASE_URL=postgresql://postgres:password@127.0.0.1:5434/mirrai
 DEFAULT_LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=你的 DeepSeek Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
@@ -163,7 +163,7 @@ DEEPSEEK_THINKING=enabled
 DEEPSEEK_REASONING_EFFORT=max
 ```
 
-本机 PostgreSQL 适合需要长期在线运行 QQ 机器人、避免 Neon 免费额度影响的电脑。项目提供两个准备命令，默认把本地数据库放到 `F:/.mirrai-local/Mirrai/postgres`，不会进入 Google Drive，也不会自动修改 `.env`：
+本机 PostgreSQL 适合长期在线运行 QQ 机器人。项目提供两个准备命令，默认把本地数据库放到 `F:/.mirrai-local/Mirrai/postgres`，不会进入 Google Drive，也不会自动修改 `.env`：
 
 ```powershell
 cd F:\Code\Mirrai
@@ -171,7 +171,7 @@ corepack pnpm run db:local:prepare
 corepack pnpm run db:local:copy
 ```
 
-`db:local:prepare` 只启动嵌入式 PostgreSQL、创建本地库并跑迁移；`db:local:copy` 会在本地库准备好后，把当前 Neon `DATABASE_URL` 的应用表复制到本地库。复制完成并确认没问题后，再把 `F:/Code/Mirrai/.env` 的 `DATABASE_URL` 改为：
+`db:local:prepare` 只启动嵌入式 PostgreSQL、创建本地库并跑迁移；`db:local:copy` 用于从旧的远程库（如 Neon）迁移数据：在本地库准备好后，把当前远程 `DATABASE_URL` 的应用表复制到本地库。`.env` 的 `DATABASE_URL` 保持为：
 
 ```dotenv
 DATABASE_URL=postgresql://postgres:password@127.0.0.1:5434/mirrai
@@ -184,7 +184,7 @@ MIRRAI_PGDATA=F:/.mirrai-local/Mirrai/postgres-main
 powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1 -UseLocalDb
 ```
 
-两台电脑如果都切成本机库，就不再自动共享账号、聊天、记忆和主动消息状态；需要定期备份/恢复，或者固定一台电脑作为主运行机器。
+注意：本机库是每台电脑独立的，两台电脑不会自动共享账号、聊天、记忆和主动消息状态；建议固定一台电脑作为主运行机器，或定期备份/恢复。如需多机共享数据，可以临时切回远程库（`corepack pnpm run dev`），但要注意 Neon 免费额度。
 
 ## 如果又出现 `(1)` 冲突文件
 
