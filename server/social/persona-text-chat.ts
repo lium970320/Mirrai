@@ -442,11 +442,18 @@ export async function handleSocialPersonaTextChatDetailed(
         source: "text",
       })
   );
+  let pinnedFacts: string[] = [];
+  try {
+    pinnedFacts = await db.getPinnedMemoryFacts(options.binding.personaId, options.binding.userId);
+  } catch {
+    pinnedFacts = [];
+  }
   const systemPrompt = [
     buildSystemPrompt(personaForPrompt, {
       sceneOverlay: options.sceneOverlay,
       longBackgroundMode: sourceRecallContext ? "none" : "compact",
       now,
+      pinnedFacts,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),

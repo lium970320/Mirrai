@@ -11,6 +11,7 @@ import {
   ArrowUpDown, Eye, Bookmark, Activity, Palette, Volume2, BookOpen,
   GraduationCap, Sunrise,
 } from "lucide-react";
+import { useTilt } from "@/hooks/useTilt";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -264,8 +265,30 @@ function useAnimatedCounter(target: number, duration = 800): number {
 
 // ─── HERO BANNER ─────────────────────────────────────────────────────────────
 
+function useTypewriter(text: string, speedMs = 75) {
+  const [out, setOut] = useState("");
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    setOut("");
+    setDone(false);
+    let i = 0;
+    const timer = setInterval(() => {
+      i += 1;
+      setOut(text.slice(0, i));
+      if (i >= text.length) {
+        clearInterval(timer);
+        setDone(true);
+      }
+    }, speedMs);
+    return () => clearInterval(timer);
+  }, [text, speedMs]);
+  return { out, done };
+}
+
 function HeroBanner({ username, stats, readyCount = 0 }: { username?: string; stats?: any; readyCount?: number }) {
   const greeting = getGreeting();
+  const fullGreeting = username ? `${username}，${greeting.text}` : greeting.text;
+  const { out: typedGreeting, done: typingDone } = useTypewriter(fullGreeting, 75);
   const quote = useMemo(() => LOVE_QUOTES[Math.floor(Math.random() * LOVE_QUOTES.length)], []);
   const memberDays = stats?.memberSince
     ? Math.max(1, Math.floor((Date.now() - new Date(stats.memberSince).getTime()) / 86400000))
@@ -282,8 +305,8 @@ function HeroBanner({ username, stats, readyCount = 0 }: { username?: string; st
       <div className="relative z-10">
         <div className="flex items-center gap-2.5 mb-1.5">
           <span className="text-3xl animate-float">{greeting.emoji}</span>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {username ? `${username}，${greeting.text}` : greeting.text}
+          <h1 className={`text-2xl font-bold tracking-tight text-foreground ${typingDone ? "" : "typewriter-caret"}`}>
+            {typedGreeting || " "}
           </h1>
         </div>
         <p className="text-muted-foreground text-sm">{greeting.sub}</p>
@@ -374,7 +397,7 @@ function TodayRecommendation({ personas, onChat }: { personas: any[]; onChat: (i
             </p>
           </div>
           <Button size="sm" onClick={() => onChat(recommended.id)}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-xs h-8 px-3">
+            className="btn-sheen bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-xs h-8 px-3">
             <MessageCircle className="w-3 h-3 mr-1" /> 聊聊
           </Button>
         </div>
@@ -1073,13 +1096,15 @@ function PersonaCard({ persona, onChat, onUpload, onEdit, onDelete }: {
   const compatibility = isReady ? getCompatibilityScore(persona) : null;
 
   const [showLetter, setShowLetter] = useState(false);
+  const tilt = useTilt(4);
   const awakenMutation = trpc.persona.awaken.useMutation({
     onSuccess: () => { toast.success(`${persona.name} 已被唤醒`); window.location.reload(); },
     onError: (e: any) => toast.error(e.message),
   });
 
   return (
-    <div className={`warm-card gradient-border-card p-5.5 animate-fade-in-up group relative flex flex-col justify-between ${isGraduated ? "opacity-75" : ""}`}>
+    <div ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}
+      className={`warm-card gradient-border-card tilt-card p-5.5 group relative flex flex-col justify-between ${isGraduated ? "opacity-75" : ""}`}>
       {/* 状态徽章区 */}
       <div className="absolute top-5.5 right-5.5 flex items-center gap-1.5 z-10">
         {isGraduated && (
@@ -1648,7 +1673,7 @@ export default function Lobby() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
-      <div className="gradient-mesh-bg" />
+      <div className="gradient-mesh-bg" /><div className="tech-particles" />
       {/* FloatingParticles 已移除 */}
 
       <header className="sticky top-0 z-40 app-header">
@@ -1709,7 +1734,7 @@ export default function Lobby() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="companions" className="space-y-6 focus-visible:outline-none focus:outline-none">
+            <TabsContent value="companions" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none">
               {readyCount === 0 && analyzingCount > 0 && (
                 <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 text-center animate-pulse-soft">
                   <p className="text-sm text-muted-foreground">
@@ -1803,13 +1828,13 @@ export default function Lobby() {
             </div>
             </TabsContent>
 
-            <TabsContent value="memories" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+            <TabsContent value="memories" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none animate-fade-in">
               <PersonaConstellation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
               <MemoryHighlights personas={personas as any[]} />
               <ConversationStarters personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
             </TabsContent>
 
-            <TabsContent value="stats" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+            <TabsContent value="stats" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none animate-fade-in">
               <ChatStreak />
               <RecentActivity onNavigate={(id) => navigate(`/chat/${id}`)} />
               <ActivityHeatmap />

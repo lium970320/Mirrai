@@ -633,6 +633,7 @@ html.dark .bubble-ai {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  overflow: hidden;
   background:
     radial-gradient(at 0% 0%, color-mix(in oklab, var(--color-primary) 4%, transparent) 0px, transparent 50%),
     radial-gradient(at 100% 100%, color-mix(in oklab, var(--color-chart-3) 3%, transparent) 0px, transparent 50%),
@@ -1052,3 +1053,408 @@ input[type="range"]::-webkit-slider-thumb:hover {
   box-shadow: 0 8px 24px -3px color-mix(in oklab, var(--color-primary) 12%, transparent) !important;
 }
 
+
+/* ═══ Tech Motion Layer (科技动效层) ═══════════════════════════════════════ */
+
+/* ─── Route Transition ─── */
+/* 注意：路由过渡只允许动画 opacity——任何 transform/filter 会把全页 fixed 元素
+   的定位基准从视口劫持为该包装层（Chrome 对带 fill 的动画持续保持 containing block），
+   曾导致抽屉面板被拉伸成文档高度而显示为白板。 */
+.route-transition {
+  animation: routeFade 0.28s ease-out;
+}
+@keyframes routeFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ─── Aurora Drift (极光漂移背景) ─── */
+.gradient-mesh-bg::before,
+.gradient-mesh-bg::after {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  min-width: 420px;
+  min-height: 420px;
+  border-radius: 50%;
+  filter: blur(70px);
+  will-change: transform;
+  pointer-events: none;
+}
+.gradient-mesh-bg::before {
+  top: -12%;
+  left: -8%;
+  background: radial-gradient(circle at 35% 35%,
+    color-mix(in oklab, var(--color-primary) 16%, transparent),
+    transparent 65%);
+  animation: auroraDriftA 28s ease-in-out infinite alternate;
+}
+.gradient-mesh-bg::after {
+  bottom: -16%;
+  right: -10%;
+  background: radial-gradient(circle at 60% 60%,
+    color-mix(in oklab, var(--color-chart-3) 13%, transparent),
+    transparent 65%);
+  animation: auroraDriftB 36s ease-in-out infinite alternate;
+}
+@keyframes auroraDriftA {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(9vw, 7vh, 0) scale(1.12); }
+  100% { transform: translate3d(2vw, 13vh, 0) scale(0.96); }
+}
+@keyframes auroraDriftB {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-8vw, -6vh, 0) scale(1.1); }
+  100% { transform: translate3d(-2vw, -12vh, 0) scale(0.94); }
+}
+html.dark .gradient-mesh-bg::before { opacity: 0.8; }
+html.dark .gradient-mesh-bg::after { opacity: 0.8; }
+
+/* ─── Header Scanline (顶栏流动光线) ─── */
+.app-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1.5px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-primary) 65%, transparent) 35%,
+    color-mix(in oklab, var(--color-chart-3) 55%, transparent) 55%,
+    transparent 100%);
+  background-size: 220% 100%;
+  animation: scanSlide 7s linear infinite;
+  opacity: 0.75;
+  pointer-events: none;
+}
+@keyframes scanSlide {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+
+/* ─── Animated Gradient Border (旋转流光描边) ─── */
+.glow-border {
+  position: relative;
+}
+.glow-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--border-angle),
+    transparent 0deg,
+    color-mix(in oklab, var(--color-primary) 75%, transparent) 80deg,
+    color-mix(in oklab, var(--color-chart-3) 60%, transparent) 140deg,
+    transparent 220deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: gradientBorderSpin 7s linear infinite;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ─── Stat Tile Sheen (瓷砖高光扫过) ─── */
+.stat-tile {
+  position: relative;
+  overflow: hidden;
+}
+.stat-tile::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  width: 45%;
+  left: -90%;
+  transform: skewX(-18deg);
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in oklab, var(--color-primary) 14%, white 60%) 50%,
+    transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.stat-tile:hover::after {
+  animation: sheenSweep 0.7s ease-out;
+}
+@keyframes sheenSweep {
+  0% { left: -90%; opacity: 0.9; }
+  100% { left: 140%; opacity: 0; }
+}
+
+/* ─── Card Stagger Entrance (卡片交错入场) ─── */
+.card-stagger > * {
+  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.card-stagger > *:nth-child(1) { animation-delay: 0.03s; }
+.card-stagger > *:nth-child(2) { animation-delay: 0.09s; }
+.card-stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.card-stagger > *:nth-child(4) { animation-delay: 0.21s; }
+.card-stagger > *:nth-child(5) { animation-delay: 0.27s; }
+.card-stagger > *:nth-child(6) { animation-delay: 0.33s; }
+.card-stagger > *:nth-child(7) { animation-delay: 0.39s; }
+.card-stagger > *:nth-child(n+8) { animation-delay: 0.45s; }
+
+/* ─── Status Pulse Dot (状态呼吸灯) ─── */
+.pulse-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 4px;
+  animation: pulseDot 2.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent); }
+  50% { opacity: 0.65; box-shadow: 0 0 0 4px transparent; }
+}
+
+/* ─── Reduced Motion (无障碍降级) ─── */
+@media (prefers-reduced-motion: reduce) {
+  .route-transition,
+  .card-stagger > *,
+  .gradient-mesh-bg::before,
+  .gradient-mesh-bg::after,
+  .app-header::after,
+  .glow-border::before,
+  .stat-tile:hover::after,
+  .pulse-dot {
+    animation: none !important;
+  }
+  .card-stagger > * { opacity: 1; }
+}
+
+/* ═══ Tech Motion Layer 2 (科技动效增强) ═══════════════════════════════════ */
+
+/* ─── Particle Field (粒子星场，双层视差) ─── */
+.tech-particles {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.tech-particles::before,
+.tech-particles::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 200%;
+  will-change: transform;
+}
+.tech-particles::before {
+  background-image:
+    radial-gradient(2px 2px at 8% 15%, color-mix(in oklab, var(--color-primary) 55%, transparent) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 28% 45%, color-mix(in oklab, var(--color-chart-3) 50%, transparent) 50%, transparent 100%),
+    radial-gradient(2px 2px at 52% 25%, color-mix(in oklab, var(--color-primary) 45%, transparent) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 73% 60%, color-mix(in oklab, var(--color-chart-2) 45%, transparent) 50%, transparent 100%),
+    radial-gradient(2px 2px at 91% 35%, color-mix(in oklab, var(--color-chart-3) 50%, transparent) 50%, transparent 100%);
+  background-size: 100% 50%;
+  background-repeat: repeat-y;
+  animation: particleRise 38s linear infinite;
+  opacity: 0.7;
+}
+.tech-particles::after {
+  background-image:
+    radial-gradient(1px 1px at 15% 30%, color-mix(in oklab, var(--color-foreground) 35%, transparent) 50%, transparent 100%),
+    radial-gradient(1px 1px at 38% 70%, color-mix(in oklab, var(--color-primary) 40%, transparent) 50%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 62% 40%, color-mix(in oklab, var(--color-chart-3) 35%, transparent) 50%, transparent 100%),
+    radial-gradient(1px 1px at 84% 75%, color-mix(in oklab, var(--color-foreground) 30%, transparent) 50%, transparent 100%);
+  background-size: 100% 50%;
+  background-repeat: repeat-y;
+  animation: particleRise 60s linear infinite;
+  opacity: 0.55;
+}
+@keyframes particleRise {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(0, -50%, 0); }
+}
+html.dark .tech-particles::before { opacity: 0.9; }
+html.dark .tech-particles::after { opacity: 0.7; }
+
+
+/* ─── HUD Corners (HUD 四角准星装饰) ─── */
+.hud-corners {
+  position: relative;
+}
+.hud-corners::before,
+.hud-corners::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: color-mix(in oklab, var(--color-primary) 55%, transparent);
+  border-style: solid;
+  pointer-events: none;
+  transition: border-color 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+.hud-corners::before {
+  top: 5px;
+  left: 5px;
+  border-width: 1.5px 0 0 1.5px;
+  border-top-left-radius: 4px;
+}
+.hud-corners::after {
+  bottom: 5px;
+  right: 5px;
+  border-width: 0 1.5px 1.5px 0;
+  border-bottom-right-radius: 4px;
+}
+.hud-corners:hover::before,
+.hud-corners:hover::after {
+  border-color: var(--color-primary);
+  width: 14px;
+  height: 14px;
+}
+
+/* ─── Card Top Light (卡片顶部光边) ─── */
+.warm-card {
+  position: relative;
+}
+.warm-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in oklab, var(--color-primary) 35%, transparent) 50%,
+    transparent);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* ─── Icon Chip Hover (图标徽章悬停微动) ─── */
+.section-chip {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+}
+.warm-card:hover .section-chip,
+section:hover > div > .section-chip {
+  transform: scale(1.08) rotate(-5deg);
+  box-shadow: 0 4px 16px -3px color-mix(in oklab, var(--chip-color, var(--color-primary)) 65%, transparent);
+}
+
+
+
+/* ─── Primary Button Sheen (主按钮流光) ─── */
+@keyframes btnSheen {
+  from { transform: translateX(-130%) skewX(-18deg); }
+  to { transform: translateX(240%) skewX(-18deg); }
+}
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.btn-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  left: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: translateX(-130%) skewX(-18deg);
+  pointer-events: none;
+}
+.btn-sheen:hover::after {
+  animation: btnSheen 0.6s ease-out;
+}
+
+/* ─── Gradient Scrollbar (渐变滚动条) ─── */
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--color-primary) 45%, oklch(0.80 0.005 80)),
+    color-mix(in oklab, var(--color-chart-3) 35%, oklch(0.80 0.005 80)));
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--color-primary) 50%, oklch(0.32 0.005 260)),
+    color-mix(in oklab, var(--color-chart-3) 40%, oklch(0.32 0.005 260)));
+}
+
+/* ─── Message Entrance (聊天气泡入场) ─── */
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+.bubble-enter {
+  animation: bubbleIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ─── Aurora 强化（提高第一层可见度） ─── */
+.gradient-mesh-bg::before {
+  background: radial-gradient(circle at 35% 35%,
+    color-mix(in oklab, var(--color-primary) 24%, transparent),
+    transparent 65%);
+}
+.gradient-mesh-bg::after {
+  background: radial-gradient(circle at 60% 60%,
+    color-mix(in oklab, var(--color-chart-3) 19%, transparent),
+    transparent 65%);
+}
+.app-header::after {
+  height: 2px;
+  opacity: 0.95;
+}
+
+/* ─── Reduced Motion 扩展 ─── */
+@media (prefers-reduced-motion: reduce) {
+  .tech-particles::before,
+  .tech-particles::after,
+  .btn-sheen::after,
+  .bubble-enter {
+    animation: none !important;
+  }
+  .tilt-card {
+    transform: none !important;
+  }
+}
+
+/* ═══ Micro Interactions (交互巧思) ═══════════════════════════════════════ */
+
+/* ─── 3D Tilt Card (卡片倾斜跟随鼠标) ─── */
+.tilt-card {
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition: transform 0.18s ease-out;
+  will-change: transform;
+}
+
+/* ─── Click Ripple (按钮点击涟漪) ─── */
+.ripple-ink {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  transform: scale(0);
+  animation: rippleInk 0.55s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes rippleInk {
+  to { transform: scale(2.6); opacity: 0; }
+}
+
+/* ─── Typewriter Caret (打字机光标) ─── */
+.typewriter-caret::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--color-primary);
+  animation: caretBlink 0.9s steps(2) infinite;
+}
+@keyframes caretBlink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple-ink, .typewriter-caret::after { animation: none !important; }
+}

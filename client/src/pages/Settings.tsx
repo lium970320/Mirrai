@@ -16,6 +16,7 @@ import {
   Leaf, Eye, EyeOff, Activity, Server, Cpu, Volume2, ImageIcon, Radio,
   RefreshCw, Terminal,
 } from "lucide-react";
+import { useTilt } from "@/hooks/useTilt";
 import { toast } from "sonner";
 
 // ─── TAB CONFIG ──────────────────────────────────────────────────────────────
@@ -157,6 +158,7 @@ function toneForEnabled(value: boolean): StatusTone {
 function StatusBadge({ label, tone = "muted" }: { label: string; tone?: StatusTone }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClasses[tone]}`}>
+      {(tone === "ok" || tone === "error") && <span className="pulse-dot" />}
       {label}
     </span>
   );
@@ -250,7 +252,7 @@ function DiagnosticRow({ label, value, mono = false, badge }: {
 
 function DiagGroup({ title, hint, children }: { title: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/10 p-3">
+    <div className="hud-corners rounded-lg border border-border/50 bg-muted/10 p-3">
       <div className="flex items-baseline justify-between gap-2 pb-2 mb-1 border-b border-border/40">
         <span className="text-xs font-semibold tracking-wide text-foreground/80">{title}</span>
         {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
@@ -275,15 +277,35 @@ function StatTile({ value, label, sub, tone }: { value: ReactNode; label: string
   );
 }
 
+function useCountUp(target: number, durationMs = 750) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return display;
+}
+
 function KpiTile({ value, text, label, sub, tone }: {
   value?: number; text?: string; label: string; sub?: string; tone?: StatusTone;
 }) {
-  const display = text ?? formatCompact(value ?? 0);
+  const animated = useCountUp(value ?? 0);
+  const tilt = useTilt(6);
+  const display = text ?? formatCompact(animated);
   const numberClass = tone === "error" ? "text-red-600 dark:text-red-400"
     : tone === "warn" ? "text-amber-600 dark:text-amber-400"
     : "stat-tile-number";
   return (
-    <div className="stat-tile px-4 py-3.5 min-w-0"
+    <div ref={tilt.ref} onMouseMove={tilt.onMouseMove} onMouseLeave={tilt.onMouseLeave}
+      className="stat-tile glow-border tilt-card rounded-xl px-4 py-3.5 min-w-0"
       title={typeof value === "number" ? value.toLocaleString("zh-CN") : undefined}>
       <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div className={`mt-1 text-2xl font-bold tabular-nums leading-tight truncate ${numberClass}`}>{display}</div>
@@ -583,7 +605,7 @@ function ProfileTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 card-stagger">
       {/* Avatar + Basic Info */}
       <div className="warm-card p-6">
         <div className="flex items-start gap-5">
@@ -777,7 +799,7 @@ function AISettingsTab() {
   }, [defaultConfig.data]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 card-stagger">
       <section className="warm-card p-5 space-y-4">
         <SectionHeader icon={Settings2} title="AI 提供商" subtitle="配置 API Key 并选择默认提供商"
           action={defaultConfig.data && (
@@ -871,7 +893,7 @@ function QqTab() {
     : "未启用";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 card-stagger">
       <section className="warm-card p-5 space-y-4">
         <SectionHeader icon={bot?.status === "connected" ? Wifi : WifiOff} title="QQ OneBot 接入"
           subtitle="NapCat 独立运行，Mirrai 通过 OneBot HTTP API 收发消息"
@@ -1073,7 +1095,7 @@ function OperationsDiagnosticsTab() {
   const usageRecords = usageDetailsData?.records ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 card-stagger">
       <section className="warm-card p-5">
         <SectionHeader icon={Activity} title="运维诊断"
           subtitle={`${formatDiagnosticTime(data.generatedAt)} · ${data.runtime?.nodeEnv ?? "development"}`}
@@ -1517,7 +1539,7 @@ function DataManagementTab() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 card-stagger">
       {/* Storage Overview */}
       {accountStats && (
         <section className="warm-card p-5 space-y-4">
@@ -1630,7 +1652,8 @@ export default function SettingsPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background relative">
+      <div className="gradient-mesh-bg" /><div className="tech-particles" />
       <header className="sticky top-0 z-40 app-header">
         <div className="container app-nav">
           <button onClick={() => navigate("/")}
@@ -1650,7 +1673,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="container py-6 max-w-6xl mx-auto px-4">
+      <main className="container py-6 max-w-6xl mx-auto px-4 relative z-10">
         <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-8 items-start">
           {/* 左侧侧边栏 (大屏常驻，移动端横向滚动) */}
           <aside className="flex md:flex-col gap-1 p-1.5 bg-card/60 backdrop-blur-md border border-border/40 rounded-2xl md:sticky md:top-20 overflow-x-auto scrollbar-hide">
