@@ -1709,7 +1709,7 @@ export default function Lobby() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="companions" className="space-y-6 focus-visible:outline-none focus:outline-none">
+            <TabsContent value="companions" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none">
               {readyCount === 0 && analyzingCount > 0 && (
                 <div className="p-4 rounded-xl bg-primary/5 border border-primary/10 text-center animate-pulse-soft">
                   <p className="text-sm text-muted-foreground">
@@ -1803,13 +1803,13 @@ export default function Lobby() {
             </div>
             </TabsContent>
 
-            <TabsContent value="memories" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+            <TabsContent value="memories" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none animate-fade-in">
               <PersonaConstellation personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
               <MemoryHighlights personas={personas as any[]} />
               <ConversationStarters personas={personas as any[]} onChat={(id) => navigate(`/chat/${id}`)} />
             </TabsContent>
 
-            <TabsContent value="stats" className="space-y-6 focus-visible:outline-none focus:outline-none animate-fade-in">
+            <TabsContent value="stats" className="space-y-6 card-stagger focus-visible:outline-none focus:outline-none animate-fade-in">
               <ChatStreak />
               <RecentActivity onNavigate={(id) => navigate(`/chat/${id}`)} />
               <ActivityHeatmap />
