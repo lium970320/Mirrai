@@ -1057,12 +1057,15 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* ═══ Tech Motion Layer (科技动效层) ═══════════════════════════════════════ */
 
 /* ─── Route Transition ─── */
+/* 注意：路由过渡只允许动画 opacity——任何 transform/filter 会把全页 fixed 元素
+   的定位基准从视口劫持为该包装层（Chrome 对带 fill 的动画持续保持 containing block），
+   曾导致抽屉面板被拉伸成文档高度而显示为白板。 */
 .route-transition {
-  animation: routeFade 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: routeFade 0.28s ease-out;
 }
 @keyframes routeFade {
-  from { opacity: 0; transform: translateY(10px) scale(0.995); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ─── Aurora Drift (极光漂移背景) ─── */
