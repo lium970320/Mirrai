@@ -1,7 +1,4 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from "crypto";
-import { promisify } from "util";
-
-const scrypt = promisify(scryptCallback);
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -13,10 +10,22 @@ export type PasswordVerifyResult = {
   needsUpgrade: boolean;
 };
 
+function deriveScryptKey(password: string, salt: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCallback(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey);
+    });
+  });
+}
+
 /** 用 scrypt 生成密码哈希，格式 `scrypt$<saltHex>$<derivedHex>`。 */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
-  const derived = (await scrypt(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS)) as Buffer;
+  const derived = await deriveScryptKey(password, salt);
   return `${SCRYPT_PREFIX}${salt}$${derived.toString("hex")}`;
 }
 
@@ -42,7 +51,7 @@ export async function verifyPassword(
   if (stored.startsWith(SCRYPT_PREFIX)) {
     const [, salt, hashHex] = stored.split("$");
     if (!salt || !hashHex) return { ok: false, needsUpgrade: false };
-    const derived = (await scrypt(password, salt, SCRYPT_KEYLEN, SCRYPT_OPTIONS)) as Buffer;
+    const derived = await deriveScryptKey(password, salt);
     return { ok: safeEqualHex(derived.toString("hex"), hashHex), needsUpgrade: false };
   }
 

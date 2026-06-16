@@ -70,4 +70,7 @@ async function startServer() {
   startDailyMemoryScheduler();
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

@@ -25,7 +25,9 @@ function authClientKey(req: Request): string {
 function consumeAuthAttempt(key: string): boolean {
   const now = Date.now();
   if (authAttempts.size > 5000) {
-    for (const [k, v] of authAttempts) if (now > v.resetAt) authAttempts.delete(k);
+    for (const [k, v] of Array.from(authAttempts.entries())) {
+      if (now > v.resetAt) authAttempts.delete(k);
+    }
   }
   const entry = authAttempts.get(key);
   if (!entry || now > entry.resetAt) {

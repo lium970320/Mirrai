@@ -383,7 +383,7 @@ export async function checkVoiceReplyPolicy(input: VoiceReplyPolicyInput): Promi
 export function markVoiceReplySent(contactId: string, nowMs = Date.now()): void {
   // 防止冷却 Map 无界增长：长期运行 / 联系人增多时，顺手清掉早已超出冷却窗口的旧条目。
   if (lastVoiceReplyAt.size > VOICE_COOLDOWN_MAX_ENTRIES) {
-    for (const [key, at] of lastVoiceReplyAt) {
+    for (const [key, at] of Array.from(lastVoiceReplyAt.entries())) {
       if (nowMs - at > VOICE_COOLDOWN_ENTRY_TTL_MS) lastVoiceReplyAt.delete(key);
     }
   }
