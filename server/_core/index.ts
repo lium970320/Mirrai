@@ -30,7 +30,19 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+function assertSecureSessionSecretInProduction() {
+  if (process.env.NODE_ENV !== "production") return;
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === "dev-secret-change-me" || secret.length < 32) {
+    throw new Error(
+      "[Auth] 生产环境必须配置一个不少于 32 位的随机 JWT_SECRET，否则会话 token 可被伪造。" +
+      "请在 .env 中设置 JWT_SECRET 后重启。",
+    );
+  }
+}
+
 async function startServer() {
+  assertSecureSessionSecretInProduction();
   const app = express();
   const server = createServer(app);
 

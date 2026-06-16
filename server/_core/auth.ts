@@ -7,6 +7,35 @@ import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
 import { getSessionCookieOptions } from "./cookies";
+import { hashPassword, verifyPassword } from "./password";
+
+// 简单的内存级登录/注册限流：按客户端 IP 在滑动窗口内限制尝试次数，缓解撞库/暴力破解。
+const AUTH_RATE_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_RATE_MAX_ATTEMPTS = 20;
+const authAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function authClientKey(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = (typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : undefined)
+    || req.socket?.remoteAddress
+    || "unknown";
+  return ip;
+}
+
+function consumeAuthAttempt(key: string): boolean {
+  const now = Date.now();
+  if (authAttempts.size > 5000) {
+    for (const [k, v] of authAttempts) if (now > v.resetAt) authAttempts.delete(k);
+  }
+  const entry = authAttempts.get(key);
+  if (!entry || now > entry.resetAt) {
+    authAttempts.set(key, { count: 1, resetAt: now + AUTH_RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= AUTH_RATE_MAX_ATTEMPTS) return false;
+  entry.count += 1;
+  return true;
+}
 
 export type SessionPayload = {
   userId: number;
@@ -64,6 +93,11 @@ export async function authenticateRequest(req: Request): Promise<User> {
 
 export function registerAuthRoutes(app: Express) {
   app.post("/api/auth/register", async (req: Request, res: Response) => {
+    const rateKey = authClientKey(req);
+    if (!consumeAuthAttempt(rateKey)) {
+      res.status(429).json({ error: "请求过于频繁，请稍后再试" });
+      return;
+    }
     const { username, password } = req.body;
     if (!username || !password || typeof username !== "string" || typeof password !== "string") {
       res.status(400).json({ error: "username and password are required" });
@@ -85,10 +119,7 @@ export function registerAuthRoutes(app: Express) {
         return;
       }
 
-      const { createHash, randomBytes } = await import("crypto");
-      const salt = randomBytes(16).toString("hex");
-      const hash = createHash("sha256").update(password + salt).digest("hex");
-      const passwordHash = `${salt}:${hash}`;
+      const passwordHash = await hashPassword(password);
 
       const userId = await db.createUser({
         username,
@@ -107,6 +138,11 @@ export function registerAuthRoutes(app: Express) {
   });
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {
+    const rateKey = authClientKey(req);
+    if (!consumeAuthAttempt(rateKey)) {
+      res.status(429).json({ error: "登录尝试过于频繁，请稍后再试" });
+      return;
+    }
     const { username, password } = req.body;
     if (!username || !password) {
       res.status(400).json({ error: "username and password are required" });
@@ -120,16 +156,22 @@ export function registerAuthRoutes(app: Express) {
         return;
       }
 
-      const { createHash } = await import("crypto");
-      const [salt, storedHash] = user.passwordHash.split(":");
-      const inputHash = createHash("sha256").update(password + salt).digest("hex");
-
-      if (inputHash !== storedHash) {
+      const verifyResult = await verifyPassword(password, user.passwordHash);
+      if (!verifyResult.ok) {
         res.status(401).json({ error: "invalid credentials" });
         return;
       }
+      if (verifyResult.needsUpgrade) {
+        // 旧 sha256 哈希校验通过，惰性升级到 scrypt；升级失败也不影响本次登录。
+        try {
+          await db.updateUserPassword(user.id, await hashPassword(password));
+        } catch (err) {
+          console.warn("[Auth] password rehash failed:", err);
+        }
+      }
 
       await db.updateUserLastSignedIn(user.id);
+      authAttempts.delete(rateKey);
 
       const token = await createSessionToken(user.id, user.name || username);
       const cookieOptions = getSessionCookieOptions(req);

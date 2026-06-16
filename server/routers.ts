@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { hashPassword, verifyPassword } from "./_core/password";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
@@ -153,14 +154,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const user = await getUserById(ctx.user.id);
         if (!user || !user.passwordHash) throw new TRPCError({ code: "BAD_REQUEST", message: "无法修改密码" });
-        const { createHash } = await import("crypto");
-        const [salt, storedHash] = user.passwordHash.split(":");
-        const inputHash = createHash("sha256").update(input.currentPassword + salt).digest("hex");
-        if (inputHash !== storedHash) throw new TRPCError({ code: "UNAUTHORIZED", message: "当前密码错误" });
-        const { randomBytes } = await import("crypto");
-        const newSalt = randomBytes(16).toString("hex");
-        const newHash = createHash("sha256").update(input.newPassword + newSalt).digest("hex");
-        await updateUserPassword(ctx.user.id, `${newSalt}:${newHash}`);
+        const verifyResult = await verifyPassword(input.currentPassword, user.passwordHash);
+        if (!verifyResult.ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "当前密码错误" });
+        await updateUserPassword(ctx.user.id, await hashPassword(input.newPassword));
         return { success: true };
       }),
 
@@ -176,10 +172,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const user = await getUserById(ctx.user.id);
         if (!user || !user.passwordHash) throw new TRPCError({ code: "BAD_REQUEST" });
-        const { createHash } = await import("crypto");
-        const [salt, storedHash] = user.passwordHash.split(":");
-        const inputHash = createHash("sha256").update(input.confirmPassword + salt).digest("hex");
-        if (inputHash !== storedHash) throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误" });
+        const verifyResult = await verifyPassword(input.confirmPassword, user.passwordHash);
+        if (!verifyResult.ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误" });
         await deleteUserAccount(ctx.user.id);
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
