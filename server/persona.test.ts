@@ -40,6 +40,9 @@ vi.mock("./db", () => ({
   getRoleplayChannelMessages: vi.fn().mockResolvedValue([]),
   createRoleplayMessage: vi.fn(),
   deleteRoleplayChannel: vi.fn(),
+  getSceneById: vi.fn(),
+  deleteScene: vi.fn(),
+  activateScene: vi.fn(),
 }));
 
 function makeCtx(userId = 1): TrpcContext {
@@ -98,5 +101,43 @@ describe("auth.me", () => {
     const caller = appRouter.createCaller(ctx);
     const result = await caller.auth.me();
     expect(result).toBeNull();
+  });
+});
+
+describe("authorization guards (IDOR)", () => {
+  it("skillEngine.getJobStatus scopes by userId and 404s on a non-owned job", async () => {
+    const db = await import("./db");
+    (db.getSkillJobById as any).mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(makeCtx(7));
+    await expect(caller.skillEngine.getJobStatus({ jobId: 42 })).rejects.toThrow();
+    expect(db.getSkillJobById).toHaveBeenCalledWith(42, 7);
+  });
+
+  it("scene.delete passes the caller's userId to the data layer", async () => {
+    const db = await import("./db");
+    (db.deleteScene as any).mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(makeCtx(7));
+    await caller.scene.delete({ id: 5 });
+    expect(db.deleteScene).toHaveBeenCalledWith(5, 7);
+  });
+
+  it("scene.activate rejects a scene owned by another user", async () => {
+    const db = await import("./db");
+    (db.getPersonaById as any).mockResolvedValue({ id: 1, userId: 7 });
+    (db.getSceneById as any).mockResolvedValue({ id: 9, userId: 999, isBuiltin: false });
+    (db.activateScene as any).mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(makeCtx(7));
+    await expect(caller.scene.activate({ personaId: 1, sceneId: 9 })).rejects.toThrow();
+    expect(db.activateScene).not.toHaveBeenCalled();
+  });
+
+  it("scene.activate allows a builtin scene", async () => {
+    const db = await import("./db");
+    (db.getPersonaById as any).mockResolvedValue({ id: 1, userId: 7 });
+    (db.getSceneById as any).mockResolvedValue({ id: 2, userId: null, isBuiltin: true });
+    (db.activateScene as any).mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(makeCtx(7));
+    await caller.scene.activate({ personaId: 1, sceneId: 2 });
+    expect(db.activateScene).toHaveBeenCalledWith(1, 2);
   });
 });
