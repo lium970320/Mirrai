@@ -3,7 +3,7 @@
 > 这批改动在 Google Drive 同步盘**源码副本**上完成，无法在该机器运行 `tsc`/`vitest`（无 `node_modules`）。
 > 需把源码同步到运行机 **`F:/Code/Mirrai`** 后按本清单验证。**验证通过前不要 `git push`。**
 
-当前 `main` 比 `origin/main` 领先约 **23 个本地提交**：收口 10 + P0 修复 7 + P1 修复/杂项 6。
+当前 `main` 比 `origin/main` 领先约 **26 个本地提交**：收口 10 + P0 修复 7 + P1/P2 修复与清理 9。
 
 ---
 
@@ -30,7 +30,10 @@ corepack pnpm exec vitest run `
   server/social/roleplay-channel.test.ts `
   server/social/daily-memory.test.ts `
   server/social/persona-text-chat.test.ts `
-  server/qq/message-handler.test.ts
+  server/social/incoming-message-batcher.test.ts `
+  server/social/proactive-delivery.test.ts `
+  server/qq/message-handler.test.ts `
+  server/qq/persona-bridge.test.ts
 ```
 
 ---
@@ -62,6 +65,7 @@ corepack pnpm exec vitest run `
 | QQ webhook / 语音冷却 | `25b1aa6` | webhook 鉴权仍正常（`scripts/check-qq-webhook-smoke.ps1`）；长期运行内存不再随联系人增长 |
 | TTS 原子写入 | `989b35c` | 并发/中断生成语音不再缓存半成品 WAV；坏/空文件不被当缓存命中 |
 | 前端文案 | `89f66b9` | Landing/大厅不再出现「微信」营销文案（历史频道徽章、上传素材说明里的微信是合理保留）|
+| WeChat 残留清理 | `c9c4724` `5058b5a` | **`pnpm run check` 必须通过**（确认 sayWeChatReply→saySocialReply 等重命名无遗漏断链）；批处理/发送/QQ 自动绑定行为不变；`SOCIAL_REPLY_BATCH_*` 取代旧 `WECHAT_REPLY_BATCH_*` 环境变量 |
 
 ---
 
@@ -79,7 +83,9 @@ corepack pnpm exec vitest run `
 - **技能蒸馏 Node↔Python 内容传递**：当前 Python 段产出空壳技能（`pipeline.ts:101` 只传了 name/character）。CLI 契约已确认：`skill_writer.py` 的 `--meta`/`--work`/`--persona` 接收**内容文件路径**。修法是把蒸馏出的 work/persona/meta 落临时文件、按这三个参数传入，再把返回的 skill_dir 写回 `skill_jobs.generatedSkillPath`。非阻塞（主 personaData 已入库），留到能验证时实现。
 - **拆分超红线热点函数**（`handleSocialPersonaTextChatDetailed` 284 行、`handleQqOneBotEvent` 123 行等）：纯重构、无测试网，风险高，延后。
 - **Drizzle 迁移 journal 重建**：审阅核验为「有意决定」（`ensure*Table` + `db:check` 闭环），非阻塞，延后；可顺手删重复的 `drizzle/0000_cheerful_darwin.sql`。
-- **文档微信残留**（`docs/qq-onebot.md` 仍有微信回退叙述）、`docs/*` 里失效的 `F:/Google Drive` 源码链接：低优先文档整理。
+- ~~**文档微信残留**（`docs/qq-onebot.md` 微信回退叙述）~~ 已修正；`docs/*` 里失效的 `F:/Google Drive` 源码链接仍待整理（低优先）。
+- **保留项说明**：runtime 平台/通道枚举里的 `wechat` 值、`wechat_bindings`/`wechat_bot_state` 表、历史消息的「微信」展示**有意保留**——它们承载历史数据与复用表（QQ 绑定以 `qq:` 前缀存于 `wechat_bindings`），不是残留。彻底移除运行时 `wechat` 平台分支会牵动 contract 与多个平台测试，留作单独的有验证的改动。
+- **其他可做的 P2（小而散，未做）**：sticker policy/intent「严肃话题」正则去重、`routers.ts` 内联 `INTIMACY_LEVELS` 副本复用、运维脚本从 `.env` 读取实际 `PORT`、sticker selector 改为发送成功后再记账。
 
 ---
 
