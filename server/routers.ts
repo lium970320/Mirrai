@@ -675,6 +675,9 @@ export const appRouter = router({
         qqName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // 校验 persona 归属，避免把 QQ 联系人绑定到他人分身上（一致性 / 失效安全）。
+        const persona = await getPersonaById(input.personaId, ctx.user.id);
+        if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
         const id = await createQqBinding({
           personaId: input.personaId,
           userId: ctx.user.id,
@@ -730,8 +733,8 @@ export const appRouter = router({
 
     getJobStatus: protectedProcedure
       .input(z.object({ jobId: z.number() }))
-      .query(async ({ input }) => {
-        const job = await getSkillJobById(input.jobId);
+      .query(async ({ ctx, input }) => {
+        const job = await getSkillJobById(input.jobId, ctx.user.id);
         if (!job) throw new TRPCError({ code: "NOT_FOUND" });
         return job;
       }),
@@ -1119,7 +1122,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        await deleteScene(input.id);
+        await deleteScene(input.id, ctx.user.id);
         return { success: true };
       }),
 
@@ -1128,6 +1131,12 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const persona = await getPersonaById(input.personaId, ctx.user.id);
         if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
+        // 校验场景归属：内置场景或本人创建的场景才允许激活，
+        // 否则可激活并把他人私有 systemPromptOverlay 注入自己的对话（越权 + 提示注入）。
+        const scene = await getSceneById(input.sceneId);
+        if (!scene || (!scene.isBuiltin && scene.userId !== ctx.user.id)) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         await activateScene(input.personaId, input.sceneId);
         return { success: true };
       }),
