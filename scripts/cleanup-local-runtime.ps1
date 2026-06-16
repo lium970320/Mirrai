@@ -7,7 +7,6 @@ param(
   [switch]$IncludeLogs,
   [switch]$IncludeTmp,
   [switch]$IncludePlaywright,
-  [switch]$IncludeWechatSession,
   [switch]$IncludeScreenshots,
   [switch]$IncludeNapCatDownloads,
   [switch]$IncludeNapCatRuntime,
@@ -82,10 +81,6 @@ if ($IncludeTmp) {
 
 if ($IncludePlaywright) {
   Add-Target $targets (Join-Path $runRootFull ".playwright-cli") $allowedRoots
-}
-
-if ($IncludeWechatSession) {
-  Add-Target $targets (Join-Path $runtimeRootFull "wechat") $allowedRoots
 }
 
 if ($IncludeScreenshots) {

@@ -6,7 +6,6 @@ export type ProactivePreferredTarget = {
   channel: SocialRuntimeChannel;
   platform: Exclude<SocialRuntimePlatform, "web"> | null;
   qqBindings: Array<{ wechatContactId: string }>;
-  wechatBindings: Array<{ wechatContactId: string; wechatName?: string | null }>;
 };
 
 export type ProactiveDeliveryResult = {
@@ -25,7 +24,6 @@ export async function resolveProactivePreferredTarget(
       channel: "qq",
       platform: "qq",
       qqBindings,
-      wechatBindings: [],
     };
   }
 
@@ -33,7 +31,6 @@ export async function resolveProactivePreferredTarget(
     channel: "web",
     platform: null,
     qqBindings: [],
-    wechatBindings: [],
   };
 }
 

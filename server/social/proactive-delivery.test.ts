@@ -75,7 +75,6 @@ describe("proactive delivery channel routing", () => {
       channel: "qq",
       platform: "qq",
       qqBindings: [{ wechatContactId: "qq:private:12345" }],
-      wechatBindings: [],
     });
   });
 
@@ -86,7 +85,6 @@ describe("proactive delivery channel routing", () => {
       channel: "web",
       platform: null,
       qqBindings: [],
-      wechatBindings: [],
     });
   });
 });
