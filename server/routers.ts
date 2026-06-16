@@ -34,7 +34,7 @@ import { maybeSendAmbientPresenceMessage } from "./social/ambient-proactive";
 import { getQqBotStatus, parseQqContactId } from "./qq/onebot-client";
 import { listRecentQqContacts } from "./qq/contact-registry";
 import { runSkillPipeline } from "./skill-engine/pipeline";
-import { getEmotionalStateDesc, buildSystemPrompt, computeIntimacy, checkGraduationEligibility } from "./_core/persona-utils";
+import { getEmotionalStateDesc, buildSystemPrompt, computeIntimacy, checkGraduationEligibility, INTIMACY_LEVELS } from "./_core/persona-utils";
 import { buildEffectiveLifeScheduleOverlay, getActiveRuntimeLifeState, getPersonaScheduleState } from "./_core/life-schedule";
 import { normalizePersonaProfileSections, withPersonaProfileSections } from "./_core/persona-profile";
 import { getPersonaRuntimeState } from "./_core/persona-runtime";
@@ -311,13 +311,8 @@ export const appRouter = router({
         const data = await getIntimacyData(input.id, ctx.user.id);
         const result = computeIntimacy(data);
         await updateIntimacy(input.id, ctx.user.id, result.score, result.level);
-        const nextLevel = [
-          { threshold: 0, name: "初识" }, { threshold: 100, name: "熟悉" },
-          { threshold: 300, name: "亲密" }, { threshold: 600, name: "知己" },
-          { threshold: 1000, name: "灵魂伴侣" },
-        ];
-        const currentIdx = nextLevel.findIndex(l => l.name === result.level);
-        const next = nextLevel[currentIdx + 1];
+        const currentIdx = INTIMACY_LEVELS.findIndex(l => l.name === result.level);
+        const next = INTIMACY_LEVELS[currentIdx + 1];
         return { ...result, breakdown: data, nextLevel: next?.name || null, nextThreshold: next?.threshold || 1000 };
       }),
 
