@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
-import net from "net";
 import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerAuthRoutes } from "./auth";
@@ -12,23 +11,6 @@ import { ENV } from "./env";
 import { startProactiveScheduler } from "../social/proactive-scheduler";
 import { startDailyMemoryScheduler } from "../social/daily-memory";
 import { registerQqRoutes } from "../qq/routes";
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
-
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) return port;
-  }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
 
 function assertSecureSessionSecretInProduction() {
   if (process.env.NODE_ENV !== "production") return;
@@ -70,14 +52,18 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
-
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `[Server] 端口 ${preferredPort} 已被占用。请释放该端口，或在 .env 设置 PORT 指定其他端口后重启。` +
+        "（不再自动顺延端口，避免落到 NapCat OneBot 默认的 3001，并让运维脚本的端口检测保持一致。）",
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
+  server.listen(preferredPort, () => {
+    console.log(`Server running on http://localhost:${preferredPort}/`);
   });
 
   startProactiveScheduler();
