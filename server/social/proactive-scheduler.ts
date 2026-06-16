@@ -235,6 +235,8 @@ export async function generateProactiveMessageDetailed(
   } catch {
     pinnedFacts = [];
   }
+  // 人物「自己今天」的状态，给定时主动消息一个由头。
+  const innerState = getEffectiveInnerState(persona.personaData, persona.id, now);
 
   const response = await llmService.invoke({
     messages: [
@@ -244,7 +246,7 @@ export async function generateProactiveMessageDetailed(
           buildSystemPrompt(persona, {
             now,
             pinnedFacts,
-            innerState: getEffectiveInnerState(persona.personaData, persona.id, now),
+            innerState,
           }),
           runtimePlan.instruction,
         ].filter(Boolean).join("\n\n"),
@@ -255,6 +257,7 @@ export async function generateProactiveMessageDetailed(
           `计划投递入口：${runtimePlan.platform} / ${runtimePlan.channel}。`,
           `现在接近用户预设的主动联系时间 ${slot.baseTime}，本次实际随机触发时间是 ${slot.actualTime}。`,
           "请以角色本人会发出的私聊消息主动联系用户。",
+          innerState.dayContext?.note ? `你今天的状态：${innerState.dayContext.note}。可以让它自然影响切入点和语气，偶尔顺口提一句自己今天。` : "",
           "要求：随机选择一个自然切入点，可以是问候、分享此刻想到的事、想起某段背景经历、轻微关心或延续你的人物关系。",
           "不要解释这是定时消息，不要写括号动作/旁白，不要超过 80 个中文字符。",
           "必须延续最近对话里的时间线和空间状态；不要重复刚说过的话，不要和最近说过的行程矛盾。",

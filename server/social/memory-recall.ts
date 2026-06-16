@@ -28,6 +28,7 @@ type MemoryRecord = {
   emotion?: string | null;
   status?: string;
   followUpAt?: Date | string | null;
+  lastAccessedAt?: Date | string | null;
   createdAt: Date;
 };
 
@@ -136,7 +137,20 @@ function preferredTypesFor(options: PersonaMemoryRecallOptions): Set<MemoryType>
   return preferred;
 }
 
-function scoreMemory(memory: MemoryRecord, terms: string[], options: PersonaMemoryRecallOptions): number {
+/** 显著性：重要记忆和近期访问过的记忆更易被想起；很旧、低重要度、长期没碰的自然淡出（仅影响排名，不归档/删除）。 */
+function salienceAdjustment(memory: MemoryRecord): number {
+  const recencyRef = memory.lastAccessedAt
+    ? new Date(memory.lastAccessedAt).getTime()
+    : memory.createdAt.getTime();
+  if (!Number.isFinite(recencyRef)) return 0;
+  const ageDays = (Date.now() - recencyRef) / 86_400_000;
+  let adjust = 0;
+  if (ageDays <= 7) adjust += 1;
+  if ((memory.importance ?? 3) <= 2 && ageDays > 30) adjust -= 3;
+  return adjust;
+}
+
+export function scoreMemory(memory: MemoryRecord, terms: string[], options: PersonaMemoryRecallOptions): number {
   if (memory.status && memory.status !== "active") return -999;
   const haystack = [
     memory.title,
@@ -171,6 +185,8 @@ function scoreMemory(memory: MemoryRecord, terms: string[], options: PersonaMemo
     const followUp = memory.followUpAt ? new Date(memory.followUpAt).getTime() : NaN;
     if (Number.isFinite(followUp) && followUp <= Date.now()) score += 5;
   }
+
+  score += salienceAdjustment(memory);
 
   return score;
 }

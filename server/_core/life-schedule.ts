@@ -5,6 +5,12 @@ import {
   getBeijingTimeParts,
   type BeijingDayPart,
 } from "./time-context";
+import {
+  DEFAULT_PARTNER_NAME,
+  DEFAULT_SETTING_LINE,
+  getPersonaLifeConfig,
+  type PersonaLifeConfig,
+} from "./persona-life-config";
 
 type DayKind = "weekday" | "saturday" | "sunday";
 
@@ -29,7 +35,7 @@ type LifeStateId =
 type LifeStateCategory = "sleep" | "wake" | "commute" | "work" | "meal" | "home" | "rest";
 type ReplyAvailability = "silent_unless_urgent" | "brief" | "normal" | "open";
 
-type RoutineSlot = {
+export type RoutineSlot = {
   start: string;
   end: string;
   label: string;
@@ -130,11 +136,11 @@ function routineForDay(kind: DayKind): RoutineSlot[] {
   return WEEKDAY_ROUTINE;
 }
 
-export function getPersonaScheduleState(now = new Date()): ScheduleState {
+export function getPersonaScheduleState(now = new Date(), lifeConfig?: PersonaLifeConfig): ScheduleState {
   const beijingTime = getBeijingTimeParts(now);
   const kind = dayKindFromWeekday(beijingTime.weekday);
   const minute = beijingTime.minuteOfDay;
-  const routine = routineForDay(kind);
+  const routine = lifeConfig?.routines ? lifeConfig.routines[kind] : routineForDay(kind);
   const slot = routine.find(item => minute >= minuteOfDay(item.start) && minute < minuteOfDay(item.end))
     ?? routine[routine.length - 1];
   return {
@@ -187,7 +193,11 @@ export function buildLifeScheduleOverlay(now = new Date()): string {
   return buildLifeScheduleOverlayForState(state);
 }
 
-function buildLifeScheduleOverlayForState(state: ScheduleState, runtime?: RuntimeLifeState | null): string {
+function buildLifeScheduleOverlayForState(
+  state: ScheduleState,
+  runtime?: RuntimeLifeState | null,
+  lifeConfig?: PersonaLifeConfig,
+): string {
   const lines = [
     "【当前生活行程】",
     `当前北京时间：${state.dateKey} ${state.timeKey}（${state.dayPart}，${BEIJING_TIME_ZONE_LABEL}）`,
@@ -200,7 +210,7 @@ function buildLifeScheduleOverlayForState(state: ScheduleState, runtime?: Runtim
     `当前状态：${state.description}`,
     `行为规则：${state.behavior}`,
     `状态转移：${state.transitionHint}`,
-    "默认设定：王芃泽常驻南京，工作日在南京研究所作息；敏子常驻武汉纺织大学。回复和主动消息都要承认两人是异地，不要默认同屋、同城、马上见面。",
+    lifeConfig?.settingLine ?? DEFAULT_SETTING_LINE,
     "行程约束：上班时不要表现得整段时间都闲着；下班路上可以短促报平安；夜里准备睡觉时不要忽然展开长篇；睡眠时段除非用户明显有急事或明确叫醒，不要像白天一样清醒秒回。",
     `时间一致性：如果回复里提到现在的时间段，必须符合“${state.dayPart} / ${state.timeKey}”这个北京时间；用户纠正时间时先承认并修正，不要沿用上一轮错误说法。`,
   ];
@@ -208,7 +218,7 @@ function buildLifeScheduleOverlayForState(state: ScheduleState, runtime?: Runtim
   if (runtime?.status === "drowsy_awake") {
     lines.push(
       `有效状态ID：drowsy_awake（覆盖基础状态 ${state.stateId}）`,
-      `临时状态：刚被敏子叫醒，处在半睡半醒、迷迷糊糊但愿意回应的状态，预计保持到 ${localTimeLabel(runtime.until)}。`,
+      `临时状态：刚被${lifeConfig?.partnerName ?? DEFAULT_PARTNER_NAME}叫醒，处在半睡半醒、迷迷糊糊但愿意回应的状态，预计保持到 ${localTimeLabel(runtime.until)}。`,
       "临时状态约束：可以回复，但语气应低、慢、短一点，像夜里被叫醒后撑着精神回消息；不要立刻变得像白天一样清醒健谈。",
       "临时状态转移：持续聊天会延长半睡半醒状态；一段时间没有继续聊会回到 sleeping。",
     );
@@ -264,17 +274,20 @@ export function buildEffectiveLifeScheduleOverlay(
   personaData: unknown,
   now = new Date(),
 ): string {
+  const lifeConfig = getPersonaLifeConfig(personaData);
   return buildLifeScheduleOverlayForState(
-    getPersonaScheduleState(now),
+    getPersonaScheduleState(now, lifeConfig),
     getActiveRuntimeLifeState(personaData, now),
+    lifeConfig,
   );
 }
 
 export function shouldSuppressImmediateReplyBySchedule(
   text: string,
   now = new Date(),
+  personaData?: unknown,
 ): { suppress: boolean; reason?: string; state: ScheduleState } {
-  const state = getPersonaScheduleState(now);
+  const state = getPersonaScheduleState(now, personaData ? getPersonaLifeConfig(personaData) : undefined);
   if (state.status !== "asleep") return { suppress: false, state };
   if (isUrgentOrWakeMessage(text)) return { suppress: false, state };
   return { suppress: true, reason: "persona_asleep", state };
@@ -292,7 +305,7 @@ export function applyIncomingLifeState(
   changed: boolean;
 } {
   const data = clonePersonaData(personaData);
-  const state = getPersonaScheduleState(now);
+  const state = getPersonaScheduleState(now, getPersonaLifeConfig(personaData));
   const activeRuntime = getActiveRuntimeLifeState(data, now);
 
   if (state.status !== "asleep") {

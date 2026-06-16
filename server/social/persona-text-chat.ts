@@ -538,10 +538,17 @@ export async function handleSocialPersonaTextChatDetailed(
     return null;
   }
   // 回合结束：演进延续内心状态，并由它派生兼容用的 emotionalState 标签。
+  const friction = /冷漠|敷衍|不理我|不理你|生气|委屈|吵架|烦你|讨厌你|不想理|凶我/.test(options.messageText);
+  const relationshipSignal = friction
+    ? ("friction" as const)
+    : turnPlan.intent === "affection_expression" || turnPlan.intent === "emotional_support" || turnPlan.intent === "teasing"
+      ? ("warm" as const)
+      : undefined;
   const nextInnerState = evolveInnerState(innerState, {
     reflectionMood: reflection.mood,
     reflectionInnerReaction: reflection.innerReaction,
     intent: turnPlan.intent,
+    relationshipSignal,
   }, now);
   const newState = deriveEmotionalLabel(nextInnerState);
 
