@@ -6,6 +6,7 @@ import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity
 import { withPersonaRuntimeDiagnostics, withPersonaRuntimeInnerState } from "../_core/persona-runtime";
 import { buildSystemPrompt } from "../_core/persona-utils";
 import { deriveEmotionalLabel, evolveInnerState, getEffectiveInnerState } from "../_core/persona-inner-state";
+import { getPersonaLifeConfig } from "../_core/persona-life-config";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import { buildConversationContinuityInstruction } from "./conversation-continuity";
 import { buildPersonaMemoryRecallContext } from "./memory-recall";
@@ -423,6 +424,7 @@ export async function handleSocialPersonaTextChatDetailed(
     reflection,
     limit: economy.memoryRecall.maxMemories,
     maxDescriptionChars: economy.memoryRecall.maxDescriptionChars,
+    userPronoun: getPersonaLifeConfig(personaForPrompt.personaData).userPronoun,
   });
   const voiceRequestDecision = options.voiceRequestDecision ?? (
     outputPreference.allowVoice === false

@@ -42,6 +42,8 @@ export type PersonaMemoryRecallOptions = {
   reflection?: PersonaReflection;
   limit?: number;
   maxDescriptionChars?: number;
+  /** 当前用户性别代词；默认"他"（男性），用于原著专属代词改写的门控 */
+  userPronoun?: "他" | "她";
 };
 
 const MEMORY_TRIGGER_PATTERN =
@@ -59,7 +61,9 @@ function compact(text: string, maxLength: number): string {
   return `${Array.from(normalized).slice(0, maxLength).join("")}...`;
 }
 
-function applyCurrentUserPronounOverride(text: string): string {
+function applyCurrentUserPronounOverride(text: string, userPronoun: "他" | "她" = "他"): string {
+  // 该改写是原著「敏子/男性用户」专用的代词修正；非男性用户的分身跳过，避免把正确代词误改。
+  if (userPronoun !== "他") return text;
   return text
     .replace(/敏子([^。！？!?；;\n]{0,24})她/g, "敏子$1他")
     .replace(/用户([^。！？!?；;\n]{0,24})她/g, "用户$1他")
@@ -191,9 +195,13 @@ export function scoreMemory(memory: MemoryRecord, terms: string[], options: Pers
   return score;
 }
 
-export function formatMemoryRecallContext(memories: MemoryRecord[], options: { maxDescriptionChars?: number } = {}): string {
+export function formatMemoryRecallContext(
+  memories: MemoryRecord[],
+  options: { maxDescriptionChars?: number; userPronoun?: "他" | "她" } = {},
+): string {
   if (memories.length === 0) return "";
   const maxDescriptionChars = options.maxDescriptionChars ?? 220;
+  const pronoun = options.userPronoun ?? "他";
 
   const lines = memories.map((memory, index) => {
     const date = memory.date ? ` / ${memory.date}` : "";
@@ -201,9 +209,9 @@ export function formatMemoryRecallContext(memories: MemoryRecord[], options: { m
     const sourceLabel = MEMORY_SOURCE_LABELS[memorySourceOf(memory)] || memory.source || "未知来源";
     const confidence = memory.confidence ? ` / 可信度${memory.confidence}` : "";
     const importance = memory.importance ? ` / 重要度${memory.importance}` : "";
-    const title = applyCurrentUserPronounOverride(memory.title);
+    const title = applyCurrentUserPronounOverride(memory.title, pronoun);
     const description = memory.description
-      ? `：${applyCurrentUserPronounOverride(compact(memory.description, maxDescriptionChars))}`
+      ? `：${applyCurrentUserPronounOverride(compact(memory.description, maxDescriptionChars), pronoun)}`
       : "";
     return `${index + 1}. [${typeLabel} / ${sourceLabel}${importance}${confidence}] ${title}${date}${description}`;
   });
@@ -239,5 +247,8 @@ export async function buildPersonaMemoryRecallContext(options: PersonaMemoryReca
     .map(item => item.memory);
 
   await touchMemoriesByIds(scored.map(memory => memory.id), options.userId);
-  return formatMemoryRecallContext(scored, { maxDescriptionChars: options.maxDescriptionChars });
+  return formatMemoryRecallContext(scored, {
+    maxDescriptionChars: options.maxDescriptionChars,
+    userPronoun: options.userPronoun,
+  });
 }
