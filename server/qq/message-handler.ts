@@ -15,7 +15,7 @@ import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 import { checkVoiceReplyPolicy, markVoiceReplySent, type VoiceReplySource, type VoiceRequestDecision } from "../voice/voice-reply-policy";
 import { detectStickerIntent } from "../stickers/sticker-intent";
 import { checkStickerReplyPolicy, markStickerReplySent } from "../stickers/sticker-policy";
-import { selectSticker } from "../stickers/sticker-selector";
+import { selectSticker, markStickerSent } from "../stickers/sticker-selector";
 import { sendQqSticker } from "../stickers/sticker-sender";
 
 export type OneBotMessageSegment = {
@@ -532,6 +532,7 @@ async function sayQqReplyWithOptionalSticker(
   }
 
   markStickerReplySent(contactId);
+  markStickerSent(contactId, selected.sticker.id);
 }
 
 function voiceTextFromReply(reply: string): string {
