@@ -16,3 +16,11 @@ build-macos/
 tmp/
 live-action-comic/
 .claude/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# 人物卡二进制导出（体积大，不入库；如需备份单独打包）
+persona_material/**/*.png
+persona_material/**/*.zip
