@@ -726,7 +726,14 @@ export const appRouter = router({
           characterFamily: input.characterFamily,
           name: persona.name,
           chatContent,
-        }).catch(e => console.error("[SkillEngine] Pipeline error:", e));
+        }).catch(async (e) => {
+          console.error("[SkillEngine] Pipeline error:", e);
+          // 兜底：万一 pipeline 在自身 try 之外异常退出，也要把 persona 从 analyzing 复位。
+          await updatePersona(input.personaId, ctx.user.id, {
+            analysisStatus: "error",
+            analysisMessage: "性格蒸馏失败，请重试",
+          }).catch(() => {});
+        });
 
         return { success: true };
       }),
