@@ -16,15 +16,18 @@ export type PipelineInput = {
 export async function runSkillPipeline(input: PipelineInput): Promise<void> {
   const { personaId, userId, characterFamily, name, chatContent } = input;
 
-  const jobId = await db.createSkillJob({
-    personaId,
-    userId,
-    characterFamily,
-    pipelineStage: "intake",
-    inputMeta: input.intakeMeta ?? null,
-  });
-
+  // jobId 的创建必须放进 try：db.createSkillJob 在数据库不可用时会 throw，
+  // 若留在 try 外，下面的 catch 无法把 persona 从 "analyzing" 复位，人物会永久卡死。
+  let jobId: number | undefined;
   try {
+    jobId = await db.createSkillJob({
+      personaId,
+      userId,
+      characterFamily,
+      pipelineStage: "intake",
+      inputMeta: input.intakeMeta ?? null,
+    });
+
     // Stage 1: Persona analysis
     await db.updateSkillJob(jobId, {
       pipelineStage: "analyzing_persona",
@@ -109,10 +112,13 @@ export async function runSkillPipeline(input: PipelineInput): Promise<void> {
 
   } catch (error) {
     console.error("[SkillEngine] Pipeline error:", error);
-    await db.updateSkillJob(jobId, {
-      pipelineStage: "error",
-      stageMessage: `Pipeline failed: ${error}`,
-    });
+    if (jobId !== undefined) {
+      await db.updateSkillJob(jobId, {
+        pipelineStage: "error",
+        stageMessage: `Pipeline failed: ${error}`,
+      });
+    }
+    // 即使 jobId 未创建成功，也要把 persona 从 "analyzing" 复位为 "error"，避免卡死。
     await db.updatePersona(personaId, userId, {
       analysisStatus: "error",
       analysisMessage: "性格蒸馏失败，请重试",

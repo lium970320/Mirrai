@@ -1619,6 +1619,12 @@ export async function clearMessagesByPersonaId(personaId: number, userId: number
   await db.delete(messages).where(and(eq(messages.personaId, personaId), eq(messages.userId, userId)));
 }
 
+export async function deleteMessage(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(messages).where(and(eq(messages.id, id), eq(messages.userId, userId)));
+}
+
 export async function searchMessages(personaId: number, userId: number, query: string, limit = 50) {
   const db = await getDb();
   if (!db) return [];
@@ -2023,7 +2029,7 @@ export async function deleteQqBinding(id: number, userId: number) {
   ));
 }
 
-export async function getSingleReadyPersonaForWechatAutoBind() {
+export async function getSingleReadyPersonaForQqAutoBind() {
   const db = await getDb();
   if (!db) return undefined;
 
@@ -2056,10 +2062,12 @@ export async function createSkillJob(data: InsertSkillJob) {
   return result.id;
 }
 
-export async function getSkillJobById(id: number) {
+export async function getSkillJobById(id: number, userId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(skillJobs).where(eq(skillJobs.id, id)).limit(1);
+  const result = await db.select().from(skillJobs)
+    .where(and(eq(skillJobs.id, id), eq(skillJobs.userId, userId)))
+    .limit(1);
   return result[0];
 }
 
@@ -2590,10 +2598,10 @@ export async function createScene(data: InsertScene) {
   return row;
 }
 
-export async function deleteScene(id: number) {
+export async function deleteScene(id: number, userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(scenes).where(and(eq(scenes.id, id), eq(scenes.isBuiltin, false)));
+  await db.delete(scenes).where(and(eq(scenes.id, id), eq(scenes.isBuiltin, false), eq(scenes.userId, userId)));
 }
 
 export async function activateScene(personaId: number, sceneId: number | null) {

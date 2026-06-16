@@ -86,6 +86,45 @@ describe("memory governance", () => {
     expect(decision.contradictIds).toEqual([11]);
   });
 
+  it("does not contradict an unrelated memory that only shares a common keyword + negation polarity", () => {
+    // 回归：两条主题不同（奶茶 vs 早睡）的 preference，仅共享一个高频关键词「睡觉」，
+    // 一条带否定词、一条不带。修复前 overlap>=2 即被误判 contradicted，修复后需要 overlap>=6。
+    const decision = decideMemoryGovernance(card({
+      title: "敏子喜欢喝奶茶",
+      description: "用户说他很喜欢喝奶茶解压",
+      memoryType: "preference",
+      keywords: ["奶茶", "睡觉"],
+      importance: 4,
+      confidence: 4,
+    }), [
+      {
+        id: 20,
+        title: "敏子不想太早睡",
+        description: "用户说他不想每天太早睡觉",
+        category: "memory",
+        date: null,
+        messageId: null,
+        personaId: 1,
+        userId: 1,
+        source: "chat",
+        memoryType: "preference",
+        importance: 4,
+        confidence: 4,
+        keywords: ["早睡", "睡觉"],
+        emotion: null,
+        validFrom: null,
+        validTo: null,
+        lastAccessedAt: null,
+        evidenceMessageIds: null,
+        status: "active",
+        createdAt: new Date(),
+      },
+    ]);
+
+    expect(decision.action).toBe("create");
+    expect(decision.contradictIds).toEqual([]);
+  });
+
   it("archives an open loop when a related new memory resolves it", () => {
     const decision = decideMemoryGovernance(card({
       title: "冷漠问题已经和好",

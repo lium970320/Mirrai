@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { hashPassword, verifyPassword } from "./_core/password";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
@@ -33,7 +34,7 @@ import { maybeSendAmbientPresenceMessage } from "./social/ambient-proactive";
 import { getQqBotStatus, parseQqContactId } from "./qq/onebot-client";
 import { listRecentQqContacts } from "./qq/contact-registry";
 import { runSkillPipeline } from "./skill-engine/pipeline";
-import { getEmotionalStateDesc, buildSystemPrompt, computeIntimacy, checkGraduationEligibility } from "./_core/persona-utils";
+import { getEmotionalStateDesc, buildSystemPrompt, computeIntimacy, checkGraduationEligibility, INTIMACY_LEVELS } from "./_core/persona-utils";
 import { buildEffectiveLifeScheduleOverlay, getActiveRuntimeLifeState, getPersonaScheduleState } from "./_core/life-schedule";
 import { normalizePersonaProfileSections, withPersonaProfileSections } from "./_core/persona-profile";
 import { getPersonaRuntimeState } from "./_core/persona-runtime";
@@ -153,14 +154,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const user = await getUserById(ctx.user.id);
         if (!user || !user.passwordHash) throw new TRPCError({ code: "BAD_REQUEST", message: "无法修改密码" });
-        const { createHash } = await import("crypto");
-        const [salt, storedHash] = user.passwordHash.split(":");
-        const inputHash = createHash("sha256").update(input.currentPassword + salt).digest("hex");
-        if (inputHash !== storedHash) throw new TRPCError({ code: "UNAUTHORIZED", message: "当前密码错误" });
-        const { randomBytes } = await import("crypto");
-        const newSalt = randomBytes(16).toString("hex");
-        const newHash = createHash("sha256").update(input.newPassword + newSalt).digest("hex");
-        await updateUserPassword(ctx.user.id, `${newSalt}:${newHash}`);
+        const verifyResult = await verifyPassword(input.currentPassword, user.passwordHash);
+        if (!verifyResult.ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "当前密码错误" });
+        await updateUserPassword(ctx.user.id, await hashPassword(input.newPassword));
         return { success: true };
       }),
 
@@ -176,10 +172,8 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const user = await getUserById(ctx.user.id);
         if (!user || !user.passwordHash) throw new TRPCError({ code: "BAD_REQUEST" });
-        const { createHash } = await import("crypto");
-        const [salt, storedHash] = user.passwordHash.split(":");
-        const inputHash = createHash("sha256").update(input.confirmPassword + salt).digest("hex");
-        if (inputHash !== storedHash) throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误" });
+        const verifyResult = await verifyPassword(input.confirmPassword, user.passwordHash);
+        if (!verifyResult.ok) throw new TRPCError({ code: "UNAUTHORIZED", message: "密码错误" });
         await deleteUserAccount(ctx.user.id);
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -317,13 +311,8 @@ export const appRouter = router({
         const data = await getIntimacyData(input.id, ctx.user.id);
         const result = computeIntimacy(data);
         await updateIntimacy(input.id, ctx.user.id, result.score, result.level);
-        const nextLevel = [
-          { threshold: 0, name: "初识" }, { threshold: 100, name: "熟悉" },
-          { threshold: 300, name: "亲密" }, { threshold: 600, name: "知己" },
-          { threshold: 1000, name: "灵魂伴侣" },
-        ];
-        const currentIdx = nextLevel.findIndex(l => l.name === result.level);
-        const next = nextLevel[currentIdx + 1];
+        const currentIdx = INTIMACY_LEVELS.findIndex(l => l.name === result.level);
+        const next = INTIMACY_LEVELS[currentIdx + 1];
         return { ...result, breakdown: data, nextLevel: next?.name || null, nextThreshold: next?.threshold || 1000 };
       }),
 
@@ -675,6 +664,9 @@ export const appRouter = router({
         qqName: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // 校验 persona 归属，避免把 QQ 联系人绑定到他人分身上（一致性 / 失效安全）。
+        const persona = await getPersonaById(input.personaId, ctx.user.id);
+        if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
         const id = await createQqBinding({
           personaId: input.personaId,
           userId: ctx.user.id,
@@ -723,15 +715,22 @@ export const appRouter = router({
           characterFamily: input.characterFamily,
           name: persona.name,
           chatContent,
-        }).catch(e => console.error("[SkillEngine] Pipeline error:", e));
+        }).catch(async (e) => {
+          console.error("[SkillEngine] Pipeline error:", e);
+          // 兜底：万一 pipeline 在自身 try 之外异常退出，也要把 persona 从 analyzing 复位。
+          await updatePersona(input.personaId, ctx.user.id, {
+            analysisStatus: "error",
+            analysisMessage: "性格蒸馏失败，请重试",
+          }).catch(() => {});
+        });
 
         return { success: true };
       }),
 
     getJobStatus: protectedProcedure
       .input(z.object({ jobId: z.number() }))
-      .query(async ({ input }) => {
-        const job = await getSkillJobById(input.jobId);
+      .query(async ({ ctx, input }) => {
+        const job = await getSkillJobById(input.jobId, ctx.user.id);
         if (!job) throw new TRPCError({ code: "NOT_FOUND" });
         return job;
       }),
@@ -1119,7 +1118,7 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        await deleteScene(input.id);
+        await deleteScene(input.id, ctx.user.id);
         return { success: true };
       }),
 
@@ -1128,6 +1127,12 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const persona = await getPersonaById(input.personaId, ctx.user.id);
         if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
+        // 校验场景归属：内置场景或本人创建的场景才允许激活，
+        // 否则可激活并把他人私有 systemPromptOverlay 注入自己的对话（越权 + 提示注入）。
+        const scene = await getSceneById(input.sceneId);
+        if (!scene || (!scene.isBuiltin && scene.userId !== ctx.user.id)) {
+          throw new TRPCError({ code: "NOT_FOUND" });
+        }
         await activateScene(input.personaId, input.sceneId);
         return { success: true };
       }),

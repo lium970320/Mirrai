@@ -1,5 +1,6 @@
 import { ENV } from "../_core/env";
 import type { StickerIntent } from "./sticker-intent";
+import { looksSeriousOrTechnicalForSticker } from "./sticker-intent";
 
 export type StickerReplyPolicyConfig = {
   enabled: boolean;
@@ -54,10 +55,6 @@ function textLength(text: string): number {
   return Array.from(text.replace(/\s+/g, "")).length;
 }
 
-function looksSeriousOrTechnical(text: string): boolean {
-  return /代码|bug|报错|数据库|接口|部署|配置|脚本|服务|端口|日志|模型参数|token|api|github|论文|作业|批改|公式|证明|分析|解释一下|怎么实现|步骤|方案|文档/i.test(text);
-}
-
 function isUserJokeOrTease(text: string): boolean {
   return /哈哈|笑死|开玩笑|逗你|逗我|调侃|坏|欠揍|哼|嘴硬|撒娇|夸你|夸我|抱抱|想你/.test(text);
 }
@@ -87,7 +84,7 @@ export function checkStickerReplyPolicy(input: StickerReplyPolicyInput): Sticker
   if (textLength(input.replyText) > config.maxReplyLength) {
     return { shouldSendSticker: false, reason: "sticker_skipped_by_length" };
   }
-  if (looksSeriousOrTechnical(`${input.inputText}\n${input.replyText}`)) {
+  if (looksSeriousOrTechnicalForSticker(`${input.inputText}\n${input.replyText}`)) {
     return { shouldSendSticker: false, reason: "sticker_skipped_by_context" };
   }
   if (!intent?.shouldSend) {

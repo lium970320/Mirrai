@@ -56,6 +56,8 @@ export type VoiceReplySmartJudge = (input: VoiceReplyPolicyInput) => Promise<Voi
 export type VoiceRequestJudge = (input: VoiceReplyPolicyInput) => Promise<VoiceRequestDecision>;
 
 const lastVoiceReplyAt = new Map<string, number>();
+const VOICE_COOLDOWN_MAX_ENTRIES = 2000;
+const VOICE_COOLDOWN_ENTRY_TTL_MS = 60 * 60 * 1000;
 const MAX_NON_EXPLICIT_VOICE_CHUNKS = 3;
 
 function normalizeMode(mode: string): VoiceReplyMode {
@@ -379,5 +381,11 @@ export async function checkVoiceReplyPolicy(input: VoiceReplyPolicyInput): Promi
 }
 
 export function markVoiceReplySent(contactId: string, nowMs = Date.now()): void {
+  // 防止冷却 Map 无界增长：长期运行 / 联系人增多时，顺手清掉早已超出冷却窗口的旧条目。
+  if (lastVoiceReplyAt.size > VOICE_COOLDOWN_MAX_ENTRIES) {
+    for (const [key, at] of Array.from(lastVoiceReplyAt.entries())) {
+      if (nowMs - at > VOICE_COOLDOWN_ENTRY_TTL_MS) lastVoiceReplyAt.delete(key);
+    }
+  }
   lastVoiceReplyAt.set(contactId, nowMs);
 }

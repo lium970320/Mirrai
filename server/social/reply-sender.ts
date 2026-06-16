@@ -1,6 +1,6 @@
 import { splitAssistantReplyForChat } from "../_core/reply-utils";
 
-type WeChatContactLike = {
+type SocialContactLike = {
   say(text: string): Promise<void> | void;
 };
 
@@ -20,8 +20,8 @@ function nextMessageDelayMs(nextChunk: string, index: number): number {
   return Math.min(12_000, Math.max(1_200, typingDelay + indexedPause + jitter));
 }
 
-export async function sayWeChatReply(
-  contact: WeChatContactLike,
+export async function saySocialReply(
+  contact: SocialContactLike,
   text: string,
   options: SendReplyOptions = {},
 ): Promise<number> {

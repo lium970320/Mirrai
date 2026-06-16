@@ -90,9 +90,6 @@ export function selectSticker(input: StickerSelectorInput): StickerSelectionResu
   const random = input.random ?? Math.random;
   const chosen = best[Math.floor(random() * best.length)] ?? best[0];
 
-  const nextRecent = [...recent, chosen.sticker.id].slice(-Math.max(recentLimit, 1));
-  recentStickerIdsByContact.set(input.contactId, nextRecent);
-
   console.info(`sticker_selected contact=${input.contactId} id=${chosen.sticker.id}`);
   return {
     ok: true,
@@ -104,4 +101,12 @@ export function selectSticker(input: StickerSelectorInput): StickerSelectionResu
       intensity: chosen.sticker.intensity,
     },
   };
+}
+
+// 仅在表情包真正发送成功后调用，记入「最近使用」去重池。
+// 之前在 selectSticker 里选中即记账，发送失败/中止时会污染去重池，在小素材池下尤其明显。
+export function markStickerSent(contactId: string, stickerId: string, avoidRepeatRecentCount?: number): void {
+  const recentLimit = Math.max(1, avoidRepeatRecentCount ?? ENV.qqStickerReplyAvoidRepeatRecentCount);
+  const recent = recentStickerIdsByContact.get(contactId) ?? [];
+  recentStickerIdsByContact.set(contactId, [...recent, stickerId].slice(-recentLimit));
 }

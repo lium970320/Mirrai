@@ -59,7 +59,7 @@ const TIPS = [
   { icon: Heart, text: "编辑分身资料，添加你们的共同回忆，让对话更有温度" },
   { icon: Brain, text: "每个分身可以选择不同的 AI 提供商，找到最适合的风格" },
   { icon: Coffee, text: "试试在不同情感状态下对话，TA 会有不同的回应方式" },
-  { icon: Star, text: "绑定微信后，TA 可以在微信上直接和你聊天" },
+  { icon: Star, text: "绑定 QQ 后，TA 可以在 QQ 上直接和你聊天" },
 ];
 
 const LOVE_QUOTES = [
@@ -828,8 +828,6 @@ function ConversationStarters({ personas, onChat }: { personas: any[]; onChat: (
   const ready = personas.filter((p: any) => p.analysisStatus === "ready");
   const [starterIdx, setStarterIdx] = useState(() => Math.floor(Math.random() * CONVERSATION_STARTERS.length));
 
-  if (ready.length === 0) return null;
-
   const starters = useMemo(() => {
     const result: Array<{ text: string; personaId: number; personaName: string }> = [];
     for (const p of ready.slice(0, 3)) {
@@ -845,6 +843,10 @@ function ConversationStarters({ personas, onChat }: { personas: any[]; onChat: (
     }
     return result;
   }, [ready, starterIdx]);
+
+  // 所有 Hook 必须在任何提前 return 之前调用：ready 从 0 变非 0 时若 Hook 数量变化，
+  // React 会抛 "Rendered more hooks than during the previous render" 并使整页崩到错误界面。
+  if (ready.length === 0) return null;
 
   return (
     <div className="mb-6">

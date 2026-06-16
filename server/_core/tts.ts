@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { spawn } from "child_process";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, statSync } from "fs";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
@@ -11,6 +11,16 @@ import {
   selectVoxcpmVoiceProfile,
   type SelectedVoxcpmVoiceProfile,
 } from "../voice/voxcpm-voice-profile";
+
+// 判定 TTS 缓存/产物文件是否可用：存在且大于 1KB，挡掉空文件或被截断的半成品，
+// 避免一条坏 WAV 被当成缓存命中后对同 key 的所有后续回复永久复用。
+function isUsableAudioFile(filePath: string): boolean {
+  try {
+    return existsSync(filePath) && statSync(filePath).size > 1024;
+  } catch {
+    return false;
+  }
+}
 
 const UPLOAD_DIR = ENV.uploadDir || "./uploads";
 const TTS_DIR = path.resolve(UPLOAD_DIR, "tts");
@@ -438,7 +448,7 @@ async function generateVoxcpmTTSFile(
   const filePath = path.join(TTS_DIR, fileName);
   const urlPath = `/uploads/tts/${fileName}`;
 
-  if (existsSync(filePath)) {
+  if (isUsableAudioFile(filePath)) {
     console.info(
       `tts_voxcpm_cache_hit chars=${Array.from(performance.speechText).length} profile=${performance.voiceProfile.profile.id} prepareMs=${preparedAt - startedAt}`,
     );
@@ -477,8 +487,8 @@ async function generateVoxcpmTTSFile(
     if (!body.ok) {
       throw new Error(body.error || "VoxCPM service returned an unsuccessful response");
     }
-    if (!existsSync(filePath)) {
-      throw new Error("VoxCPM service did not create an audio file");
+    if (!isUsableAudioFile(filePath)) {
+      throw new Error("VoxCPM service did not create a usable audio file");
     }
     console.info(`tts_voxcpm_request_success elapsedMs=${Date.now() - preparedAt} totalMs=${Date.now() - startedAt}`);
     return { filePath, urlPath, voice, provider: "voxcpm", format: "wav" };

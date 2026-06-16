@@ -170,7 +170,10 @@ class VoxCPMState:
         import soundfile as sf
 
         wav = _postprocess_generated_wav(wav, sample_rate)
-        sf.write(str(output_path), wav, sample_rate)
+        # 原子写入：先写临时文件再 os.replace，避免并发/中断时下游 existsSync 命中半成品 WAV。
+        tmp_output = f"{output_path}.{os.getpid()}.tmp"
+        sf.write(tmp_output, wav, sample_rate)
+        os.replace(tmp_output, str(output_path))
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         logger.info("generated output=%s sample_rate=%s elapsed_ms=%s", output_path, sample_rate, elapsed_ms)
         return {

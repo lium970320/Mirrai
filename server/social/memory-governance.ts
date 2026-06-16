@@ -19,7 +19,8 @@ const STOP_WORDS = new Set([
   "今天", "昨天", "之前", "以前", "刚才", "真的", "感觉", "时候", "用户",
 ]);
 
-const LOCATION_TERMS = ["武汉", "南京", "北京", "上海", "广州", "深圳", "杭州", "家里", "学校", "研究所", "大学", "宿舍"];
+const CONCRETE_LOCATION_TERMS = ["武汉", "南京", "北京", "上海", "广州", "深圳", "杭州"];
+const LOCATION_TERMS = [...CONCRETE_LOCATION_TERMS, "家里", "学校", "研究所", "大学", "宿舍"];
 
 function compactText(value: unknown): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -59,18 +60,40 @@ function hasNegation(text: string): boolean {
   return /不是|不再|已经不|没有|别再|不要|不喜欢|讨厌|不想|不能/.test(text);
 }
 
+function isNegatedLocationMention(text: string, term: string): boolean {
+  const compact = text.replace(/\s+/g, "");
+  let fromIndex = 0;
+  while (fromIndex < compact.length) {
+    const index = compact.indexOf(term, fromIndex);
+    if (index < 0) return false;
+    const prefix = compact.slice(Math.max(0, index - 8), index);
+    if (!/(不在|不再在|已经不在|没在|没有在|不是在|离开|搬离)$/.test(prefix)) {
+      return false;
+    }
+    fromIndex = index + term.length;
+  }
+  return true;
+}
+
 function locationsIn(text: string): Set<string> {
-  return new Set(LOCATION_TERMS.filter(term => text.includes(term)));
+  return new Set(LOCATION_TERMS.filter(term => text.includes(term) && !isNegatedLocationMention(text, term)));
+}
+
+function comparableLocations(locations: Set<string>): Set<string> {
+  const concrete = CONCRETE_LOCATION_TERMS.filter(term => locations.has(term));
+  return concrete.length ? new Set(concrete) : locations;
 }
 
 function hasLocationConflict(card: StructuredMemoryCard, memory: ExistingMemory): boolean {
-  const cardLocations = locationsIn(`${card.title}\n${card.description}\n${card.keywords.join("\n")}`);
-  const memoryLocations = locationsIn(`${memory.title}\n${memory.description || ""}\n${keywordArray(memory.keywords).join("\n")}`);
+  const cardLocations = comparableLocations(locationsIn(`${card.title}\n${card.description}\n${card.keywords.join("\n")}`));
+  const memoryLocations = comparableLocations(locationsIn(`${memory.title}\n${memory.description || ""}\n${keywordArray(memory.keywords).join("\n")}`));
   if (cardLocations.size === 0 || memoryLocations.size === 0) return false;
-  for (const location of Array.from(cardLocations)) {
-    if (memoryLocations.has(location)) return false;
+  for (const cardLocation of Array.from(cardLocations)) {
+    for (const memoryLocation of Array.from(memoryLocations)) {
+      if (cardLocation !== memoryLocation) return true;
+    }
   }
-  return true;
+  return false;
 }
 
 function hasDirectConflict(card: StructuredMemoryCard, memory: ExistingMemory): boolean {
@@ -111,7 +134,10 @@ export function decideMemoryGovernance(
       };
     }
 
-    if (overlap >= 2 && card.memoryType === memory.memoryType && hasDirectConflict(card, memory)) {
+    // 否定极性差异是弱证据：必须有足够强的主题重叠（overlap>=6，约等于命中多个词或一个长实义词）
+    // 才认定冲突。否则两条主题不同、仅共享一个高频词（如都含某个人名）的记忆会被误判为
+    // contradicted，悄悄损坏记忆账本。可靠的地点/状态冲突由下面的独立分支按更低阈值单独处理。
+    if (overlap >= 6 && card.memoryType === memory.memoryType && hasDirectConflict(card, memory)) {
       const cardConfidence = card.confidence ?? 3;
       const oldConfidence = memory.confidence ?? 3;
       if (cardConfidence >= oldConfidence && card.importance >= 4) {

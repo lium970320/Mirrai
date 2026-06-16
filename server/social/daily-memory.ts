@@ -2,10 +2,12 @@ import { ENV } from "../_core/env";
 import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
 import {
   createMemory,
+  getActiveMemoriesByPersonaId,
   getMemoryByTitleAndDate,
   getMemoryBySourceAndDate,
   getMessagesByDate,
   getReadyPersonasForDailyMemory,
+  updateMemory,
 } from "../db";
 import type { Message, Persona } from "../../drizzle/schema";
 import { llmService } from "../llm";
@@ -15,6 +17,7 @@ import {
   structuredMemoryToInsert,
   type StructuredMemoryCard,
 } from "./memory-card";
+import { decideMemoryGovernance } from "./memory-governance";
 
 type DailyMemoryParsed = {
   shouldRemember: boolean;
@@ -252,14 +255,30 @@ export async function extractDailyMemoryForPersona(persona: Persona, date: strin
         category: "memory",
         evidenceMessageIds,
       }, 1);
+    // 每日记忆写入必须和回合内 consolidation 走同一套治理：去重 / 冲突 / 关闭话题，
+    // 否则每日整理产出的卡片会与当天实时沉淀的卡片重复、或与历史事实冲突却得不到标记，
+    // 长期累积近义重复会稀释 top-N 召回质量。
+    const existingMemories = await getActiveMemoriesByPersonaId(personaId, userId);
     const memoryIds: number[] = [];
     for (const card of cards) {
-      const memoryId = await createMemory(structuredMemoryToInsert({
+      const cardForGovernance: StructuredMemoryCard = {
         ...card,
         source: "daily_summary",
         date,
         evidenceMessageIds: card.evidenceMessageIds.length > 0 ? card.evidenceMessageIds : evidenceMessageIds,
-      }, personaId, userId));
+      };
+      const decision = decideMemoryGovernance(cardForGovernance, existingMemories as any);
+      if (decision.action === "skip_duplicate") {
+        console.info(`[DailyMemory] memory_skip_duplicate persona=${personaId} date=${date} duplicateOf=${decision.duplicateOf}`);
+        continue;
+      }
+      for (const id of decision.archiveIds) {
+        await updateMemory(id, userId, { status: "archived" });
+      }
+      for (const id of decision.contradictIds) {
+        await updateMemory(id, userId, { status: "contradicted", confidence: 1 });
+      }
+      const memoryId = await createMemory(structuredMemoryToInsert(cardForGovernance, personaId, userId));
       memoryIds.push(memoryId);
     }
     if (memoryIds.length === 0) return { ok: true, status: "skipped_low_signal", personaId, date };

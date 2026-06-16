@@ -5,8 +5,8 @@ import { ENV } from "../_core/env";
 import { recordOperationsEvent } from "../_core/operations-events";
 import { generateTTSFile } from "../_core/tts";
 import { splitAssistantReplyForChat, stripReplyDecorativeQuotes } from "../_core/reply-utils";
-import { enqueueWechatTextMessage, type BatchedTextMessage } from "../social/incoming-message-batcher";
-import { sayWeChatReply } from "../social/reply-sender";
+import { enqueueSocialTextMessage, type BatchedTextMessage } from "../social/incoming-message-batcher";
+import { saySocialReply } from "../social/reply-sender";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
@@ -15,7 +15,7 @@ import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 import { checkVoiceReplyPolicy, markVoiceReplySent, type VoiceReplySource, type VoiceRequestDecision } from "../voice/voice-reply-policy";
 import { detectStickerIntent } from "../stickers/sticker-intent";
 import { checkStickerReplyPolicy, markStickerReplySent } from "../stickers/sticker-policy";
-import { selectSticker } from "../stickers/sticker-selector";
+import { selectSticker, markStickerSent } from "../stickers/sticker-selector";
 import { sendQqSticker } from "../stickers/sticker-sender";
 
 export type OneBotMessageSegment = {
@@ -468,7 +468,7 @@ async function sayQqReply(
   reply: string,
   options: { shouldAbort?: () => boolean } = {},
 ): Promise<void> {
-  await sayWeChatReply({
+  await saySocialReply({
     say: async (text: string) => {
       const sent = await sendQqText(contactId, text);
       if (!sent) throw new Error("QQ text send failed");
@@ -532,6 +532,7 @@ async function sayQqReplyWithOptionalSticker(
   }
 
   markStickerReplySent(contactId);
+  markStickerSent(contactId, selected.sticker.id);
 }
 
 function voiceTextFromReply(reply: string): string {
@@ -800,7 +801,7 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
   }
 
   console.info(`[QQ] Queued message contact=${contactId} messageId=${event.message_id ?? ""}`);
-  enqueueWechatTextMessage({
+  enqueueSocialTextMessage({
     contact: {
       say: async (text: string) => {
         const sent = await sendQqText(contactId, text);
