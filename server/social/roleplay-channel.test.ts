@@ -3,6 +3,7 @@ import {
   formatRoleplayTranscript,
   parseRoleplayTurnResponse,
   pickNextRoleplayMember,
+  roleplayTurnCandidates,
   shouldSkipAutomaticRoleplayTurnForEconomy,
 } from "./roleplay-channel";
 import { shouldDeactivateRoleplayChannelAfterMemberRemoval } from "./roleplay-channel-policy";
@@ -28,6 +29,20 @@ describe("roleplay channel turn helpers", () => {
 
     expect(pickNextRoleplayMember(members, [], 2)?.personaId).toBe(2);
     expect(pickNextRoleplayMember(members, [], 3)).toBeNull();
+  });
+
+  it("rotates turn candidates after the last speaker so a silent member yields to the next", () => {
+    const members = [
+      { personaId: 1, displayOrder: 0, speakingEnabled: true, analysisStatus: "ready" },
+      { personaId: 2, displayOrder: 1, speakingEnabled: true, analysisStatus: "ready" },
+      { personaId: 3, displayOrder: 2, speakingEnabled: true, analysisStatus: "ready" },
+    ];
+    const order = roleplayTurnCandidates(members, [
+      { personaId: 1, speakerName: "甲", role: "persona", content: "我先说。" },
+    ]).map(member => member.personaId);
+    expect(order).toEqual([2, 3, 1]);
+
+    expect(roleplayTurnCandidates(members, [], 3).map(member => member.personaId)).toEqual([3]);
   });
 
   it("formats transcript with speaker names without leaking inner thoughts", () => {
