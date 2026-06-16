@@ -3,7 +3,7 @@
 > 这批改动在 Google Drive 同步盘**源码副本**上完成，无法在该机器运行 `tsc`/`vitest`（无 `node_modules`）。
 > 需把源码同步到运行机 **`F:/Code/Mirrai`** 后按本清单验证。**验证通过前不要 `git push`。**
 
-当前 `main` 比 `origin/main` 领先约 **28 个本地提交**：收口 10 + P0 修复 7 + P1/P2 修复与清理 11。
+当前 `main` 比 `origin/main` 领先约 **31 个本地提交**：收口 10 + P0 修复 7 + P1/P2 修复与清理 14。
 
 ---
 
@@ -67,6 +67,8 @@ corepack pnpm exec vitest run `
 | 前端文案 | `89f66b9` | Landing/大厅不再出现「微信」营销文案（历史频道徽章、上传素材说明里的微信是合理保留）|
 | WeChat 残留清理 | `c9c4724` `5058b5a` | **`pnpm run check` 必须通过**（确认 sayWeChatReply→saySocialReply 等重命名无遗漏断链）；批处理/发送/QQ 自动绑定行为不变；`SOCIAL_REPLY_BATCH_*` 取代旧 `WECHAT_REPLY_BATCH_*` 环境变量 |
 | sticker/intimacy 去重 | `399f76a` | `vitest run server/stickers/sticker-policy.test.ts` 通过；表情包对「崩了/错误/封控」类严肃话题现在也会屏蔽 |
+| 端口策略 | `2c1edd8` | 服务仍在 3000 启动；**3000 被占用时直接报错退出**（不再顺延到 3001），运维脚本端口检测保持准确 |
+| sticker 记账时机 | `3867a17` | `vitest run server/stickers/sticker-selector.test.ts` 通过；表情包发送失败/中止后不再污染「最近使用」去重池 |
 
 ---
 
@@ -86,7 +88,7 @@ corepack pnpm exec vitest run `
 - **Drizzle 迁移 journal 重建**：审阅核验为「有意决定」（`ensure*Table` + `db:check` 闭环），非阻塞，延后；可顺手删重复的 `drizzle/0000_cheerful_darwin.sql`。
 - ~~**文档微信残留**（`docs/qq-onebot.md` 微信回退叙述）~~ 已修正；`docs/*` 里失效的 `F:/Google Drive` 源码链接仍待整理（低优先）。
 - **保留项说明**：runtime 平台/通道枚举里的 `wechat` 值、`wechat_bindings`/`wechat_bot_state` 表、历史消息的「微信」展示**有意保留**——它们承载历史数据与复用表（QQ 绑定以 `qq:` 前缀存于 `wechat_bindings`），不是残留。彻底移除运行时 `wechat` 平台分支会牵动 contract 与多个平台测试，留作单独的有验证的改动。
-- **其他 P2**：~~sticker 严肃话题正则去重~~（已做 `399f76a`）、~~`INTIMACY_LEVELS` 副本复用~~（已做 `399f76a`）。剩余两项：运维脚本从 `.env` 读取实际 `PORT`（涉及多个 ps1 + 端口冲突策略，建议讨论后做）、sticker selector 改为「发送成功后再记账」以免去重池被未发出的选择污染。
+- **其他 P2 已全部完成**：sticker 严肃话题正则去重 + `INTIMACY_LEVELS` 复用（`399f76a`）、端口冲突 fail-fast（`2c1edd8`）、sticker 发送成功后再记账（`3867a17`）。
 
 ---
 
