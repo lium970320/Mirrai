@@ -141,11 +141,14 @@ export async function ensurePersonaRuntimeStatesTable() {
       "userId" integer NOT NULL,
       "runtimeLifeState" jsonb,
       "runtimeDiagnostics" jsonb,
+      "runtimeInnerState" jsonb,
       "proactiveRuntime" jsonb,
       "createdAt" timestamp DEFAULT now() NOT NULL,
       "updatedAt" timestamp DEFAULT now() NOT NULL
     )
   `);
+  // 已存在的表通过幂等加列升级（CREATE TABLE IF NOT EXISTS 不会补列）。
+  await db.execute(sql`ALTER TABLE "persona_runtime_states" ADD COLUMN IF NOT EXISTS "runtimeInnerState" jsonb`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "persona_runtime_states_persona_user_idx" ON "persona_runtime_states" ("personaId", "userId")`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "persona_runtime_states_user_idx" ON "persona_runtime_states" ("userId")`);
   personaRuntimeStatesTableEnsured = true;
@@ -167,6 +170,7 @@ async function upsertPersonaRuntimeState(
   runtime: {
     runtimeLifeState?: unknown | null;
     runtimeDiagnostics?: unknown | null;
+    runtimeInnerState?: unknown | null;
     proactiveRuntime?: unknown | null;
   },
 ) {
@@ -179,6 +183,7 @@ async function upsertPersonaRuntimeState(
     userId,
     runtimeLifeState: runtime.runtimeLifeState ?? null,
     runtimeDiagnostics: runtime.runtimeDiagnostics ?? null,
+    runtimeInnerState: runtime.runtimeInnerState ?? null,
     proactiveRuntime: runtime.proactiveRuntime ?? null,
     updatedAt: new Date(),
   };
@@ -201,6 +206,7 @@ function mergePersonaRuntimeRow<T extends { personaData: unknown; id: number; us
     personaData: mergePersonaRuntimeIntoPersonaData(persona.personaData, {
       runtimeLifeState: runtime.runtimeLifeState,
       runtimeDiagnostics: runtime.runtimeDiagnostics,
+      runtimeInnerState: runtime.runtimeInnerState,
       proactiveRuntime: runtime.proactiveRuntime,
     }),
   };
@@ -2262,9 +2268,11 @@ export async function ensureMemoryTableColumns() {
   await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "lastAccessedAt" timestamp`);
   await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "evidenceMessageIds" jsonb`);
   await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "status" varchar(50) DEFAULT 'active' NOT NULL`);
+  await db.execute(sql`ALTER TABLE "memories" ADD COLUMN IF NOT EXISTS "followUpAt" timestamp`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_persona_user_status_idx" ON "memories" ("personaId", "userId", "status")`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_type_idx" ON "memories" ("memoryType")`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_last_accessed_idx" ON "memories" ("lastAccessedAt")`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS "memories_follow_up_idx" ON "memories" ("personaId", "userId", "followUpAt")`);
 
   memoryTableColumnsEnsured = true;
   return true;
@@ -2294,6 +2302,36 @@ export async function getActiveMemoriesByPersonaId(personaId: number, userId: nu
   return db.select().from(memories)
     .where(and(eq(memories.personaId, personaId), eq(memories.userId, userId), eq(memories.status, "active")))
     .orderBy(desc(memories.createdAt));
+}
+
+/**
+ * 到期的「关心回访」：open_loop 且 followUpAt<=now 的活跃记忆。
+ * 主动消息用它自然问起用户之前提过的事；followUpAt 为 NULL 的不会命中（lte 对 NULL 判否）。
+ */
+export async function getDueFollowUps(personaId: number, userId: number, now = new Date(), limit = 3) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(memories)
+    .where(and(
+      eq(memories.personaId, personaId),
+      eq(memories.userId, userId),
+      eq(memories.status, "active"),
+      eq(memories.memoryType, "open_loop"),
+      lte(memories.followUpAt, now),
+    ))
+    .orderBy(asc(memories.followUpAt))
+    .limit(limit);
+}
+
+/** 已经主动问起后清掉 followUpAt（保留记忆本身），避免反复回访同一件事。 */
+export async function markFollowUpDone(id: number, userId: number) {
+  await ensureMemoryTableColumns();
+  const db = await getDb();
+  if (!db) return;
+  await db.update(memories)
+    .set({ followUpAt: null })
+    .where(and(eq(memories.id, id), eq(memories.userId, userId)));
 }
 
 const PINNED_FACT_MEMORY_TYPES = ["user_fact", "promise", "preference"] as const;

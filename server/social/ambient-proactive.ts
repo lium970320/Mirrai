@@ -3,12 +3,15 @@ import { getCurrentLlmEconomyPolicy } from "../llm/economy";
 import {
   createMessage,
   getDefaultLlmConfig,
+  getDueFollowUps,
   getMessagesByPersonaId,
   getPersonaById,
   getPinnedMemoryFacts,
+  markFollowUpDone,
   updatePersona,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
+import { getEffectiveInnerState } from "../_core/persona-inner-state";
 import {
   getProactiveMessageSettings,
   withPersonaRuntimeDiagnostics,
@@ -166,6 +169,8 @@ export type AmbientProactiveMessageResult = {
   replyText: string;
   runtimePlan: ProactiveRuntimePlan;
   inputText: string;
+  /** 本条消息用到的到期回访记忆 id；发送成功后据此 markFollowUpDone */
+  followUpId: number | null;
 };
 
 export async function generateAmbientMessageDetailed(
@@ -195,13 +200,25 @@ export async function generateAmbientMessageDetailed(
   } catch {
     pinnedFacts = [];
   }
+  // 到期的关心回访：让这条主动消息自然问起用户之前提过、现在该有结果的事。
+  let followUp: { id: number; title: string } | null = null;
+  try {
+    const due = await getDueFollowUps(persona.id, persona.userId, now, 1);
+    followUp = due[0] ? { id: due[0].id, title: due[0].title } : null;
+  } catch {
+    followUp = null;
+  }
 
   const response = await llmService.invoke({
     messages: [
       {
         role: "system",
         content: [
-          buildSystemPrompt(persona, { now, pinnedFacts }),
+          buildSystemPrompt(persona, {
+            now,
+            pinnedFacts,
+            innerState: getEffectiveInnerState(persona.personaData, persona.id, now),
+          }),
           runtimePlan.instruction,
         ].filter(Boolean).join("\n\n"),
       },
@@ -217,6 +234,7 @@ export async function generateAmbientMessageDetailed(
           "如果最近已经说过到所里、正在看地图或已经下班，就不要再说正要去所里；如果用户刚纠正异地，就必须按武汉-南京异地来写。",
           continuityInstruction,
           "如果上一条消息用户没回，优先沿着上一条的关心点轻轻跟进，不要另起一个相似寒暄。",
+          followUp ? `你之前一直惦记着一件事：「${followUp.title}」。如果自然，可以在这条消息里关心地顺口问一句它后来怎么样了，别生硬、别像查岗，问过一次就够。` : "",
           recentContext ? `最近对话上下文：\n${recentContext}` : "",
           proactive.stylePrompt ? `主动消息风格补充：${proactive.stylePrompt}` : "",
         ].filter(Boolean).join("\n"),
@@ -237,6 +255,7 @@ export async function generateAmbientMessageDetailed(
     replyText: cleanAssistantReply(response, fallbackMessage(period)),
     runtimePlan,
     inputText,
+    followUpId: followUp?.id ?? null,
   };
 }
 
@@ -301,6 +320,15 @@ export async function maybeSendAmbientPresenceMessage(
   const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
   if (!delivery.sent) {
     return { sent: false, reason: delivery.reason || "send_failed", period, count, target };
+  }
+
+  // 已经主动问起的回访，清掉到期标记，避免反复追问同一件事。
+  if (generated.followUpId) {
+    try {
+      await markFollowUpDone(generated.followUpId, persona.userId);
+    } catch (err) {
+      console.warn(`[AmbientProactive] markFollowUpDone failed persona=${persona.id}:`, err);
+    }
   }
 
   const nextState: AmbientPresenceState = {

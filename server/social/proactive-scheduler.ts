@@ -9,6 +9,7 @@ import {
   createMessage,
 } from "../db";
 import { buildSystemPrompt } from "../_core/persona-utils";
+import { getEffectiveInnerState } from "../_core/persona-inner-state";
 import {
   getProactiveMessageSettings,
   withPersonaRuntimeDiagnostics,
@@ -240,7 +241,11 @@ export async function generateProactiveMessageDetailed(
       {
         role: "system",
         content: [
-          buildSystemPrompt(persona, { now, pinnedFacts }),
+          buildSystemPrompt(persona, {
+            now,
+            pinnedFacts,
+            innerState: getEffectiveInnerState(persona.personaData, persona.id, now),
+          }),
           runtimePlan.instruction,
         ].filter(Boolean).join("\n\n"),
       },

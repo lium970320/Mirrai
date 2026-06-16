@@ -3,8 +3,9 @@ import { buildLlmTurnEconomyPolicy, getCurrentLlmEconomyPolicy } from "../llm/ec
 import * as db from "../db";
 import { applyIncomingLifeState } from "../_core/life-schedule";
 import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
-import { withPersonaRuntimeDiagnostics } from "../_core/persona-runtime";
-import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
+import { withPersonaRuntimeDiagnostics, withPersonaRuntimeInnerState } from "../_core/persona-runtime";
+import { buildSystemPrompt } from "../_core/persona-utils";
+import { deriveEmotionalLabel, evolveInnerState, getEffectiveInnerState } from "../_core/persona-inner-state";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import { buildConversationContinuityInstruction } from "./conversation-continuity";
 import { buildPersonaMemoryRecallContext } from "./memory-recall";
@@ -351,6 +352,8 @@ export async function handleSocialPersonaTextChatDetailed(
   const personaForPrompt = lifeGate.changed
     ? { ...persona, personaData: lifeGate.personaData }
     : persona;
+  // 读取并按时间/作息衰减后的延续内心状态（贯穿 reflection、系统提示词、回合后演进）。
+  const innerState = getEffectiveInnerState(personaForPrompt.personaData, persona.id, now);
 
   const defaultConfig = await db.getDefaultLlmConfig(options.binding.userId);
   const extra = (defaultConfig?.extraConfig as any) || {};
@@ -408,6 +411,7 @@ export async function handleSocialPersonaTextChatDetailed(
     recentMessages: history.slice(-economy.context.reflectionRecentLimit),
     turnPlan,
     sourceRecallActive,
+    priorInnerState: innerState,
   });
   const memoryRecallContext = await buildPersonaMemoryRecallContext({
     personaId: options.binding.personaId,
@@ -454,6 +458,7 @@ export async function handleSocialPersonaTextChatDetailed(
       longBackgroundMode: sourceRecallContext ? "none" : "compact",
       now,
       pinnedFacts,
+      innerState,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
@@ -532,7 +537,13 @@ export async function handleSocialPersonaTextChatDetailed(
   if (shouldAbortPendingReply(options, persona.id, "before_persist")) {
     return null;
   }
-  const newState = computeEmotionalState(options.messageText, replyText, persona.emotionalState);
+  // 回合结束：演进延续内心状态，并由它派生兼容用的 emotionalState 标签。
+  const nextInnerState = evolveInnerState(innerState, {
+    reflectionMood: reflection.mood,
+    reflectionInnerReaction: reflection.innerReaction,
+    intent: turnPlan.intent,
+  }, now);
+  const newState = deriveEmotionalLabel(nextInnerState);
 
   const assistantMessageId = await db.createMessage({
     personaId: options.binding.personaId,
@@ -584,7 +595,10 @@ export async function handleSocialPersonaTextChatDetailed(
     chatCount: (persona.chatCount || 0) + 1,
     lastChatAt: now,
     emotionalState: newState as any,
-    personaData: withPersonaRuntimeDiagnostics(promptPersonaData, runtimeDiagnostics),
+    personaData: withPersonaRuntimeInnerState(
+      withPersonaRuntimeDiagnostics(promptPersonaData, runtimeDiagnostics),
+      nextInnerState,
+    ),
   });
 
   // 落库到真正发送之间，若用户又发来新消息，本条回复会被发送层丢弃。

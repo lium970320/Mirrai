@@ -41,6 +41,7 @@ describe("persona runtime state", () => {
     expect(getPersonaRuntimeState(personaData)).toEqual({
       runtimeLifeState: { status: "canonical" },
       runtimeDiagnostics: { source: "canonical" },
+      runtimeInnerState: null,
       proactiveMessages: {
         randomizedSchedule: { source: "canonical_schedule" },
         lastSent: { "18:00": "2026-06-07" },

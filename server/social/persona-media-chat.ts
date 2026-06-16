@@ -1,8 +1,9 @@
 import { nanoid } from "nanoid";
 import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
 import { applyIncomingLifeState } from "../_core/life-schedule";
-import { withPersonaRuntimeDiagnostics } from "../_core/persona-runtime";
-import { computeEmotionalState, buildSystemPrompt } from "../_core/persona-utils";
+import { withPersonaRuntimeDiagnostics, withPersonaRuntimeInnerState } from "../_core/persona-runtime";
+import { buildSystemPrompt } from "../_core/persona-utils";
+import { deriveEmotionalLabel, evolveInnerState, getEffectiveInnerState } from "../_core/persona-inner-state";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import * as db from "../db";
 import { llmService } from "../llm";
@@ -204,11 +205,13 @@ export async function handleSocialPersonaMediaChatDetailed(
   } catch {
     pinnedFacts = [];
   }
+  const innerState = getEffectiveInnerState(personaForPrompt.personaData, options.binding.personaId, now);
   const systemPrompt = [
     buildSystemPrompt(personaForPrompt, {
       sceneOverlay: options.sceneOverlay,
       now,
       pinnedFacts,
+      innerState,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
@@ -256,7 +259,9 @@ export async function handleSocialPersonaMediaChatDetailed(
   });
 
   const replyText = cleanAssistantReply(response);
-  const newState = computeEmotionalState(label, replyText, persona.emotionalState);
+  // 媒体也是真实用户回合：演进延续内心状态并派生兼容标签（mood 续接、强度小幅抬升）。
+  const nextInnerState = evolveInnerState(innerState, { intent: turnPlan.intent }, now);
+  const newState = deriveEmotionalLabel(nextInnerState);
 
   const assistantMessageId = await db.createMessage({
     personaId: options.binding.personaId,
@@ -291,7 +296,10 @@ export async function handleSocialPersonaMediaChatDetailed(
     chatCount: (persona.chatCount || 0) + 1,
     lastChatAt: now,
     emotionalState: newState as any,
-    personaData: withPersonaRuntimeDiagnostics(personaForPrompt.personaData, runtimeDiagnostics),
+    personaData: withPersonaRuntimeInnerState(
+      withPersonaRuntimeDiagnostics(personaForPrompt.personaData, runtimeDiagnostics),
+      nextInnerState,
+    ),
   });
 
   return {
