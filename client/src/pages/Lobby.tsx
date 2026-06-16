@@ -828,8 +828,6 @@ function ConversationStarters({ personas, onChat }: { personas: any[]; onChat: (
   const ready = personas.filter((p: any) => p.analysisStatus === "ready");
   const [starterIdx, setStarterIdx] = useState(() => Math.floor(Math.random() * CONVERSATION_STARTERS.length));
 
-  if (ready.length === 0) return null;
-
   const starters = useMemo(() => {
     const result: Array<{ text: string; personaId: number; personaName: string }> = [];
     for (const p of ready.slice(0, 3)) {
@@ -845,6 +843,10 @@ function ConversationStarters({ personas, onChat }: { personas: any[]; onChat: (
     }
     return result;
   }, [ready, starterIdx]);
+
+  // 所有 Hook 必须在任何提前 return 之前调用：ready 从 0 变非 0 时若 Hook 数量变化，
+  // React 会抛 "Rendered more hooks than during the previous render" 并使整页崩到错误界面。
+  if (ready.length === 0) return null;
 
   return (
     <div className="mb-6">
