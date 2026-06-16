@@ -111,7 +111,10 @@ export function decideMemoryGovernance(
       };
     }
 
-    if (overlap >= 2 && card.memoryType === memory.memoryType && hasDirectConflict(card, memory)) {
+    // 否定极性差异是弱证据：必须有足够强的主题重叠（overlap>=6，约等于命中多个词或一个长实义词）
+    // 才认定冲突。否则两条主题不同、仅共享一个高频词（如都含某个人名）的记忆会被误判为
+    // contradicted，悄悄损坏记忆账本。可靠的地点/状态冲突由下面的独立分支按更低阈值单独处理。
+    if (overlap >= 6 && card.memoryType === memory.memoryType && hasDirectConflict(card, memory)) {
       const cardConfidence = card.confidence ?? 3;
       const oldConfidence = memory.confidence ?? 3;
       if (cardConfidence >= oldConfidence && card.importance >= 4) {
