@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getQqBindingByContactId: vi.fn(),
-  getSingleReadyPersonaForWechatAutoBind: vi.fn(),
+  getSingleReadyPersonaForQqAutoBind: vi.fn(),
   createQqBinding: vi.fn(),
   handleSocialPersonaTextChatDetailed: vi.fn(),
   handleSocialPersonaMediaChat: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("../_core/env", () => ({
 vi.mock("../db", () => ({
   QQ_CONTACT_PREFIX: "qq:",
   getQqBindingByContactId: mocks.getQqBindingByContactId,
-  getSingleReadyPersonaForWechatAutoBind: mocks.getSingleReadyPersonaForWechatAutoBind,
+  getSingleReadyPersonaForQqAutoBind: mocks.getSingleReadyPersonaForQqAutoBind,
   createQqBinding: mocks.createQqBinding,
 }));
 

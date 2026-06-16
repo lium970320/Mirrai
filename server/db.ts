@@ -2029,7 +2029,7 @@ export async function deleteQqBinding(id: number, userId: number) {
   ));
 }
 
-export async function getSingleReadyPersonaForWechatAutoBind() {
+export async function getSingleReadyPersonaForQqAutoBind() {
   const db = await getDb();
   if (!db) return undefined;
 

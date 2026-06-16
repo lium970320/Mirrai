@@ -79,7 +79,7 @@ vi.mock("../social/incoming-message-batcher", async () => {
   const actual = await vi.importActual<typeof import("../social/incoming-message-batcher")>("../social/incoming-message-batcher");
   return {
     ...actual,
-    enqueueWechatTextMessage: vi.fn((options: any) => {
+    enqueueSocialTextMessage: vi.fn((options: any) => {
       mocks.pendingBatches.push(Promise.resolve(options.onBatch({
         contact: options.contact,
         contactId: options.contactId,

@@ -1,9 +1,9 @@
-type WeChatContactLike = {
+type SocialContactLike = {
   say(text: string): Promise<void> | void;
 };
 
 export type BatchedTextMessage = {
-  contact: WeChatContactLike;
+  contact: SocialContactLike;
   contactId: string;
   contactName: string;
   messages: string[];
@@ -14,7 +14,7 @@ export type BatchedTextMessage = {
 };
 
 type BatchState = {
-  contact: WeChatContactLike;
+  contact: SocialContactLike;
   contactName: string;
   firstMessageAt: number;
   messages: string[];
@@ -24,7 +24,7 @@ type BatchState = {
 };
 
 type EnqueueOptions = {
-  contact: WeChatContactLike;
+  contact: SocialContactLike;
   contactId: string;
   contactName: string;
   text: string;
@@ -48,14 +48,14 @@ function readPositiveIntegerEnv(name: string, fallback: number, minimum: number)
 }
 
 function debounceMs(): number {
-  return readPositiveIntegerEnv("WECHAT_REPLY_BATCH_DEBOUNCE_MS", DEFAULT_DEBOUNCE_MS, MIN_DEBOUNCE_MS);
+  return readPositiveIntegerEnv("SOCIAL_REPLY_BATCH_DEBOUNCE_MS", DEFAULT_DEBOUNCE_MS, MIN_DEBOUNCE_MS);
 }
 
 function maxWaitMs(): number {
-  return readPositiveIntegerEnv("WECHAT_REPLY_BATCH_MAX_WAIT_MS", DEFAULT_MAX_WAIT_MS, MIN_MAX_WAIT_MS);
+  return readPositiveIntegerEnv("SOCIAL_REPLY_BATCH_MAX_WAIT_MS", DEFAULT_MAX_WAIT_MS, MIN_MAX_WAIT_MS);
 }
 
-export function buildBatchedWechatInput(messages: string[]): string {
+export function buildBatchedSocialInput(messages: string[]): string {
   const cleanMessages = messages.map(message => message.trim()).filter(Boolean);
   if (cleanMessages.length <= 1) return cleanMessages[0] ?? "";
   return cleanMessages.join("\n");
@@ -101,20 +101,20 @@ async function flushTextBatch(contactId: string, onBatch: (batch: BatchedTextMes
     contactId,
     contactName: state.contactName,
     messages,
-    combinedText: buildBatchedWechatInput(messages),
+    combinedText: buildBatchedSocialInput(messages),
     messageCount: messages.length,
     batchRevision,
     isStale: () => isTextBatchStale(contactId, batchRevision),
   };
 
   console.info(
-    `[WeChat] Processing text batch contact=${contactId} messages=${batch.messageCount}`,
+    `[Social] Processing text batch contact=${contactId} messages=${batch.messageCount}`,
   );
 
   try {
     await onBatch(batch);
   } catch (err) {
-    console.error("[WeChat] Text batch processing failed:", err);
+    console.error("[Social] Text batch processing failed:", err);
   } finally {
     state.processing = false;
     state.firstMessageAt = Date.now();
@@ -127,7 +127,7 @@ async function flushTextBatch(contactId: string, onBatch: (batch: BatchedTextMes
   }
 }
 
-export function enqueueWechatTextMessage(options: EnqueueOptions): void {
+export function enqueueSocialTextMessage(options: EnqueueOptions): void {
   const text = options.text.trim();
   if (!text) return;
 
@@ -152,7 +152,7 @@ export function enqueueWechatTextMessage(options: EnqueueOptions): void {
   states.set(options.contactId, state);
 
   console.info(
-    `[WeChat] Queued text message contact=${options.contactId} pending=${state.messages.length} processing=${state.processing ? "yes" : "no"}`,
+    `[Social] Queued text message contact=${options.contactId} pending=${state.messages.length} processing=${state.processing ? "yes" : "no"}`,
   );
 
   scheduleFlush(options.contactId, options.onBatch);

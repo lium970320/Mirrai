@@ -21,7 +21,7 @@ async function resolveQqBinding(contactId: string, contactName: string) {
   if (!db.QQ_CONTACT_PREFIX || !contactId.startsWith(db.QQ_CONTACT_PREFIX)) return undefined;
   if (!ENV.qqAutoBindSingleReadyPersona) return undefined;
 
-  const persona = await db.getSingleReadyPersonaForWechatAutoBind();
+  const persona = await db.getSingleReadyPersonaForQqAutoBind();
   if (!persona) return undefined;
 
   await db.createQqBinding({
