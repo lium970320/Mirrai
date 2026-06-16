@@ -59,7 +59,7 @@ const TIPS = [
   { icon: Heart, text: "编辑分身资料，添加你们的共同回忆，让对话更有温度" },
   { icon: Brain, text: "每个分身可以选择不同的 AI 提供商，找到最适合的风格" },
   { icon: Coffee, text: "试试在不同情感状态下对话，TA 会有不同的回应方式" },
-  { icon: Star, text: "绑定微信后，TA 可以在微信上直接和你聊天" },
+  { icon: Star, text: "绑定 QQ 后，TA 可以在 QQ 上直接和你聊天" },
 ];
 
 const LOVE_QUOTES = [
