@@ -22,6 +22,7 @@ import {
   resolveProactivePreferredTarget,
   sendProactiveTextToPreferredPlatform,
 } from "./proactive-delivery";
+import { resolveProactiveModality } from "./proactive-multimodal";
 import {
   buildProactiveRuntimeDiagnostics,
   buildProactiveRuntimePlan,
@@ -208,6 +209,8 @@ export async function generateAmbientMessageDetailed(
   } catch {
     followUp = null;
   }
+  // 人物「自己今天」的状态，给主动消息一个由头（而非纯寒暄）。
+  const innerState = getEffectiveInnerState(persona.personaData, persona.id, now);
 
   const response = await llmService.invoke({
     messages: [
@@ -217,7 +220,7 @@ export async function generateAmbientMessageDetailed(
           buildSystemPrompt(persona, {
             now,
             pinnedFacts,
-            innerState: getEffectiveInnerState(persona.personaData, persona.id, now),
+            innerState,
           }),
           runtimePlan.instruction,
         ].filter(Boolean).join("\n\n"),
@@ -234,6 +237,7 @@ export async function generateAmbientMessageDetailed(
           "如果最近已经说过到所里、正在看地图或已经下班，就不要再说正要去所里；如果用户刚纠正异地，就必须按武汉-南京异地来写。",
           continuityInstruction,
           "如果上一条消息用户没回，优先沿着上一条的关心点轻轻跟进，不要另起一个相似寒暄。",
+          innerState.dayContext?.note ? `你今天的状态：${innerState.dayContext.note}。可以让这点自然影响语气，偶尔顺口提一句自己今天，但别长篇、别报流水账。` : "",
           followUp ? `你之前一直惦记着一件事：「${followUp.title}」。如果自然，可以在这条消息里关心地顺口问一句它后来怎么样了，别生硬、别像查岗，问过一次就够。` : "",
           recentContext ? `最近对话上下文：\n${recentContext}` : "",
           proactive.stylePrompt ? `主动消息风格补充：${proactive.stylePrompt}` : "",
@@ -367,6 +371,8 @@ export async function maybeSendAmbientPresenceMessage(
           eventText,
           period,
           ambientPresence: nextState,
+          // 多模态开关开启时记录本条打算用的模态（实际语音/表情发送为后续工作）。
+          multimodalIntent: resolveProactiveModality(),
         },
       }),
     ),

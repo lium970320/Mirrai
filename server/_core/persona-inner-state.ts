@@ -1,4 +1,5 @@
 import { getPersonaScheduleState } from "./life-schedule";
+import { getPersonaLifeConfig } from "./persona-life-config";
 import { getPersonaRuntimeState } from "./persona-runtime";
 
 /**
@@ -18,6 +19,14 @@ export type PersonaDayContext = {
   valenceBias: number;
 };
 
+/** 关系温度：吵完该冷一阵、和好该回暖，跨多轮持续并随时间回归中性。 */
+export type PersonaRelationshipTone = {
+  /** close=亲近 tender=柔软深情 friction=别扭/有火 distant=疏远冷淡 */
+  tone: "close" | "tender" | "friction" | "distant";
+  intensity: number;
+  updatedAt: string;
+};
+
 export type PersonaInnerState = {
   /** 细分心情词，如「有点闷」「愉快」「想念加重」 */
   mood: string;
@@ -32,6 +41,8 @@ export type PersonaInnerState = {
   /** 此刻挂心的事 */
   preoccupation: string;
   dayContext: PersonaDayContext | null;
+  /** 关系温度（吵架/和好后跨轮延续），无则 null */
+  relationshipTone: PersonaRelationshipTone | null;
   /** ISO 时间，用于衰减计算 */
   updatedAt: string;
 };
@@ -41,6 +52,9 @@ const INTENSITY_RELAX_THRESHOLD = 0.15;
 /** 超过这个间隔（跨天/长时间没聊）视为新状态基线 */
 const STALE_RESET_HOURS = 18;
 const BASELINE_MOOD = "平静";
+/** 关系张力比一般心情更持久 */
+const TONE_HALFLIFE_HOURS = 12;
+const TONE_RELAX_THRESHOLD = 0.2;
 
 function clampUnit(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -143,6 +157,19 @@ export function ensureDayContext(
 
 // ─── 读取 + 衰减 ────────────────────────────────────────────────────────
 
+function normalizeTone(raw: unknown): PersonaRelationshipTone | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const tone = textValue(r.tone);
+  const updatedAt = textValue(r.updatedAt);
+  if (!["close", "tender", "friction", "distant"].includes(tone) || !updatedAt) return null;
+  return {
+    tone: tone as PersonaRelationshipTone["tone"],
+    intensity: clampUnit(numberValue(r.intensity, 0)),
+    updatedAt,
+  };
+}
+
 function normalizeInnerState(raw: unknown): PersonaInnerState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
@@ -166,6 +193,7 @@ function normalizeInnerState(raw: unknown): PersonaInnerState | null {
     cause: textValue(r.cause),
     preoccupation: textValue(r.preoccupation),
     dayContext: dayContext && dayContext.dateKey ? dayContext : null,
+    relationshipTone: normalizeTone(r.relationshipTone),
     updatedAt,
   };
 }
@@ -179,8 +207,17 @@ function baselineInnerState(now: Date, schedule: ScheduleState, dayContext: Pers
     cause: "",
     preoccupation: "",
     dayContext,
+    relationshipTone: null,
     updatedAt: now.toISOString(),
   };
+}
+
+/** 关系温度独立衰减：吵完的别扭会持续一阵再回归中性（半衰期比心情长）。 */
+function decayTone(tone: PersonaRelationshipTone | null, now: Date): PersonaRelationshipTone | null {
+  if (!tone) return null;
+  const intensity = clampUnit(tone.intensity * 0.5 ** (hoursSince(tone.updatedAt, now) / TONE_HALFLIFE_HOURS));
+  if (intensity < TONE_RELAX_THRESHOLD) return null;
+  return { ...tone, intensity };
 }
 
 /** 把上一持久状态按经过时间衰减：强度指数衰减、精力回到作息+当天基线、强度过低则心情松回平静。 */
@@ -201,6 +238,7 @@ function decayInnerState(prev: PersonaInnerState, schedule: ScheduleState, dayCo
     cause: relaxed ? "" : prev.cause,
     preoccupation: prev.preoccupation,
     dayContext,
+    relationshipTone: prev.relationshipTone,
     updatedAt: now.toISOString(),
   };
 }
@@ -210,13 +248,15 @@ function decayInnerState(prev: PersonaInnerState, schedule: ScheduleState, dayCo
  * 这是回复链路读心情的唯一入口。
  */
 export function getEffectiveInnerState(personaData: unknown, personaId: number, now = new Date()): PersonaInnerState {
-  const schedule = getPersonaScheduleState(now);
+  const schedule = getPersonaScheduleState(now, getPersonaLifeConfig(personaData));
   const stored = normalizeInnerState(getPersonaRuntimeState(personaData).runtimeInnerState);
   const dayContext = ensureDayContext(stored?.dayContext ?? null, personaId, schedule);
+  // 关系温度独立于心情衰减，即使长时间没聊也保留余温/余气（按更长半衰期）。
+  const relationshipTone = decayTone(stored?.relationshipTone ?? null, now);
   if (!stored || hoursSince(stored.updatedAt, now) > STALE_RESET_HOURS) {
-    return baselineInnerState(now, schedule, dayContext);
+    return { ...baselineInnerState(now, schedule, dayContext), relationshipTone };
   }
-  return decayInnerState(stored, schedule, dayContext, now);
+  return { ...decayInnerState(stored, schedule, dayContext, now), relationshipTone };
 }
 
 // ─── 提示词覆盖块 ──────────────────────────────────────────────────────
@@ -225,6 +265,17 @@ function energyToneHint(energy: number): string {
   if (energy < 0.3) return "精力偏低：回复更短、更慢，像有点累的人，不要硬撑得很热闹。";
   if (energy < 0.6) return "精力一般：自然就好，不必刻意活跃。";
   return "精力较好：可以更主动、更有来有回。";
+}
+
+function toneOverlayLine(tone: PersonaRelationshipTone | null): string {
+  if (!tone || tone.intensity < TONE_RELAX_THRESHOLD) return "";
+  const desc: Record<PersonaRelationshipTone["tone"], string> = {
+    close: "你和对方最近关系亲近、踏实，语气可以更自然亲昵。",
+    tender: "你对对方正处在柔软、深情的状态，愿意多给一点温度。",
+    friction: "你和对方之间还有点没消的别扭/火气，别立刻装作没事——可以稍微收着点、慢一点热络，但也别翻旧账、别赌气扩大。",
+    distant: "你最近和对方有点疏远，热度提不太起来，回复偏淡一些是自然的。",
+  };
+  return `关系温度：${desc[tone.tone]}（自然流露，别直接说破或复述这句）`;
 }
 
 /** 生成注入系统提示词的【当前内心状态】块；强调这是延续状态、自然流露、不要直接报出来。 */
@@ -236,6 +287,7 @@ export function buildInnerStateOverlay(state: PersonaInnerState): string {
     state.cause ? `来由：${state.cause}` : "",
     state.dayContext?.note ? `今天：${state.dayContext.note}` : "",
     state.preoccupation ? `还惦记着：${state.preoccupation}` : "",
+    toneOverlayLine(state.relationshipTone),
     energyToneHint(state.energy),
     "如果这份心情和用户当前消息明显不搭（比如你正低落但对方很兴奋），先接住对方，再让自己的状态稍微流露，而不是瞬间切换成完全相反的情绪。",
   ];
@@ -250,7 +302,25 @@ type EvolveSignals = {
   /** 本轮意图，用来推情绪方向与抬升强度 */
   intent?: string;
   preoccupation?: string;
+  /** 关系信号：friction=冷漠/生气/吵 warm=被关心/亲密；由调用方按文本判定 */
+  relationshipSignal?: "friction" | "warm";
 };
+
+function nextTone(
+  intent: string | undefined,
+  signal: "friction" | "warm" | undefined,
+  prev: PersonaRelationshipTone | null,
+  now: Date,
+): PersonaRelationshipTone | null {
+  let tone: PersonaRelationshipTone["tone"] | undefined;
+  if (signal === "friction") tone = "friction";
+  else if (signal === "warm" || intent === "affection_expression") tone = "tender";
+  else if (intent === "emotional_support" || intent === "teasing") tone = "close";
+  if (!tone) return prev; // 普通轮不主动改关系温度，让它自然衰减
+  // 同向叠加抬升；反向（如 friction→tender 和好）直接重置为新基础强度。
+  const base = prev?.tone === tone ? Math.max(prev.intensity, 0.6) : 0.6;
+  return { tone, intensity: clampUnit(base), updatedAt: now.toISOString() };
+}
 
 function valenceShiftForIntent(intent: string | undefined): number {
   switch (intent) {
@@ -289,6 +359,7 @@ export function evolveInnerState(effective: PersonaInnerState, signals: EvolveSi
     cause,
     preoccupation: textValue(signals.preoccupation) || effective.preoccupation,
     dayContext: effective.dayContext,
+    relationshipTone: nextTone(signals.intent, signals.relationshipSignal, effective.relationshipTone, now),
     updatedAt: now.toISOString(),
   };
 }

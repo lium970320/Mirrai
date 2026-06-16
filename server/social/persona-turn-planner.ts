@@ -1,4 +1,5 @@
 import { getActiveRuntimeLifeState, getPersonaScheduleState } from "../_core/life-schedule";
+import { getPersonaLifeConfig } from "../_core/persona-life-config";
 
 export type PersonaTurnPlatform = "web" | "wechat" | "qq";
 export type PersonaTurnMode = "reply" | "proactive";
@@ -170,7 +171,7 @@ function inferRisks(input: PersonaTurnPlanInput, intent: PersonaTurnIntent): Per
   if (intent === "source_recall" || intent === "correction") risks.add("memory_contamination");
   if ((input.batchMessageCount ?? 1) > 1) risks.add("context_fragmentation");
   if (recentAssistantRepeatedSleep(input.recentMessages)) risks.add("repetition");
-  const schedule = getPersonaScheduleState(input.now);
+  const schedule = getPersonaScheduleState(input.now, getPersonaLifeConfig(input.personaData));
   if (schedule.status === "asleep") risks.add("sleep_state_conflict");
   if (compactLength(input.inputText) <= 8 && intent === "daily_chat") risks.add("over_reply");
   if (intent === "affection_expression" || intent === "emotional_support") risks.add("emotion_mismatch");
@@ -197,7 +198,7 @@ function reasonForIntent(intent: PersonaTurnIntent): string {
 
 export function planPersonaTurn(input: PersonaTurnPlanInput): PersonaTurnPlan {
   const now = input.now ?? new Date();
-  const schedule = getPersonaScheduleState(now);
+  const schedule = getPersonaScheduleState(now, getPersonaLifeConfig(input.personaData));
   const runtime = getActiveRuntimeLifeState(input.personaData, now);
   const intent = inferIntent(input);
   const memoryMode = inferMemoryMode(intent);

@@ -7,6 +7,7 @@ import { generateTTSFile } from "../_core/tts";
 import { splitAssistantReplyForChat, stripReplyDecorativeQuotes } from "../_core/reply-utils";
 import { enqueueSocialTextMessage, type BatchedTextMessage } from "../social/incoming-message-batcher";
 import { saySocialReply } from "../social/reply-sender";
+import { computeReplyLatencyMs, isReplyLatencyEnabled } from "../social/reply-latency";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
@@ -453,6 +454,11 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
     if (batch.isStale()) {
       console.info(`[QQ] Discarded stale text reply contact=${batch.contactId}; newer message is pending.`);
       return;
+    }
+    // 拟人回应节奏（默认关）：忙碌时段隔一会才发，由既有 isStale 守住期间的新消息。
+    if (isReplyLatencyEnabled()) {
+      const latencyMs = computeReplyLatencyMs(result.turnPlan.availability);
+      if (latencyMs > 0) await new Promise(resolve => setTimeout(resolve, latencyMs));
     }
     await sayQqReplyWithOptionalVoice(batch.contactId, result.replyText, {
       source: "text",

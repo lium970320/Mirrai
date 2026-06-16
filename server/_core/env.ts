@@ -140,6 +140,10 @@ export const ENV = {
   minimaxTextHumanize: process.env.MINIMAX_TEXT_HUMANIZE !== "false",
   minimaxTimeoutMs: envInt("MINIMAX_TIMEOUT_MS", 120_000),
 
+  // 拟人行为开关：改变实时体感、默认关闭，验证后再开。
+  personaReplyLatencyEnabled: process.env.PERSONA_REPLY_LATENCY_ENABLED === "true",
+  proactiveMultimodalEnabled: process.env.PROACTIVE_MULTIMODAL_ENABLED === "true",
+
   dailyMemoryEnabled: process.env.DAILY_MEMORY_ENABLED !== "false",
   dailyMemoryHour: envInt("DAILY_MEMORY_HOUR", 3),
   dailyMemoryMinute: envInt("DAILY_MEMORY_MINUTE", 20),

@@ -16,6 +16,7 @@ import {
   InsertMemory, InsertEmotionSnapshot, InsertDiaryEntry, InsertScene,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { DEFAULT_SOURCE_TERMS } from "./_core/persona-life-config";
 import {
   extractPersonaRuntimeForStorage,
   getProactiveMessageConfig,
@@ -1209,7 +1210,7 @@ const SOURCE_STOP_WORDS = new Set([
   "就是", "明明", "根本", "不对", "不是", "这样", "真的",
 ]);
 
-const COMMON_SOURCE_TERMS = new Set(["柱子", "王玉柱", "敏子", "王芃泽"]);
+const COMMON_SOURCE_TERMS = new Set(DEFAULT_SOURCE_TERMS);
 
 function isNoisySourceTerm(term: string): boolean {
   if (SOURCE_STOP_WORDS.has(term)) return true;

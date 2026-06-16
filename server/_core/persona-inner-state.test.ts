@@ -96,4 +96,27 @@ describe("persona inner state", () => {
     expect(overlay).toContain("【当前内心状态】");
     expect(overlay).toContain("不要直接说破");
   });
+
+  it("sets relationship friction and lets it linger but decay across turns", () => {
+    const base = getEffectiveInnerState({}, 7, NOW);
+    const afterFight = evolveInnerState(base, { intent: "daily_chat", relationshipSignal: "friction" }, NOW);
+    expect(afterFight.relationshipTone?.tone).toBe("friction");
+    expect(buildInnerStateOverlay(afterFight)).toContain("关系温度");
+
+    const sixHoursAgo = new Date(NOW.getTime() - 6 * 3_600_000).toISOString();
+    const later = getEffectiveInnerState(
+      withStored({ ...afterFight, updatedAt: sixHoursAgo, relationshipTone: { ...afterFight.relationshipTone!, updatedAt: sixHoursAgo } }),
+      7,
+      NOW,
+    );
+    expect(later.relationshipTone?.tone).toBe("friction");
+    expect(later.relationshipTone!.intensity).toBeLessThan(afterFight.relationshipTone!.intensity);
+  });
+
+  it("warms back to tender after a make-up turn", () => {
+    const base = getEffectiveInnerState({}, 7, NOW);
+    const fight = evolveInnerState(base, { intent: "daily_chat", relationshipSignal: "friction" }, NOW);
+    const makeup = evolveInnerState(fight, { intent: "affection_expression" }, NOW);
+    expect(makeup.relationshipTone?.tone).toBe("tender");
+  });
 });
