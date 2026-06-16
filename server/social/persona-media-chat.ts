@@ -4,6 +4,7 @@ import { applyIncomingLifeState } from "../_core/life-schedule";
 import { withPersonaRuntimeDiagnostics, withPersonaRuntimeInnerState } from "../_core/persona-runtime";
 import { buildSystemPrompt } from "../_core/persona-utils";
 import { deriveEmotionalLabel, evolveInnerState, getEffectiveInnerState } from "../_core/persona-inner-state";
+import { getPersonaLifeConfig } from "../_core/persona-life-config";
 import { cleanAssistantReply } from "../_core/reply-utils";
 import * as db from "../db";
 import { llmService } from "../llm";
@@ -197,6 +198,7 @@ export async function handleSocialPersonaMediaChatDetailed(
     memoryMode: turnPlan.memoryMode,
     limit: economy.memoryRecall.maxMemories,
     maxDescriptionChars: economy.memoryRecall.maxDescriptionChars,
+    userPronoun: getPersonaLifeConfig(personaForPrompt.personaData).userPronoun,
   });
 
   let pinnedFacts: string[] = [];
