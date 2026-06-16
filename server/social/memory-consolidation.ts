@@ -159,7 +159,40 @@ function isConservativeCard(card: StructuredMemoryCard): boolean {
   return ["promise", "preference", "conflict", "open_loop"].includes(card.memoryType) && card.importance >= 3;
 }
 
+const FOLLOW_UP_DAY_PATTERNS: Array<{ re: RegExp; days: number }> = [
+  { re: /大后天|大後天/, days: 3 },
+  { re: /后天|後天/, days: 2 },
+  { re: /明天|明日|明早|明晚/, days: 1 },
+  { re: /下周|下週|下星期|下礼拜|下禮拜/, days: 7 },
+];
+
+// 事件类未完成事项（无明确日期）默认次日轻轻问起，兑现「你昨天说的X怎么样了」。
+const FOLLOW_UP_EVENT_RE =
+  /面试|面試|考试|考試|考完|笔试|筆試|复试|複試|出分|看病|就诊|就診|复诊|複診|复查|複查|体检|體檢|手术|手術|答辩|答辯|开庭|開庭|汇报|匯報|交付|截止/;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * 给 open_loop 记忆推一个「该回访」时间：优先识别相对日期（明天/后天/下周/N天后），
+ * 否则识别事件关键词给次日默认；都识别不到返回 null（不主动回访）。
+ */
+export function parseFollowUpAt(card: StructuredMemoryCard, now: Date): Date | null {
+  if (card.memoryType !== "open_loop") return null;
+  const text = `${card.title} ${card.description} ${card.keywords.join(" ")}`;
+  const explicit = text.match(/(\d{1,2})\s*天[后後之]/);
+  if (explicit) {
+    const n = Number(explicit[1]);
+    if (n >= 1 && n <= 30) return new Date(now.getTime() + n * DAY_MS);
+  }
+  for (const pattern of FOLLOW_UP_DAY_PATTERNS) {
+    if (pattern.re.test(text)) return new Date(now.getTime() + pattern.days * DAY_MS);
+  }
+  if (FOLLOW_UP_EVENT_RE.test(text)) return new Date(now.getTime() + DAY_MS);
+  return null;
+}
+
 export async function consolidateMemoryAfterTurn(input: MemoryConsolidationInput): Promise<MemoryConsolidationResult> {
+  const now = new Date();
   const gate = shouldAttemptMemoryConsolidation(input);
   if (!gate.attempt) {
     const status = input.sourceRecallUsed && input.turnPlan.intent !== "correction"
@@ -239,7 +272,9 @@ export async function consolidateMemoryAfterTurn(input: MemoryConsolidationInput
         result.contradictedMemoryIds.push(id);
       }
 
-      const memoryId = await db.createMemory(structuredMemoryToInsert(card, input.persona.id, input.userId));
+      const insert = structuredMemoryToInsert(card, input.persona.id, input.userId);
+      const followUpAt = parseFollowUpAt(card, now);
+      const memoryId = await db.createMemory(followUpAt ? { ...insert, followUpAt } : insert);
       result.createdMemoryIds.push(memoryId);
     }
 

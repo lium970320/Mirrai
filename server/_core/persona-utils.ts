@@ -10,6 +10,7 @@ import {
   type PersonaLongBackgroundMode,
 } from "./persona-profile";
 import { buildCurrentUserIdentityOverride } from "./current-user-identity";
+import { buildInnerStateOverlay, type PersonaInnerState } from "./persona-inner-state";
 
 export const INTIMACY_LEVELS = [
   { threshold: 0, name: "初识", icon: "🌱" },
@@ -71,6 +72,8 @@ export type BuildSystemPromptOptions = {
   now?: Date;
   /** 常驻用户状态事实（高重要度 user_fact/promise），每轮注入避免遗忘 */
   pinnedFacts?: string[];
+  /** 当前延续的内在状态；提供时替换粗粒度的单标签情感描述 */
+  innerState?: PersonaInnerState | null;
 };
 
 function normalizeBuildSystemPromptOptions(
@@ -121,7 +124,9 @@ export function buildSystemPrompt(persona: any, sceneOrOptions?: string | null |
     ...buildPersonaProfilePromptSections(profile, {
       longBackgroundMode: options.longBackgroundMode ?? "compact",
     }),
-    `【当前情感状态】\n${getEmotionalStateDesc(persona.emotionalState)}`,
+    options.innerState
+      ? buildInnerStateOverlay(options.innerState)
+      : `【当前情感状态】\n${getEmotionalStateDesc(persona.emotionalState)}`,
     options.sceneOverlay ? `【当前场景】\n${options.sceneOverlay}` : "",
     `【对话原则】\n- 用第一人称说话，回复像真实聊天消息，不要太长\n- 偶尔主动提起你们共同的回忆\n- 保持 ${name} 独特的语言风格\n- 如果原著/长篇背景设定里有相关信息，优先使用设定里的细节，让人物显得立体而连续`,
     profile.behavior.customInstructions ? `【用户自定义指令】\n${profile.behavior.customInstructions}` : "",

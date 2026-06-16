@@ -1,5 +1,6 @@
 import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
 import { normalizePersonaProfileSections } from "../_core/persona-profile";
+import type { PersonaInnerState } from "../_core/persona-inner-state";
 import { llmService } from "../llm";
 import type {
   PersonaOutputMode,
@@ -23,6 +24,8 @@ export type PersonaReflectionInput = {
   recentMessages: RecentMessage[];
   turnPlan: PersonaTurnPlan;
   sourceRecallActive?: boolean;
+  /** 上一刻延续下来的内心状态，让隐藏思考层续接而非每轮重置 */
+  priorInnerState?: PersonaInnerState | null;
 };
 
 export type PersonaReflection = {
@@ -196,6 +199,14 @@ function personaSketch(persona: any): string {
   ].filter(Boolean).join("\n");
 }
 
+function priorMoodLine(state: PersonaReflectionInput["priorInnerState"]): string {
+  if (!state || state.intensity < 0.15) return "";
+  const parts = [`你此刻延续的心情是「${state.mood}」`];
+  if (state.cause) parts.push(`（因为${state.cause}）`);
+  if (state.preoccupation) parts.push(`，还惦记着${state.preoccupation}`);
+  return `延续心情：${parts.join("")}。请在这个延续状态上判断本轮，不要凭空把心情重置成中性。`;
+}
+
 function buildReflectionPrompt(input: PersonaReflectionInput): string {
   const plan = input.turnPlan;
   return [
@@ -213,6 +224,7 @@ function buildReflectionPrompt(input: PersonaReflectionInput): string {
     "最近上下文：",
     formatRecentMessages(input.recentMessages) || "无",
     "",
+    priorMoodLine(input.priorInnerState),
     "规则规划器的初步判断：",
     `intent=${plan.intent}; memoryMode=${plan.memoryMode}; replyLength=${plan.replyLength}; outputMode=${plan.outputMode}; risks=${plan.risks.join(",")}; sourceRecallActive=${input.sourceRecallActive ? "true" : "false"}`,
     "",

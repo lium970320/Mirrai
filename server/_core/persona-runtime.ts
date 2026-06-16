@@ -22,6 +22,7 @@ export type ProactiveMessageSettings = ProactiveMessageConfig & ProactiveMessage
 export type PersonaRuntimeState = {
   runtimeLifeState: unknown | null;
   runtimeDiagnostics: unknown | null;
+  runtimeInnerState: unknown | null;
   proactiveMessages: ProactiveMessageRuntime;
 };
 
@@ -158,6 +159,11 @@ export function getPersonaRuntimeState(personaData: unknown): PersonaRuntimeStat
       data.runtimeDiagnostics,
       profile.runtimeDiagnostics,
     ) ?? null,
+    runtimeInnerState: firstDefined(
+      runtime.runtimeInnerState,
+      data.runtimeInnerState,
+      profile.runtimeInnerState,
+    ) ?? null,
     proactiveMessages: {
       randomizedSchedule: firstDefined(
         runtimeProactive.randomizedSchedule,
@@ -269,6 +275,22 @@ export function withPersonaRuntimeDiagnostics(
   return markRuntimePatch(setRuntimeContainer(data, runtime), { runtimeDiagnostics });
 }
 
+export function withPersonaRuntimeInnerState(
+  personaData: unknown,
+  runtimeInnerState: unknown | null,
+): UnknownRecord {
+  const data = clonePersonaData(personaData);
+  const runtime = runtimeContainer(data);
+  if (runtimeInnerState === undefined || runtimeInnerState === null) {
+    delete runtime.runtimeInnerState;
+  } else {
+    runtime.runtimeInnerState = runtimeInnerState;
+  }
+  delete data.runtimeInnerState;
+  removeProfileRuntimeField(data, "runtimeInnerState");
+  return markRuntimePatch(setRuntimeContainer(data, runtime), { runtimeInnerState });
+}
+
 export function getPersonaRuntimePatch(personaData: unknown): UnknownRecord {
   return isRecord(personaData) ? cloneRecord((personaData as any)[PERSONA_RUNTIME_PATCH_KEY]) : {};
 }
@@ -279,11 +301,13 @@ export function stripPersonaRuntimeFields(personaData: unknown): UnknownRecord {
   delete data[PERSONA_RUNTIME_PATCH_KEY];
   delete data.runtimeLifeState;
   delete data.runtimeDiagnostics;
+  delete data.runtimeInnerState;
   if (isRecord(data.proactiveMessages)) {
     data.proactiveMessages = stripProactiveRuntimeFields(data.proactiveMessages);
   }
   removeProfileRuntimeField(data, "runtimeLifeState");
   removeProfileRuntimeField(data, "runtimeDiagnostics");
+  removeProfileRuntimeField(data, "runtimeInnerState");
   removeProfileProactiveRuntimeFields(data);
   return data;
 }
@@ -306,6 +330,7 @@ export function extractPersonaRuntimeForStorage(personaData: unknown): {
   personaData: UnknownRecord;
   runtimeLifeState?: unknown | null;
   runtimeDiagnostics?: unknown | null;
+  runtimeInnerState?: unknown | null;
   proactiveRuntime?: ProactiveMessageRuntime | null;
   hasRuntimePatch: boolean;
 } {
@@ -317,13 +342,16 @@ export function extractPersonaRuntimeForStorage(personaData: unknown): {
     || isRecord(data[PERSONA_RUNTIME_KEY])
     || data.runtimeLifeState !== undefined
     || data.runtimeDiagnostics !== undefined
+    || data.runtimeInnerState !== undefined
     || profile.runtimeLifeState !== undefined
     || profile.runtimeDiagnostics !== undefined
+    || profile.runtimeInnerState !== undefined
     || hasProactiveRuntimeFields(data.proactiveMessages)
     || hasProactiveRuntimeFields(profile.proactiveMessages);
   const runtimePatch = patch as {
     runtimeLifeState?: unknown | null;
     runtimeDiagnostics?: unknown | null;
+    runtimeInnerState?: unknown | null;
     proactiveMessages?: ProactiveMessageRuntime;
   };
   const proactive = compactProactiveRuntime({
@@ -334,6 +362,7 @@ export function extractPersonaRuntimeForStorage(personaData: unknown): {
     personaData: stripPersonaRuntimeFields(personaData),
     runtimeLifeState: "runtimeLifeState" in runtimePatch ? runtimePatch.runtimeLifeState ?? null : state.runtimeLifeState,
     runtimeDiagnostics: "runtimeDiagnostics" in runtimePatch ? runtimePatch.runtimeDiagnostics ?? null : state.runtimeDiagnostics,
+    runtimeInnerState: "runtimeInnerState" in runtimePatch ? runtimePatch.runtimeInnerState ?? null : state.runtimeInnerState,
     proactiveRuntime: "proactiveMessages" in runtimePatch || Object.keys(proactive).length > 0
       ? proactive
       : null,
@@ -346,6 +375,7 @@ export function mergePersonaRuntimeIntoPersonaData(
   runtime: {
     runtimeLifeState?: unknown | null;
     runtimeDiagnostics?: unknown | null;
+    runtimeInnerState?: unknown | null;
     proactiveRuntime?: unknown | null;
   } | null | undefined,
 ): UnknownRecord {
@@ -357,6 +387,9 @@ export function mergePersonaRuntimeIntoPersonaData(
   }
   if (runtime.runtimeDiagnostics !== undefined && runtime.runtimeDiagnostics !== null) {
     container.runtimeDiagnostics = runtime.runtimeDiagnostics;
+  }
+  if (runtime.runtimeInnerState !== undefined && runtime.runtimeInnerState !== null) {
+    container.runtimeInnerState = runtime.runtimeInnerState;
   }
   if (isRecord(runtime.proactiveRuntime) && Object.keys(runtime.proactiveRuntime).length > 0) {
     container.proactiveMessages = runtime.proactiveRuntime;

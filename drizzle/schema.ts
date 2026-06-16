@@ -181,6 +181,7 @@ export const personaRuntimeStates = pgTable("persona_runtime_states", {
   userId: integer("userId").notNull(),
   runtimeLifeState: jsonb("runtimeLifeState"),
   runtimeDiagnostics: jsonb("runtimeDiagnostics"),
+  runtimeInnerState: jsonb("runtimeInnerState"),
   proactiveRuntime: jsonb("proactiveRuntime"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -294,6 +295,8 @@ export const memories = pgTable("memories", {
   lastAccessedAt: timestamp("lastAccessedAt"),
   evidenceMessageIds: jsonb("evidenceMessageIds"),
   status: varchar("status", { length: 50 }).default("active").notNull(),
+  /** open_loop 记忆的「该回访」时间；到点后主动消息会自然问起。null 表示不需要主动回访。 */
+  followUpAt: timestamp("followUpAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

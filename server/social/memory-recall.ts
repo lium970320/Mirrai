@@ -27,6 +27,7 @@ type MemoryRecord = {
   keywords?: unknown;
   emotion?: string | null;
   status?: string;
+  followUpAt?: Date | string | null;
   createdAt: Date;
 };
 
@@ -163,6 +164,13 @@ function scoreMemory(memory: MemoryRecord, terms: string[], options: PersonaMemo
   if ((memory.confidence ?? 3) <= 2) score -= 2;
   if (memorySourceOf(memory) === "source_material" && options.memoryMode !== "source_library") score -= 3;
   if (memoryTypeOf(memory) === "source_fact" && options.memoryMode !== "source_library") score -= 2;
+
+  // 未完成话题（尤其已到回访时间的）更值得被想起，方便自然问起"上次那件事"。
+  if (memoryTypeOf(memory) === "open_loop") {
+    score += 1;
+    const followUp = memory.followUpAt ? new Date(memory.followUpAt).getTime() : NaN;
+    if (Number.isFinite(followUp) && followUp <= Date.now()) score += 5;
+  }
 
   return score;
 }
