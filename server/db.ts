@@ -1619,6 +1619,12 @@ export async function clearMessagesByPersonaId(personaId: number, userId: number
   await db.delete(messages).where(and(eq(messages.personaId, personaId), eq(messages.userId, userId)));
 }
 
+export async function deleteMessage(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(messages).where(and(eq(messages.id, id), eq(messages.userId, userId)));
+}
+
 export async function searchMessages(personaId: number, userId: number, query: string, limit = 50) {
   const db = await getDb();
   if (!db) return [];

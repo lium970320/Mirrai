@@ -587,6 +587,14 @@ export async function handleSocialPersonaTextChatDetailed(
     personaData: withPersonaRuntimeDiagnostics(promptPersonaData, runtimeDiagnostics),
   });
 
+  // 落库到真正发送之间，若用户又发来新消息，本条回复会被发送层丢弃。
+  // 此处再做一次陈旧检查：若已陈旧，删除刚落库的助手消息并返回 null，
+  // 避免这条“幽灵回复”留在历史里、让下一轮 LLM 误以为已经说过。
+  if (shouldAbortPendingReply(options, persona.id, "after_persist")) {
+    await db.deleteMessage(assistantMessageId, options.binding.userId);
+    return null;
+  }
+
   return {
     replyText,
     emotionalState: newState,
