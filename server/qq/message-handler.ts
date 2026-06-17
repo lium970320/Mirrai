@@ -10,6 +10,7 @@ import { saySocialReply } from "../social/reply-sender";
 import { computeReplyLatencyMs, isReplyLatencyEnabled } from "../social/reply-latency";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
+import { tryHandleSceneCommand } from "./scene-commands";
 import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
@@ -804,6 +805,15 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
 
   if (!content) {
     return { handled: true as const, reason: "image_without_usable_content" as const };
+  }
+
+  // 私聊里的场景开关命令（进入/退出/列出场景），命中则直接回执、不进聊天。
+  if (kind === "private") {
+    const sceneReply = await tryHandleSceneCommand(contactId, content);
+    if (sceneReply != null) {
+      await sendQqText(contactId, sceneReply);
+      return { handled: true as const, reason: "scene_command" as const };
+    }
   }
 
   console.info(`[QQ] Queued message contact=${contactId} messageId=${event.message_id ?? ""}`);
