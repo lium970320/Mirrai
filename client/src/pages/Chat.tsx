@@ -556,31 +556,33 @@ export default function Chat() {
       {showSearch && <SearchPanel personaId={personaId} onClose={() => { setShowSearch(false); setSearchQuery(""); }} />}
 
       {showScenePanel && (
-        <div className="border-b border-border bg-card/95 backdrop-blur-sm px-4 py-4 animate-fade-in">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold">场景模式</p>
-            <button onClick={() => setShowScenePanel(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          {activeScene && (
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">当前场景：{activeScene.icon} {activeScene.name}</span>
-              <button onClick={() => deactivateSceneMutation.mutate({ personaId })}
-                className="text-xs text-destructive hover:underline">退出场景</button>
-            </div>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {(scenesList || []).map((scene: any) => (
-              <button key={scene.id} onClick={() => activateSceneMutation.mutate({ personaId, sceneId: scene.id })}
-                className={`text-left p-3 rounded-xl border transition-all ${scene.id === persona?.activeSceneId ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-base">{scene.icon || "🎭"}</span>
-                  <span className="text-sm font-medium">{scene.name}</span>
-                </div>
-                {scene.description && <p className="text-xs text-muted-foreground line-clamp-2">{scene.description}</p>}
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm p-4 pt-16 sm:pt-20 animate-fade-in" onClick={() => setShowScenePanel(false)}>
+          <div className="w-full max-w-lg bg-card border border-border rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold">场景模式</p>
+              <button onClick={() => setShowScenePanel(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-4 h-4" />
               </button>
-            ))}
+            </div>
+            {activeScene && (
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">当前场景：{activeScene.icon} {activeScene.name}</span>
+                <button onClick={() => deactivateSceneMutation.mutate({ personaId })}
+                  className="text-xs text-destructive hover:underline">退出场景</button>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(scenesList || []).map((scene: any) => (
+                <button key={scene.id} onClick={() => activateSceneMutation.mutate({ personaId, sceneId: scene.id })}
+                  className={`text-left p-3 rounded-xl border transition-all ${scene.id === persona?.activeSceneId ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-base">{scene.icon || "🎭"}</span>
+                    <span className="text-sm font-medium">{scene.name}</span>
+                  </div>
+                  {scene.description && <p className="text-xs text-muted-foreground line-clamp-2">{scene.description}</p>}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
