@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   getQqBindingByContactId: vi.fn(),
   getSingleReadyPersonaForQqAutoBind: vi.fn(),
   createQqBinding: vi.fn(),
+  getPersonaById: vi.fn(),
+  getSceneById: vi.fn(),
   handleSocialPersonaTextChatDetailed: vi.fn(),
   handleSocialPersonaMediaChat: vi.fn(),
 }));
@@ -19,6 +21,8 @@ vi.mock("../db", () => ({
   getQqBindingByContactId: mocks.getQqBindingByContactId,
   getSingleReadyPersonaForQqAutoBind: mocks.getSingleReadyPersonaForQqAutoBind,
   createQqBinding: mocks.createQqBinding,
+  getPersonaById: mocks.getPersonaById,
+  getSceneById: mocks.getSceneById,
 }));
 
 vi.mock("../social/persona-text-chat", () => ({
@@ -38,6 +42,8 @@ describe("QQ persona bridge", () => {
       personaId: 7,
       userId: 11,
     });
+    mocks.getPersonaById.mockResolvedValue({ id: 7, userId: 11, activeSceneId: null });
+    mocks.getSceneById.mockResolvedValue(null);
     mocks.handleSocialPersonaTextChatDetailed.mockResolvedValue({
       replyText: "我在。",
     });
@@ -91,6 +97,18 @@ describe("QQ persona bridge", () => {
         personaId: 7,
         userId: 11,
       },
+    }));
+  });
+
+  it("resolves and forwards the active scene overlay for QQ chat", async () => {
+    mocks.getPersonaById.mockResolvedValue({ id: 7, userId: 11, activeSceneId: 99 });
+    mocks.getSceneById.mockResolvedValue({ id: 99, systemPromptOverlay: "【此刻在一起】现在就在一起" });
+
+    await handleQqPersonaChatDetailed("qq:private:12345", "敏子", "你在吗", {});
+
+    expect(mocks.getSceneById).toHaveBeenCalledWith(99);
+    expect(mocks.handleSocialPersonaTextChatDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      sceneOverlay: "【此刻在一起】现在就在一起",
     }));
   });
 });
