@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoxCPM Studio · 本地试音台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎙️</span>
+      <div class="brand-text">
+        <h1>VoxCPM Studio</h1>
+        <p class="subtitle">本地语音合成试音台</p>
+      </div>
+    </div>
+    <div class="status" id="status" title="VoxCPM 服务连接状态">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">检测中…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ── 左：控制台 ────────────────────────────────────── -->
+    <section class="panel console">
+      <div class="field">
+        <div class="label-row">
+          <label for="text">文本</label>
+          <span class="hint" id="charCount">0 字</span>
+        </div>
+        <textarea id="text" rows="4" placeholder="输入要合成的文字，例如：今天辛苦啦，早点休息，我在呢。"></textarea>
+      </div>
+
+      <div class="field">
+        <label>音色 / 情绪 <span id="voiceBadge" class="voice-badge hidden"></span></label>
+        <div class="profile-grid" id="profileGrid"></div>
+        <textarea id="control" rows="3" placeholder="控制提示：描述音色、语气、语速…"></textarea>
+        <span class="hint">控制提示决定音色与语气，可在预设基础上自由修改。</span>
+      </div>
+
+      <div class="field">
+        <label>克隆模式</label>
+        <div class="segmented" id="cloneMode">
+          <button type="button" data-mode="controllable" class="active">控制合成</button>
+          <button type="button" data-mode="hifi">Hi-Fi 克隆</button>
+          <button type="button" data-mode="design">音色设计</button>
+        </div>
+        <span class="hint" id="cloneModeHint"></span>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <div class="label-row">
+            <label for="cfg">CFG scale</label>
+            <span class="val" id="cfgVal">2.0</span>
+          </div>
+          <input type="range" id="cfg" min="0.5" max="5" step="0.1" value="2.0" />
+        </div>
+        <div class="field">
+          <div class="label-row">
+            <label for="steps">推理步数</label>
+            <span class="val" id="stepsVal">20</span>
+          </div>
+          <input type="range" id="steps" min="4" max="40" step="1" value="20" />
+        </div>
+      </div>
+
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" id="normalize" /> 归一化</label>
+        <label class="switch"><input type="checkbox" id="denoise" /> 降噪</label>
+      </div>
+
+      <div class="field clone-field">
+        <label>参考音频（声音克隆）</label>
+        <div class="upload">
+          <input type="file" id="refFile" accept="audio/*" hidden />
+          <button type="button" id="refPick" class="ghost sm">选择音频文件</button>
+          <span id="refName" class="ref-name">未选择</span>
+          <button type="button" id="refClear" class="link hidden">移除</button>
+        </div>
+        <textarea id="promptText" rows="2" placeholder="Hi-Fi 模式：参考音频对应的文字（转录）"></textarea>
+      </div>
+
+      <div class="actions">
+        <button id="generate" class="primary">生成语音</button>
+        <button id="compare" class="ghost">对比全部音色</button>
+      </div>
+    </section>
+
+    <!-- ── 右：结果 + 历史 ──────────────────────────────── -->
+    <section class="panel results">
+      <div class="result-block">
+        <h2>当前结果</h2>
+        <div id="currentResult" class="empty">还没有生成，先在左侧点「生成语音」。</div>
+      </div>
+
+      <div class="compare-block hidden" id="compareBlock">
+        <h2>音色对比</h2>
+        <div id="compareList" class="compare-list"></div>
+      </div>
+
+      <div class="history-block">
+        <div class="history-head">
+          <h2>历史记录</h2>
+          <div class="history-tools">
+            <label class="switch sm"><input type="checkbox" id="onlyStar" /> 只看收藏</label>
+            <button id="clearHistory" class="link danger">清空</button>
+          </div>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
