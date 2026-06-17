@@ -35,6 +35,15 @@ async function resolveQqBinding(contactId: string, contactName: string) {
   return db.getQqBindingByContactId(contactId);
 }
 
+/** 取该分身当前激活场景的提示词覆盖（网页「场景模式」激活后写在 personas.activeSceneId）。 */
+async function resolveSceneOverlay(personaId: number, userId: number): Promise<string | null> {
+  const persona = await db.getPersonaById(personaId, userId);
+  const sceneId = (persona as any)?.activeSceneId;
+  if (!sceneId) return null;
+  const scene = await db.getSceneById(sceneId);
+  return scene?.systemPromptOverlay ?? null;
+}
+
 export async function handleQqPersonaChat(
   contactId: string,
   contactName: string,
@@ -54,6 +63,7 @@ export async function handleQqPersonaChatDetailed(
   const binding = await resolveQqBinding(contactId, contactName);
   if (!binding) return null;
 
+  const sceneOverlay = await resolveSceneOverlay(binding.personaId, binding.userId);
   return handleSocialPersonaTextChatDetailed({
     platform: "qq",
     binding,
@@ -63,6 +73,7 @@ export async function handleQqPersonaChatDetailed(
     batchMessages: options.batchMessages,
     shouldAbortReply: options.shouldAbortReply,
     channel: "qq",
+    sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
   });
 }
@@ -75,6 +86,7 @@ export async function handleQqPersonaMediaChat(
   const binding = await resolveQqBinding(contactId, contactName);
   if (!binding) return null;
 
+  const sceneOverlay = await resolveSceneOverlay(binding.personaId, binding.userId);
   return handleSocialPersonaMediaChat({
     platform: "qq",
     binding,
@@ -82,6 +94,7 @@ export async function handleQqPersonaMediaChat(
     media,
     channel: "qq",
     storagePrefix: "qq",
+    sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
   });
 }
