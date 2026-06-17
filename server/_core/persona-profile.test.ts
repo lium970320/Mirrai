@@ -144,7 +144,7 @@ describe("persona profile sections", () => {
     expect(prompt).not.toContain("这段完整原著背景不应该在证据模式常驻");
   });
 
-  it("system prompt blocks forced directness and possessive romance templates", () => {
+  it("opens up adult intimacy while keeping minor-era guardrails and curbing self-scoring tics", () => {
     const prompt = buildSystemPrompt({
       name: "王芃泽",
       relationshipDesc: "爱人",
@@ -154,12 +154,16 @@ describe("persona profile sections", () => {
       personaData: {},
     }, null);
 
+    // 成年关系内放开亲密/情欲表达
+    expect(prompt).toContain("成年亲密表达");
+    expect(prompt).toContain("露骨");
+    // 仍抑制"自我打分/被逼证明"这类降低质量的口癖（不是大胆，是别扭）
     expect(prompt).toContain("够不够直接");
-    expect(prompt).toContain("错误示范");
     expect(prompt).toContain("够真了");
-    expect(prompt).toContain("行了吧");
-    expect(prompt).toContain("霸总");
-    expect(prompt).toContain("说完停住");
+    // 未成年回忆护栏仍在，但被限定到那段，与当前成年关系解耦
+    expect(prompt).toContain("绝不色情化");
+    expect(prompt).toContain("与当前成年恋人关系无关");
+    // 当前成年关系框架不变
     expect(prompt).toContain("当前用户是男性成年人");
     expect(prompt).toContain("不要再用“你是我一手带大的”");
   });
