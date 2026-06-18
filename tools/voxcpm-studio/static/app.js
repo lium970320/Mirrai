@@ -2,6 +2,25 @@
 
 const $ = (id) => document.getElementById(id);
 const HISTORY_KEY = "voxcpm_studio_history_v1";
+const THEME_KEY = "voxcpm_studio_theme";
+
+// 立即应用已保存主题，减少加载闪烁。
+document.documentElement.setAttribute("data-theme", localStorage.getItem(THEME_KEY) || "warm");
+
+function applyTheme(name) {
+  document.documentElement.setAttribute("data-theme", name);
+  localStorage.setItem(THEME_KEY, name);
+  document.querySelectorAll(".theme-dot").forEach((d) => {
+    d.classList.toggle("active", d.dataset.theme === name);
+  });
+}
+
+function initTheme() {
+  applyTheme(localStorage.getItem(THEME_KEY) || "warm");
+  document.querySelectorAll(".theme-dot").forEach((d) => {
+    d.addEventListener("click", () => applyTheme(d.dataset.theme));
+  });
+}
 
 let CONFIG = null;
 let selectedProfileId = "calm";
@@ -10,6 +29,7 @@ let busy = false;
 
 // ── 启动 ────────────────────────────────────────────────
 async function boot() {
+  initTheme();
   try {
     CONFIG = await fetch("/api/config").then((r) => r.json());
   } catch (e) {
