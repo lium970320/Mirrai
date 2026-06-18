@@ -38,10 +38,10 @@ Rules:
 
 ## Subagent Rules (子代理规则)
 
-- Unless the user explicitly requests "create subagent" or "use subagent", you must not create any subagents, parallel agents, extra workers, or similar delegated execution units.
-- Work should be done directly by the current agent.
-- If it is truly necessary to use a subagent, you must obtain explicit user approval first.
-（除非用户明确要求“创建子代理”或“使用子代理”，否则不得擅自创建任何子代理、并行代理、额外 worker。默认由当前代理直接完成任务，确有必要时必须先得到用户明确许可。）
+- You may freely create subagents, parallel agents, workers, or workflows whenever they help complete the work more efficiently.
+- For parallelizable work, multi-perspective review, large-scale search, or migration, you are encouraged to spawn subagents proactively — no prior approval needed.
+- Efficiency guidance (not a restriction): prefer reusing existing subagents, give each a clearly-bounded narrow task, keep concurrency reasonable, and let the main session verify the correctness of anything written into the repo.
+（可自由按需创建子代理 / 并行代理 / 工作流来更高效地完成任务；适合并行、多视角审查、大范围检索或迁移时更应主动调用，无需事先许可。仅为效率建议、非限制：优先复用已有子代理、每个子代理负责边界清晰的窄任务、并发合理，关键正确性由主控会话复核。）
 
 ## Login Website Automation Rules (登录网站自动化规则)
 
