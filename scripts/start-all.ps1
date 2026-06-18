@@ -15,11 +15,17 @@ param(
   [switch]$RestartMirrai,
   [switch]$RestartQQ,
   [switch]$OptimizeVoxCPM,
-  [switch]$UseLocalDb
+  [switch]$UseLocalDb,
+  [switch]$UseRemoteDb
 )
 
 $ErrorActionPreference = "Stop"
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
+if ($UseLocalDb -and $UseRemoteDb) {
+  throw "UseLocalDb and UseRemoteDb cannot be enabled together."
+}
+$useLocalDatabase = $UseLocalDb -or -not $UseRemoteDb
 
 function Resolve-FullPath([string]$Path) {
   return [System.IO.Path]::GetFullPath($Path)
@@ -74,28 +80,6 @@ function Format-SafeArguments([string[]]$Arguments = @()) {
   return ($safe -join " ")
 }
 
-function Test-MirraiRunning([string]$Root) {
-  $rootPattern = [regex]::Escape((Resolve-FullPath $Root))
-  $processes = @(
-    Get-CimInstance Win32_Process |
-      Where-Object {
-        $_.ProcessId -ne $PID -and
-        $_.CommandLine -match $rootPattern -and
-        ($_.CommandLine -match "pnpm run dev|server[/\\]_core[/\\]index\.ts|tsx|cross-env|corepack")
-      }
-  )
-  if ($processes.Count -gt 0) {
-    return $true
-  }
-
-  try {
-    $response = Invoke-WebRequest -Uri "http://localhost:$MirraiPort/" -UseBasicParsing -TimeoutSec 3
-    return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
-  } catch {
-    return $false
-  }
-}
-
 function Test-VoxcpmRunning([string]$Root) {
   $serviceScript = Join-Path (Resolve-FullPath $Root) "scripts\voxcpm_tts_service.py"
   $scriptPattern = [regex]::Escape($serviceScript)
@@ -125,6 +109,7 @@ Write-Host "Source root : $sourceRootFull"
 Write-Host "Run root    : $runRootFull"
 Write-Host "Runtime root: $runtimeRootFull"
 Write-Host "NapCat root : $napCatRootFull"
+Write-Host "Database    : $(if ($useLocalDatabase) { 'local managed PostgreSQL' } else { 'remote DATABASE_URL' })"
 
 if (-not $SkipSync -and -not $sourceRootFull.Equals($runRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
   $syncScript = Join-Path $sourceRootFull "scripts\sync-local-worktree.ps1"
@@ -197,20 +182,17 @@ if (-not $SkipVoxCPM) {
   Write-Host ">>> VoxCPM skipped."
 }
 
-if (Test-MirraiRunning $runRootFull) {
-  Write-Host ""
-  Write-Host ">>> Mirrai already appears to be running."
+$mirraiArgs = @(
+  "-RunRoot", $runRootFull,
+  "-Port", "$MirraiPort",
+  "-LogRoot", $logRoot
+)
+if ($useLocalDatabase) {
+  $mirraiArgs += "-UseLocalDb"
 } else {
-  $mirraiArgs = @(
-    "-RunRoot", $runRootFull,
-    "-Port", "$MirraiPort",
-    "-LogRoot", $logRoot
-  )
-  if ($UseLocalDb) {
-    $mirraiArgs += "-UseLocalDb"
-  }
-  Invoke-ProjectScript (Join-Path $localScripts "start-mirrai.ps1") $mirraiArgs
+  $mirraiArgs += "-UseRemoteDb"
 }
+Invoke-ProjectScript (Join-Path $localScripts "start-mirrai.ps1") $mirraiArgs
 
 if (-not $SkipQQ) {
   $qqArgs = @(

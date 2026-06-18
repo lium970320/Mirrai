@@ -2,11 +2,17 @@ param(
   [string]$RunRoot = "F:\Code\Mirrai",
   [int]$Port = 3000,
   [string]$LogRoot = "F:\.mirrai-local\Mirrai\logs",
-  [switch]$UseLocalDb
+  [switch]$UseLocalDb,
+  [switch]$UseRemoteDb
 )
 
 $ErrorActionPreference = "Stop"
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
+if ($UseLocalDb -and $UseRemoteDb) {
+  throw "UseLocalDb and UseRemoteDb cannot be enabled together."
+}
+$useLocalDatabase = $UseLocalDb -or -not $UseRemoteDb
 
 function Get-MirraiProcess {
   $rootPattern = [regex]::Escape([System.IO.Path]::GetFullPath($RunRoot))
@@ -16,6 +22,19 @@ function Get-MirraiProcess {
       $_.CommandLine -match $rootPattern -and
       ($_.CommandLine -match "pnpm run dev|server[/\\]_core[/\\]index\.ts|tsx|cross-env|corepack")
     }
+}
+
+function Test-LocalDatabaseManagedMode {
+  $rootPattern = [regex]::Escape([System.IO.Path]::GetFullPath($RunRoot))
+  $processes = @(
+    Get-CimInstance Win32_Process |
+      Where-Object {
+        $_.ProcessId -ne $PID -and
+        $_.CommandLine -match $rootPattern -and
+        $_.CommandLine -match "pnpm run dev:local|scripts[/\\]dev-local\.mjs"
+      }
+  )
+  return $processes.Count -gt 0
 }
 
 function Test-MirraiWeb {
@@ -33,9 +52,17 @@ if (-not (Test-Path -LiteralPath (Join-Path $RunRoot "package.json"))) {
 
 $existing = @(Get-MirraiProcess)
 if ($existing.Count -gt 0) {
-  Write-Host "Mirrai already appears to be running."
-  & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "status-mirrai.ps1") -RunRoot $RunRoot -Port $Port -LogRoot $LogRoot
-  exit 0
+  if ($useLocalDatabase -and -not (Test-LocalDatabaseManagedMode)) {
+    Write-Host "Mirrai is running without the local database manager; restarting in dev:local mode."
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "stop-mirrai.ps1") -RunRoot $RunRoot -Port $Port
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to stop the existing Mirrai process before switching to local database mode."
+    }
+  } else {
+    Write-Host "Mirrai already appears to be running."
+    & powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "status-mirrai.ps1") -RunRoot $RunRoot -Port $Port -LogRoot $LogRoot
+    exit 0
+  }
 }
 
 if (Test-MirraiWeb) {
@@ -54,7 +81,7 @@ if (-not $launcher) {
   $launcher = (Get-Command powershell.exe).Source
 }
 
-$runScript = if ($UseLocalDb) { "dev:local" } else { "dev" }
+$runScript = if ($useLocalDatabase) { "dev:local" } else { "dev" }
 $command = "`$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new(`$false); Set-Location -LiteralPath '$RunRoot'; corepack pnpm run $runScript"
 $process = Start-Process `
   -FilePath $launcher `

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VoxCPM Studio · 本地试音台</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <header class="topbar">
@@ -24,21 +24,48 @@
   <main class="layout">
     <!-- ── 左：控制台 ────────────────────────────────────── -->
     <section class="panel console">
-      <div class="field">
-        <div class="label-row">
-          <label for="text">文本</label>
-          <span class="hint" id="charCount">0 字</span>
+      <div class="segmented mode-switch" id="modeSwitch">
+        <button type="button" data-mode="single" class="active">单段</button>
+        <button type="button" data-mode="segments">分段表演稿</button>
+      </div>
+
+      <!-- 单段模式 -->
+      <div id="singleMode">
+        <div class="field">
+          <div class="label-row">
+            <label for="text">文本</label>
+            <span class="hint" id="charCount">0 字</span>
+          </div>
+          <textarea id="text" rows="4" placeholder="输入要合成的文字，例如：今天辛苦啦，早点休息，我在呢。"></textarea>
+          <div class="text-tools">
+            <button type="button" class="chip" data-insert="……">＋ 停顿……</button>
+            <button type="button" class="chip" data-insert="。">＋ 句号。</button>
+            <button type="button" class="chip" data-insert="？">＋ 问号？</button>
+            <button type="button" id="enrichBtn" class="chip accent">✨ AI 表演增强</button>
+          </div>
+          <span class="hint">停顿靠标点：句号＝长停、逗号＝短停、……＝拖长。换行无效，不支持 &lt;break&gt;/SSML 标记。</span>
         </div>
-        <textarea id="text" rows="4" placeholder="输入要合成的文字，例如：今天辛苦啦，早点休息，我在呢。"></textarea>
+
+        <div class="field">
+          <label>音色 / 情绪 <span id="voiceBadge" class="voice-badge hidden"></span></label>
+          <div class="profile-grid" id="profileGrid"></div>
+          <textarea id="control" rows="3" placeholder="控制提示：描述音色、语气、语速…"></textarea>
+          <div class="control-chips" id="controlChips"></div>
+          <span class="hint">控制提示决定音色与语气，可在预设基础上自由修改；点上面的词条快速追加。</span>
+        </div>
       </div>
 
-      <div class="field">
-        <label>音色 / 情绪 <span id="voiceBadge" class="voice-badge hidden"></span></label>
-        <div class="profile-grid" id="profileGrid"></div>
-        <textarea id="control" rows="3" placeholder="控制提示：描述音色、语气、语速…"></textarea>
-        <span class="hint">控制提示决定音色与语气，可在预设基础上自由修改。</span>
+      <!-- 分段模式 -->
+      <div id="segmentMode" class="hidden">
+        <div class="field">
+          <label>分段表演稿 <span id="voiceBadge2" class="voice-badge hidden"></span></label>
+          <div id="segmentList"></div>
+          <button type="button" id="addSegment" class="ghost sm">＋ 添加一段</button>
+          <span class="hint">每段用自己的情绪音色分别合成、再拼成一条；段间按毫秒插静音做停顿。语速/咬合用下方公共参数。</span>
+        </div>
       </div>
 
+      <!-- 公共：克隆模式 + 参数 -->
       <div class="field">
         <label>克隆模式</label>
         <div class="segmented" id="cloneMode">
@@ -71,20 +98,30 @@
         <label class="switch"><input type="checkbox" id="denoise" /> 降噪</label>
       </div>
 
-      <div class="field clone-field">
-        <label>参考音频（声音克隆）</label>
-        <div class="upload">
-          <input type="file" id="refFile" accept="audio/*" hidden />
-          <button type="button" id="refPick" class="ghost sm">选择音频文件</button>
-          <span id="refName" class="ref-name">未选择</span>
-          <button type="button" id="refClear" class="link hidden">移除</button>
+      <!-- 单段：参考音频 + 操作 -->
+      <div id="singleExtra">
+        <div class="field clone-field">
+          <label>参考音频（声音克隆）</label>
+          <div class="upload">
+            <input type="file" id="refFile" accept="audio/*" hidden />
+            <button type="button" id="refPick" class="ghost sm">选择音频文件</button>
+            <span id="refName" class="ref-name">未选择</span>
+            <button type="button" id="refClear" class="link hidden">移除</button>
+          </div>
+          <textarea id="promptText" rows="2" placeholder="Hi-Fi 模式：参考音频对应的文字（转录）"></textarea>
         </div>
-        <textarea id="promptText" rows="2" placeholder="Hi-Fi 模式：参考音频对应的文字（转录）"></textarea>
+
+        <div class="actions">
+          <button id="generate" class="primary">生成语音</button>
+          <button id="compare" class="ghost">对比全部音色</button>
+        </div>
       </div>
 
-      <div class="actions">
-        <button id="generate" class="primary">生成语音</button>
-        <button id="compare" class="ghost">对比全部音色</button>
+      <!-- 分段：合成拼接 -->
+      <div id="segmentExtra" class="hidden">
+        <div class="actions">
+          <button id="generateMulti" class="primary">合成并拼接</button>
+        </div>
       </div>
     </section>
 
@@ -114,6 +151,6 @@
   </main>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

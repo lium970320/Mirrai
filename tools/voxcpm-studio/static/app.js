@@ -19,6 +19,9 @@ async function boot() {
   renderProfiles();
   applyDefaults();
   bindEvents();
+  renderControlChips();
+  applyEnrichAvailability();
+  initSegments();
   renderHistory();
   pollHealth();
   setInterval(pollHealth, 15000);
@@ -165,6 +168,17 @@ function bindEvents() {
       renderHistory();
     }
   });
+
+  document.querySelectorAll(".text-tools [data-insert]").forEach((b) => {
+    b.addEventListener("click", () => insertAtCursor($("text"), b.dataset.insert));
+  });
+  $("enrichBtn").addEventListener("click", onEnrich);
+
+  document.querySelectorAll("#modeSwitch button").forEach((b) => {
+    b.addEventListener("click", () => setMode(b.dataset.mode));
+  });
+  $("addSegment").addEventListener("click", addSegment);
+  $("generateMulti").addEventListener("click", onGenerateMulti);
 }
 
 // ── 参考音频上传 ────────────────────────────────────────
@@ -231,6 +245,8 @@ function setBusy(on) {
   busy = on;
   $("generate").disabled = on;
   $("compare").disabled = on;
+  const gm = $("generateMulti");
+  if (gm) gm.disabled = on;
 }
 
 // ── 生成 ────────────────────────────────────────────────
@@ -525,6 +541,231 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ── 文本工具 / AI 表演增强 ───────────────────────────────
+const CONTROL_CHIPS = [
+  "慢一点", "语速中等偏慢", "稍快一点",
+  "句间多停顿", "短句之间留停顿",
+  "温柔", "带很轻的笑意", "克制低声提醒", "情绪收住", "叹气感", "不要朗读腔",
+];
+
+function renderControlChips() {
+  const box = $("controlChips");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const w of CONTROL_CHIPS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip sm";
+    b.textContent = w;
+    b.addEventListener("click", () => appendControl(w));
+    box.appendChild(b);
+  }
+}
+
+function appendControl(word) {
+  const el = $("control");
+  const cur = el.value.trim().replace(/[；;]\s*$/, "");
+  el.value = cur ? `${cur}；${word}` : word;
+  if (selectedProfileId !== "custom") selectProfile("custom");
+  el.dispatchEvent(new Event("input"));
+}
+
+function insertAtCursor(el, str) {
+  const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+  const end = el.selectionEnd != null ? el.selectionEnd : el.value.length;
+  el.value = el.value.slice(0, start) + str + el.value.slice(end);
+  const pos = start + str.length;
+  el.selectionStart = el.selectionEnd = pos;
+  el.focus();
+  el.dispatchEvent(new Event("input"));
+}
+
+function applyEnrichAvailability() {
+  const btn = $("enrichBtn");
+  if (btn && !CONFIG.enrichAvailable) btn.style.display = "none";
+}
+
+async function onEnrich() {
+  const text = $("text").value.trim();
+  if (!text) return toast("请先输入文本");
+  const btn = $("enrichBtn");
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "✨ 增强中…";
+  try {
+    const res = await fetch("/api/enrich", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, control: $("control").value }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || "增强失败");
+    $("text").value = data.speechText;
+    $("charCount").textContent = `${data.speechText.length} 字`;
+    if (data.control) {
+      $("control").value = data.control;
+      selectProfile("custom");
+    }
+    toast(data.fallback ? "已增强（整体填入）" : "已生成表演稿，可直接生成试听");
+  } catch (e) {
+    toast("AI 增强失败：" + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+// ── 分段表演稿 ───────────────────────────────────────────
+let currentMode = "single";
+let SEGMENTS = [];
+
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll("#modeSwitch button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  $("singleMode").classList.toggle("hidden", mode !== "single");
+  $("singleExtra").classList.toggle("hidden", mode !== "single");
+  $("segmentMode").classList.toggle("hidden", mode !== "segments");
+  $("segmentExtra").classList.toggle("hidden", mode !== "segments");
+}
+
+function initSegments() {
+  if (SEGMENTS.length === 0) {
+    SEGMENTS = [
+      { text: "", profileId: "comfort", silenceAfterMs: 350 },
+      { text: "", profileId: "tease", silenceAfterMs: 0 },
+    ];
+  }
+  renderSegments();
+  const b2 = $("voiceBadge2");
+  if (b2 && CONFIG.voiceName) {
+    b2.textContent = "🎙 " + CONFIG.voiceName + " · 克隆音色";
+    b2.classList.remove("hidden");
+  }
+}
+
+function renderSegments() {
+  const list = $("segmentList");
+  list.innerHTML = "";
+  const opts = (CONFIG.profiles || [])
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.label)}</option>`)
+    .join("");
+  SEGMENTS.forEach((seg, i) => {
+    const row = document.createElement("div");
+    row.className = "segment-row";
+    row.innerHTML =
+      `<div class="seg-head"><span class="seg-no">${i + 1}</span>` +
+      `<select class="seg-profile">${opts}</select>` +
+      `<label class="seg-sil">段后停顿 <input type="number" class="seg-silence" min="0" max="3000" step="50" value="${seg.silenceAfterMs}"> ms</label>` +
+      `<button type="button" class="icon-btn seg-del" title="删除该段">🗑</button></div>` +
+      `<textarea class="seg-text" rows="2" placeholder="第 ${i + 1} 段台词…"></textarea>`;
+    const sel = row.querySelector(".seg-profile");
+    sel.value = seg.profileId;
+    sel.addEventListener("change", () => { SEGMENTS[i].profileId = sel.value; });
+    const txt = row.querySelector(".seg-text");
+    txt.value = seg.text;
+    txt.addEventListener("input", () => { SEGMENTS[i].text = txt.value; });
+    const sil = row.querySelector(".seg-silence");
+    sil.addEventListener("input", () => { SEGMENTS[i].silenceAfterMs = parseInt(sil.value) || 0; });
+    row.querySelector(".seg-del").addEventListener("click", () => {
+      if (SEGMENTS.length <= 1) return toast("至少保留一段");
+      SEGMENTS.splice(i, 1);
+      renderSegments();
+    });
+    list.appendChild(row);
+  });
+}
+
+function addSegment() {
+  SEGMENTS.push({ text: "", profileId: "calm", silenceAfterMs: 300 });
+  renderSegments();
+}
+
+async function onGenerateMulti() {
+  if (busy) return;
+  const rows = SEGMENTS.filter((s) => s.text.trim());
+  if (!rows.length) return toast("请至少填写一段文本");
+  const cfgV = $("cfg").value;
+  const stepsV = $("steps").value;
+  const norm = $("normalize").checked;
+  const den = $("denoise").checked;
+  const segments = rows.map((s) => {
+    const prof = (CONFIG.profiles || []).find((p) => p.id === s.profileId);
+    return {
+      text: s.text.trim(),
+      control: prof ? prof.control : "",
+      cloneMode: "controllable",
+      cfgValue: parseFloat(cfgV),
+      inferenceTimesteps: parseInt(stepsV),
+      normalize: norm,
+      denoise: den,
+      profileId: s.profileId,
+      silenceAfterMs: parseInt(s.silenceAfterMs) || 0,
+    };
+  });
+
+  setBusy(true);
+  const stop = renderBusy($("currentResult"));
+  try {
+    const res = await fetch("/api/tts-multi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.detail || "合成失败");
+    renderMultiResult(data, rows);
+    addHistory(data, {
+      text: rows.map((r, i) => `${i + 1}.${r.text.trim()}`).join("  "),
+      control: "（分段表演稿）",
+      profileLabel: `分段×${rows.length}`,
+      cloneMode: "multi",
+      cfgValue: cfgV,
+      inferenceTimesteps: stepsV,
+      normalize: norm,
+      denoise: den,
+    });
+  } catch (e) {
+    renderError($("currentResult"), e.message);
+  } finally {
+    stop();
+    setBusy(false);
+  }
+}
+
+function profileLabelById(id) {
+  const p = (CONFIG.profiles || []).find((x) => x.id === id);
+  return p ? p.label : id;
+}
+
+function renderMultiResult(data, rows) {
+  const el = $("currentResult");
+  el.className = "result-card";
+  el.innerHTML = "";
+  const audio = document.createElement("audio");
+  audio.controls = true;
+  audio.autoplay = true;
+  audio.src = data.url;
+  el.appendChild(audio);
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.innerHTML = `<span>🧩 ${rows.length} 段拼接</span><span>⏱ ${fmtMs(data.elapsedMs)}</span>`;
+  el.appendChild(meta);
+  const txt = document.createElement("div");
+  txt.className = "result-text";
+  txt.textContent = rows
+    .map((r, i) => `${i + 1}. [${profileLabelById(r.profileId)}] ${r.text.trim()}`)
+    .join("\n");
+  el.appendChild(txt);
+  const dl = document.createElement("a");
+  dl.className = "dl";
+  dl.href = data.url;
+  dl.download = `voxcpm-multi-${data.id.slice(0, 8)}.wav`;
+  dl.textContent = "下载 WAV";
+  el.appendChild(dl);
 }
 
 boot();
