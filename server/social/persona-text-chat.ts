@@ -11,6 +11,7 @@ import { cleanAssistantReply } from "../_core/reply-utils";
 import { buildConversationContinuityInstruction } from "./conversation-continuity";
 import { buildPersonaMemoryRecallContext } from "./memory-recall";
 import { buildPersonaSourceRecallContext } from "./source-recall";
+import { parsePhotoIntent, type PhotoIntent } from "./photo-intent";
 import { detectVoiceRequestDecision, isExplicitVoiceRequest, type VoiceRequestDecision } from "../voice/voice-reply-policy";
 import {
   enforceSourceGroundedReply,
@@ -55,6 +56,8 @@ export type SocialPersonaTextChatOptions = {
   replyLengthOverride?: PersonaReplyLengthTarget;
   immersiveMode?: boolean;
   keepGoing?: boolean;
+  /** 允许人物在回复末尾输出 [[PHOTO|...]] 拍照意图标记（上层按冷却/作息门控） */
+  allowPhotoIntent?: boolean;
 };
 
 export type SocialPersonaTextChatResult = {
@@ -65,6 +68,8 @@ export type SocialPersonaTextChatResult = {
   sourceRecallUsed: boolean;
   turnPlan: PersonaTurnPlan;
   voiceRequestDecision: VoiceRequestDecision;
+  /** LLM 在回复里输出的拍照意图（已从 replyText 剥离）；无则 null */
+  photoIntent?: PhotoIntent | null;
 };
 
 type RecentConversationContext = {
@@ -490,6 +495,8 @@ export async function handleSocialPersonaTextChatDetailed(
       pinnedFacts,
       innerState,
       immersiveMode: options.immersiveMode,
+      // 原著考据轮不拍照（那轮要克制、按证据答）；其余按上层门控（冷却/作息）决定。
+      allowPhotoIntent: Boolean(options.allowPhotoIntent) && !sourceRecallContext,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
@@ -551,7 +558,7 @@ export async function handleSocialPersonaTextChatDetailed(
   if (shouldAbortPendingReply(options, persona.id, "after_llm")) {
     return null;
   }
-  const replyText = sourceRecallContext
+  let replyText = sourceRecallContext
     ? await enforceSourceGroundedReply({
       personaName: persona.name,
       userQuestion: options.messageText,
@@ -570,6 +577,9 @@ export async function handleSocialPersonaTextChatDetailed(
   if (shouldAbortPendingReply(options, persona.id, "before_persist")) {
     return null;
   }
+  // 从回复里剥离 [[PHOTO|...]] 拍照意图标记（用户看不到标记）；photoIntent 交上层异步发图。
+  const { intent: photoIntent, cleanedText: photoCleanedReply } = parsePhotoIntent(replyText);
+  replyText = photoCleanedReply;
   // 回合结束：演进延续内心状态，并由它派生兼容用的 emotionalState 标签。
   const friction = /冷漠|敷衍|不理我|不理你|生气|委屈|吵架|烦你|讨厌你|不想理|凶我/.test(options.messageText);
   const relationshipSignal = friction
@@ -657,6 +667,7 @@ export async function handleSocialPersonaTextChatDetailed(
     sourceRecallUsed: sourceRecallActive,
     turnPlan,
     voiceRequestDecision,
+    photoIntent,
   };
 }
 

@@ -91,6 +91,42 @@ export function buildEnvironmentPrompt(situation: string, context?: SelfieSceneC
   ].join("");
 }
 
+export type PersonaPhotoRequest = {
+  /** LLM 写的画面描述（生图正文） */
+  prompt: string;
+  /** 带人 → 附基准脸、保持同一个人 */
+  includeFace?: boolean;
+  /** 在家 → 附家图、保持同一处（仅当未带人时生效） */
+  atHome?: boolean;
+};
+
+// 通用拍照提示词：吃 LLM 写的任意画面，按三态拼一致性约束 + 套此刻时间/光线。
+// atHome 这里表示「实际附了家图」（由 generatePersonaPhoto 决定后传入），没附图时走纯文生图分支。
+export function buildPhotoPrompt(req: PersonaPhotoRequest, context?: SelfieSceneContext): string {
+  const scene = (req.prompt ?? "").trim() || context?.defaultScene || "此刻随手拍的画面";
+  const timeLine = context
+    ? `现在是北京时间 ${context.timeLabel}（${context.dayPart}），画面光线和环境必须符合此刻：${context.lightingHint}。`
+    : "";
+  const head = req.includeFace
+    ? "参考所附的这张脸，生成同一个人的写实照片："
+    : req.atHome
+      ? "参考所附的这张图（这是你家/你所在的环境），生成同一处场景的写实照片："
+      : "生成一张写实照片：";
+  return [
+    head,
+    timeLine,
+    scene,
+    "。画面必须与上面说的此刻时间一致，绝不能出现与时间矛盾的场景（例如深夜却是强烈日光或户外大太阳）。",
+    req.includeFace
+      ? "务必保持和参考图是同一个人——同样的五官、发型、体型和气质，只是场景、动作、表情和穿着按描述变化，不要复制参考图的背景和衣服。"
+      : "",
+    req.atHome
+      ? "务必和参考图是同一个地方——同样的布置、家具和风格，只是按描述变换角度、物件或此刻状态；可以有人入镜，也可以只拍环境。"
+      : "",
+    "写实手机随手拍质感，不要卡通或插画风。",
+  ].filter(Boolean).join("");
+}
+
 type SelfieConfig = {
   dotnetPath: string;
   project: string;
@@ -259,28 +295,26 @@ export function resolveHomeRegionRef(situation: string, now = new Date()): strin
 }
 
 /**
- * 生成一张人物自拍，返回本地图片路径；任何失败（未开启 / 配置不全 / 超时 / 被拒 / 没出图）都返回 null。
- * 调用是串行的：多个请求会排队，一次只跑一张。
+ * 通用拍照：吃 LLM 写的任意画面，按三态附图（带人=基准脸 / 在家=家图 / 都不带=纯文生图），
+ * 套此刻时间光线 + 一致性约束，经 pusher --generate 出图，返回本地图片路径。
+ * 任何失败（未开启 / 配置不全 / 超时 / 被拒 / 没出图）都返回 null。调用串行（一次一张）。
  */
-export async function generatePersonaSelfie(
-  situation: string,
-  kind: "selfie" | "environment" = "selfie",
-): Promise<SelfieResult | null> {
+export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<SelfieResult | null> {
   const config = resolveConfig();
   if (!config) return null;
 
   return runExclusive(async () => {
     const context = buildScheduleSelfieContext();
-    const attachment = kind === "environment"
-      ? (resolveHomeRegionRef(situation) ?? config.homeRef)
-      : config.baseFace;
-    if (!attachment) {
-      console.warn(`persona_selfie_no_reference kind=${kind}（环境照需配 PERSONA_SELFIE_HOME_REF_PATH）`);
-      return null;
+    // 三态附图：带人→基准脸；仅在家→家图（按画面关键词选区域，退回单图 homeRef）；都不带→不附图（纯文生图）。
+    let attachment: string | undefined;
+    let effectiveAtHome = false;
+    if (req.includeFace) {
+      attachment = config.baseFace;
+    } else if (req.atHome) {
+      attachment = resolveHomeRegionRef(req.prompt) ?? config.homeRef;
+      effectiveAtHome = Boolean(attachment); // 有家图才锚定「同一处」，否则降级为纯文生图的在家画面
     }
-    const prompt = kind === "environment"
-      ? buildEnvironmentPrompt(situation, context)
-      : buildSelfiePrompt(situation, context);
+    const prompt = buildPhotoPrompt({ ...req, atHome: effectiveAtHome }, context);
     const outJson = path.join(
       os.tmpdir(),
       `mirrai-selfie-${createHash("sha256").update(`${prompt}${Date.now()}`).digest("hex").slice(0, 12)}.json`,
@@ -292,7 +326,7 @@ export async function generatePersonaSelfie(
         "run", "--project", config.project, "-c", "Release", "--",
         "--generate",
         "--prompt", prompt,
-        "--attachment-path", attachment,
+        ...(attachment ? ["--attachment-path", attachment] : []),
         "--target-url", config.targetUrl,
         "--output-json", outJson,
       ];
@@ -309,7 +343,7 @@ export async function generatePersonaSelfie(
         return null;
       }
       const parsed = JSON.parse(await readFile(outJson, "utf8")) as GenerateResultJson;
-      const baseSize = existsSync(attachment) ? statSync(attachment).size : -1;
+      const baseSize = attachment && existsSync(attachment) ? statSync(attachment).size : -1;
       const isReferenceCopy = (entry: string): boolean => {
         if (!existsSync(entry)) return true; // 不存在的当作不可用，过滤掉
         try {
@@ -351,4 +385,16 @@ export async function generatePersonaSelfie(
       await rm(outJson, { force: true }).catch(() => undefined);
     }
   });
+}
+
+// 退役：薄封装转发 generatePersonaPhoto（向后兼容旧的 situation/kind 调用，如明确指令路径）。
+export async function generatePersonaSelfie(
+  situation: string,
+  kind: "selfie" | "environment" = "selfie",
+): Promise<SelfieResult | null> {
+  return generatePersonaPhoto(
+    kind === "environment"
+      ? { prompt: situation, atHome: true }
+      : { prompt: situation, includeFace: true },
+  );
 }

@@ -44,7 +44,7 @@ export type SelfieCooldown = { lastAt?: string | null; countToday?: number };
 // 冷却：当日已发 ≥ maxPerDay，或距上次 < cooldownHours，则不允许概率/自主触发（明确指令不受此限）。
 export function isSelfieCooldownActive(
   cooldown: SelfieCooldown,
-  now: Date,
+  now: Date = new Date(),
   cooldownHours = 3,
   maxPerDay = 2,
 ): boolean {
@@ -58,55 +58,29 @@ export function isSelfieCooldownActive(
 
 export type SelfieDecisionInput = {
   inputText: string;
-  availability: string; // turnPlan.availability：silent_unless_urgent | brief | normal | open
-  cooldown: SelfieCooldown;
-  now?: Date;
-  random?: () => number;
-  locationQueryProbability?: number; // 默认 0.4（适中）
-  spontaneousProbability?: number; // 默认 0.08（适中）
 };
 
 function none(): SelfieDecision {
   return { shouldSend: false, kind: "selfie", situation: "", reason: "none" };
 }
 
+/**
+ * 只判断「明确指令」要不要拍 + 拍哪种（必发、破冷却）。
+ * 「自然地该不该拍」已交给 LLM 输出 [[PHOTO]] 标记（见 social/photo-intent），不再用规则概率/自主触发。
+ */
 export function decideSelfieOpportunity(input: SelfieDecisionInput): SelfieDecision {
-  const now = input.now ?? new Date();
-  const random = input.random ?? Math.random;
   const text = input.inputText ?? "";
 
-  // 1) 明确要拍环境/场景：必发（不受冷却限制）
+  // 明确要拍环境/场景（拍家里、看看你那、拍做的饭…）：必发
   const env = parseEnvironmentRequest(text);
   if (env) {
     return { shouldSend: true, kind: "environment", situation: env.situation, reason: "explicit_request" };
   }
 
-  // 2) 明确要自拍：必发（不受冷却限制）
+  // 明确要自拍（发自拍/拍张照…）：必发
   const command = parseSelfieCommand(text);
   if (command) {
     return { shouldSend: true, kind: "selfie", situation: command.situation, reason: "explicit_request" };
-  }
-
-  // 睡眠等"非急事静默"时段：不做概率/自主触发
-  if (input.availability === "silent_unless_urgent") return none();
-
-  // 冷却内：不做概率/自主触发
-  if (isSelfieCooldownActive(input.cooldown, now)) return none();
-
-  // 3) 问"你在哪/在干嘛/现在怎样"：概率触发自拍（默认 40%）
-  if (isLocationQuery(text)) {
-    const p = input.locationQueryProbability ?? 0.4;
-    return random() < p
-      ? { shouldSend: true, kind: "selfie", situation: "", reason: "location_query" }
-      : none();
-  }
-
-  // 4) 空闲时段（open）自主低概率自拍（默认 8%）
-  if (input.availability === "open") {
-    const p = input.spontaneousProbability ?? 0.08;
-    return random() < p
-      ? { shouldSend: true, kind: "selfie", situation: "", reason: "spontaneous" }
-      : none();
   }
 
   return none();

@@ -14,6 +14,8 @@ export type QqPersonaChatOptions = {
   batchMessageCount?: number;
   batchMessages?: string[];
   shouldAbortReply?: () => boolean;
+  /** 允许人物在回复末尾输出 [[PHOTO|...]] 拍照意图标记（由 message-handler 按冷却门控） */
+  allowPhotoIntent?: boolean;
 };
 
 export type QqMediaInput = SocialMediaInput;
@@ -81,6 +83,7 @@ export async function handleQqPersonaChatDetailed(
     replyLengthOverride: (getVerboseMode(contactId) || getSceneMode(contactId) || sceneOverlay != null) ? "long" : undefined,
     immersiveMode: getSceneMode(contactId) || sceneOverlay != null,
     keepGoing: wantsKeepGoing(messageText),
+    allowPhotoIntent: options.allowPhotoIntent,
   });
 }
 
