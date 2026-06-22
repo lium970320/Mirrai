@@ -12,9 +12,10 @@ import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { tryHandleSceneCommand, getSceneMode } from "./scene-commands";
 import { wantsKeepGoing } from "../social/persona-turn-planner";
-import { decideSelfieOpportunity } from "../social/selfie-decision";
+import { decideSelfieOpportunity, isSelfieCooldownActive } from "../social/selfie-decision";
+import { pickSelfieDeliveryLine } from "../social/selfie-delivery";
 import { getSelfieCooldown, recordSelfieSent } from "../social/selfie-cooldown";
-import { generatePersonaSelfie } from "../image/selfie-provider";
+import { generatePersonaPhoto, type PersonaPhotoRequest } from "../image/selfie-provider";
 import { tryHandleVerboseCommand } from "./verbose-commands";
 import { getQqRecordFile, parseQqContactId, sendQqImageFile, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
@@ -451,10 +452,13 @@ function contactDisplayName(event: OneBotMessageEvent): string {
 }
 
 async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
+  // 拍照意图门控：冷却内不让 LLM 输出 [[PHOTO]]（明确指令仍走规则、破冷却）；作息门控在 persona-text-chat 内。
+  const allowPhotoIntent = !isSelfieCooldownActive(getSelfieCooldown(batch.contactId));
   const result = await handleQqPersonaChatDetailed(batch.contactId, batch.contactName, batch.combinedText, {
     batchMessageCount: batch.messageCount,
     batchMessages: batch.messages,
     shouldAbortReply: batch.isStale,
+    allowPhotoIntent,
   });
   if (result?.replyText) {
     if (batch.isStale()) {
@@ -473,14 +477,27 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
       shouldAbort: batch.isStale,
     });
 
-    // 自拍决策（明确要必发 / 问在哪干嘛概率 / 空闲自主，带冷却）：文字已发，图在后台生成完再追发。
-    const selfie = decideSelfieOpportunity({
-      inputText: batch.combinedText,
-      availability: result.turnPlan.availability,
-      cooldown: getSelfieCooldown(batch.contactId),
-    });
-    if (selfie.shouldSend) {
-      void generateAndSendSelfie(batch.contactId, selfie.kind, selfie.situation, selfie.reason, batch.isStale);
+    // 拍照：文字已发，图后台生成完再追发。两条路：
+    // ① LLM 自然想拍 → result.photoIntent（已被 allowPhotoIntent 按冷却/作息门控）；
+    // ② 否则规则版「明确要」（发自拍 / 拍家里）→ 必发、破冷却。
+    if (result.photoIntent) {
+      void generateAndSendPhoto(batch.contactId, {
+        prompt: result.photoIntent.scene,
+        includeFace: result.photoIntent.includeFace,
+        atHome: result.photoIntent.atHome,
+      }, "spontaneous", batch.isStale);
+    } else {
+      const selfie = decideSelfieOpportunity({ inputText: batch.combinedText });
+      if (selfie.shouldSend) {
+        void generateAndSendPhoto(
+          batch.contactId,
+          selfie.kind === "environment"
+            ? { prompt: selfie.situation, atHome: true }
+            : { prompt: selfie.situation, includeFace: true },
+          selfie.reason,
+          batch.isStale,
+        );
+      }
     }
 
     // 「不要停」连发：自动续写若干拍，每拍一次完整生成；用户插话（isStale）或写空就停。
@@ -505,21 +522,24 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
   }
 }
 
-// 自拍：文字回复已发，这里后台生成图、好了再追发。明确要的失败时补一句，概率/自主触发的失败则静默。
-async function generateAndSendSelfie(
+// 拍照：文字回复已发，这里后台生成图、好了再追发。明确要的失败时补一句，自然想拍（spontaneous）的失败则静默。
+async function generateAndSendPhoto(
   contactId: string,
-  kind: "selfie" | "environment",
-  situation: string,
+  req: PersonaPhotoRequest,
   reason: string,
   shouldAbort?: () => boolean,
 ): Promise<void> {
   try {
-    const result = await generatePersonaSelfie(situation, kind);
+    const result = await generatePersonaPhoto(req);
     if (shouldAbort?.()) return;
     if (result) {
       const ok = await sendQqImageFile(contactId, result.imagePath);
       if (ok) {
         recordSelfieSent(contactId);
+        // 交付信号：图已送到，紧跟一句让对方看（复用 Codex 话术；按带不带人选自拍/环境口吻）。
+        if (!shouldAbort?.()) {
+          await sendQqText(contactId, pickSelfieDeliveryLine(req.includeFace ? "selfie" : "environment", contactId));
+        }
         return;
       }
     }
@@ -527,7 +547,7 @@ async function generateAndSendSelfie(
       await sendQqText(contactId, "诶，刚没拍好，等会儿补一张给你。");
     }
   } catch (err) {
-    console.warn(`[QQ] selfie generate/send failed contact=${contactId}:`, err);
+    console.warn(`[QQ] photo generate/send failed contact=${contactId}:`, err);
     if (reason === "explicit_request") {
       await sendQqText(contactId, "拍照出了点小状况，等会儿再说哈。");
     }

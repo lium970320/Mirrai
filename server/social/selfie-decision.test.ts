@@ -27,50 +27,22 @@ describe("isSelfieCooldownActive", () => {
   });
 });
 
-describe("decideSelfieOpportunity", () => {
-  const now = new Date("2026-06-23T20:00:00+08:00");
-  const base = { availability: "open", cooldown: {}, now } as const;
-
-  it("明确要→必发，不受冷却限制", () => {
-    const d = decideSelfieOpportunity({ ...base, inputText: "发张自拍 在公园", cooldown: { countToday: 5 } });
+describe("decideSelfieOpportunity（缩成只判断明确指令）", () => {
+  it("明确要自拍→必发、kind=selfie、带情境", () => {
+    const d = decideSelfieOpportunity({ inputText: "发张自拍 在公园" });
     expect(d.shouldSend).toBe(true);
     expect(d.kind).toBe("selfie");
     expect(d.reason).toBe("explicit_request");
     expect(d.situation).toBe("在公园");
   });
 
-  it("明确拍环境→environment，不受冷却限制", () => {
-    const d = decideSelfieOpportunity({ ...base, inputText: "拍一下家里的样子", cooldown: { countToday: 5 } });
-    expect(d.shouldSend).toBe(true);
-    expect(d.kind).toBe("environment");
-    expect(d.reason).toBe("explicit_request");
-    const d2 = decideSelfieOpportunity({ ...base, inputText: "看看你那边" });
-    expect(d2.kind).toBe("environment");
+  it("明确要拍环境→必发、kind=environment", () => {
+    expect(decideSelfieOpportunity({ inputText: "拍一下家里的样子" }).kind).toBe("environment");
+    expect(decideSelfieOpportunity({ inputText: "看看你那边" }).kind).toBe("environment");
   });
 
-  it("问在哪→按概率（random<0.4 发，否则不发）", () => {
-    const yes = decideSelfieOpportunity({ ...base, inputText: "你在干嘛呢", random: () => 0.2 });
-    expect(yes.shouldSend).toBe(true);
-    expect(yes.reason).toBe("location_query");
-    const no = decideSelfieOpportunity({ ...base, inputText: "你在干嘛呢", random: () => 0.9 });
-    expect(no.shouldSend).toBe(false);
-  });
-
-  it("空闲时段自主低概率（random<0.08 发）", () => {
-    const yes = decideSelfieOpportunity({ ...base, inputText: "今天好累", random: () => 0.05 });
-    expect(yes.shouldSend).toBe(true);
-    expect(yes.reason).toBe("spontaneous");
-    const no = decideSelfieOpportunity({ ...base, inputText: "今天好累", random: () => 0.5 });
-    expect(no.shouldSend).toBe(false);
-  });
-
-  it("睡眠时段不做概率/自主触发", () => {
-    const d = decideSelfieOpportunity({ ...base, availability: "silent_unless_urgent", inputText: "你在哪", random: () => 0.01 });
-    expect(d.shouldSend).toBe(false);
-  });
-
-  it("冷却内不做概率/自主触发", () => {
-    const d = decideSelfieOpportunity({ ...base, inputText: "你在哪", cooldown: { countToday: 2 }, random: () => 0.01 });
-    expect(d.shouldSend).toBe(false);
+  it("没有明确指令→不发（自然想拍交给 LLM 的 [[PHOTO]] 标记）", () => {
+    expect(decideSelfieOpportunity({ inputText: "你在干嘛呢" }).shouldSend).toBe(false);
+    expect(decideSelfieOpportunity({ inputText: "今天好累" }).shouldSend).toBe(false);
   });
 });
