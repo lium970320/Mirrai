@@ -2,7 +2,8 @@
 // 和之前的「预告」（"等下给你拍"）形成闭环。短句场景用话术池随机选 + 避免与上一句连续重复，
 // 零延迟、不调 LLM；按自拍 / 环境分两组。独立文件，避免与「LLM 通用拍照」改动撞车。
 
-export type PhotoDeliveryKind = "selfie" | "environment";
+// selfie=自拍含人；environment=家里环境；scene=外面/物（路上、做的饭等，不提「家」以免出戏）。
+export type PhotoDeliveryKind = "selfie" | "environment" | "scene";
 
 const DELIVERY_LINES: Record<PhotoDeliveryKind, string[]> = {
   selfie: [
@@ -20,6 +21,14 @@ const DELIVERY_LINES: Record<PhotoDeliveryKind, string[]> = {
     "给你瞧瞧，家里就这模样。",
     "喏，这是我眼前的样子。",
     "看吧，就这样。",
+  ],
+  scene: [
+    "喏，拍好了。",
+    "拍好了，给你看。",
+    "诶，看看这个。",
+    "喏，刚拍的。",
+    "给你瞧瞧。",
+    "拍好了，看吧。",
   ],
 };
 
