@@ -76,11 +76,27 @@ export function buildSelfiePrompt(situation: string, context?: SelfieSceneContex
   ].join("");
 }
 
+// 环境/场景照提示词：参考"家"的图，生成同一处场景、符合此刻时间的写实照片。
+export function buildEnvironmentPrompt(situation: string, context?: SelfieSceneContext): string {
+  const what = situation.trim() || "家里此刻的样子";
+  const timeLine = context
+    ? `现在是北京时间 ${context.timeLabel}（${context.dayPart}），光线和环境必须符合此刻：${context.lightingHint}。`
+    : "";
+  return [
+    "参考所附的这张图（这是你家/你所在的环境），生成同一处场景的写实照片：",
+    timeLine,
+    what,
+    "。务必和参考图是同一个地方——同样的布置、家具和风格，只是按描述变换角度、物件或此刻状态；可以有人入镜，也可以只拍环境。",
+    "写实手机随手拍质感，不要卡通或插画风。",
+  ].join("");
+}
+
 type SelfieConfig = {
   dotnetPath: string;
   project: string;
   pusherConfig: string;
   baseFace: string;
+  homeRef?: string; // 环境照参考图（"家"），可选；未配则环境照不可用
   targetUrl: string;
   profileHint: string;
   timeoutMs: number;
@@ -110,6 +126,7 @@ function resolveConfig(): SelfieConfig | null {
     project,
     pusherConfig,
     baseFace,
+    homeRef: ENV.personaSelfieHomeRefPath || undefined,
     targetUrl,
     profileHint: ENV.personaSelfieProfileHint,
     timeoutMs: Math.max(60_000, ENV.personaSelfieTimeoutMs),
@@ -204,17 +221,66 @@ export function pickGeneratedImageFromDir(
   return candidates.length ? candidates[0].path : undefined;
 }
 
+// 按"拍哪个区域"选对应的家参考图（卧室/厨房/客厅/书房/阳台/卫生间/玄关）。
+// 先看场景文字关键词，否则按当前作息推断；命中且图存在才返回，否则 undefined（上层退回单图 homeRef）。
+const HOME_REGION_KEYWORDS: Array<[RegExp, string]> = [
+  [/卧室|床上|床边|被窝|睡觉|躺/, "bedroom"],
+  [/厨房|做饭|做菜|灶台|下厨|炒菜/, "kitchen"],
+  [/书房|看书|读书|工作|办公|书桌|电脑/, "study"],
+  [/阳台|窗外|外面的?风?景|晾/, "balcony"],
+  [/卫生间|浴室|洗澡|洗漱|淋浴|马桶|镜子前/, "bathroom"],
+  [/玄关|门口|出门|到家|进门|换鞋/, "entry"],
+  [/客厅|沙发|看电视|茶几/, "livingroom"],
+];
+
+export function regionForScheduleCategory(category: string): string {
+  switch (category) {
+    case "sleep":
+    case "wake": return "bedroom";
+    case "meal": return "kitchen";
+    case "work": return "study";
+    case "home":
+    case "rest":
+    default: return "livingroom";
+  }
+}
+
+export function resolveHomeRegionRef(situation: string, now = new Date()): string | undefined {
+  const dir = ENV.personaSelfieHomeDir;
+  if (!dir) return undefined;
+  const text = (situation ?? "").replace(/\s+/g, "");
+  let region = "";
+  for (const [re, r] of HOME_REGION_KEYWORDS) {
+    if (re.test(text)) { region = r; break; }
+  }
+  if (!region) region = regionForScheduleCategory(getPersonaScheduleState(now).category);
+  const candidate = path.join(dir, `${region}.png`);
+  return existsSync(candidate) ? candidate : undefined;
+}
+
 /**
  * 生成一张人物自拍，返回本地图片路径；任何失败（未开启 / 配置不全 / 超时 / 被拒 / 没出图）都返回 null。
  * 调用是串行的：多个请求会排队，一次只跑一张。
  */
-export async function generatePersonaSelfie(situation: string): Promise<SelfieResult | null> {
+export async function generatePersonaSelfie(
+  situation: string,
+  kind: "selfie" | "environment" = "selfie",
+): Promise<SelfieResult | null> {
   const config = resolveConfig();
   if (!config) return null;
 
   return runExclusive(async () => {
     const context = buildScheduleSelfieContext();
-    const prompt = buildSelfiePrompt(situation, context);
+    const attachment = kind === "environment"
+      ? (resolveHomeRegionRef(situation) ?? config.homeRef)
+      : config.baseFace;
+    if (!attachment) {
+      console.warn(`persona_selfie_no_reference kind=${kind}（环境照需配 PERSONA_SELFIE_HOME_REF_PATH）`);
+      return null;
+    }
+    const prompt = kind === "environment"
+      ? buildEnvironmentPrompt(situation, context)
+      : buildSelfiePrompt(situation, context);
     const outJson = path.join(
       os.tmpdir(),
       `mirrai-selfie-${createHash("sha256").update(`${prompt}${Date.now()}`).digest("hex").slice(0, 12)}.json`,
@@ -226,7 +292,7 @@ export async function generatePersonaSelfie(situation: string): Promise<SelfieRe
         "run", "--project", config.project, "-c", "Release", "--",
         "--generate",
         "--prompt", prompt,
-        "--attachment-path", config.baseFace,
+        "--attachment-path", attachment,
         "--target-url", config.targetUrl,
         "--output-json", outJson,
       ];
@@ -243,7 +309,7 @@ export async function generatePersonaSelfie(situation: string): Promise<SelfieRe
         return null;
       }
       const parsed = JSON.parse(await readFile(outJson, "utf8")) as GenerateResultJson;
-      const baseSize = existsSync(config.baseFace) ? statSync(config.baseFace).size : -1;
+      const baseSize = existsSync(attachment) ? statSync(attachment).size : -1;
       const isReferenceCopy = (entry: string): boolean => {
         if (!existsSync(entry)) return true; // 不存在的当作不可用，过滤掉
         try {
