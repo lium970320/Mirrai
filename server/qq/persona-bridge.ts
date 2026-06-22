@@ -6,6 +6,9 @@ import {
   type SocialPersonaTextChatResult,
 } from "../social/persona-text-chat";
 import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
+import { getVerboseMode } from "./verbose-commands";
+import { getSceneMode } from "./scene-commands";
+import { wantsKeepGoing } from "../social/persona-turn-planner";
 
 export type QqPersonaChatOptions = {
   batchMessageCount?: number;
@@ -75,6 +78,9 @@ export async function handleQqPersonaChatDetailed(
     channel: "qq",
     sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
+    replyLengthOverride: (getVerboseMode(contactId) || getSceneMode(contactId) || sceneOverlay != null) ? "long" : undefined,
+    immersiveMode: getSceneMode(contactId) || sceneOverlay != null,
+    keepGoing: wantsKeepGoing(messageText),
   });
 }
 

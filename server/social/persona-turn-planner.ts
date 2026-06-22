@@ -42,6 +42,8 @@ export type PersonaTurnPlan = {
   currentActivity: string;
   availability: string;
   replyLength: PersonaReplyLengthTarget;
+  replyLengthOverridden: boolean;
+  immersiveMode: boolean;
   outputMode: PersonaOutputMode;
   risks: PersonaTurnRisk[];
   reasons: string[];
@@ -69,6 +71,8 @@ export type PersonaTurnPlanInput = {
   recentMessages?: ConversationMessage[];
   personaData?: unknown;
   now?: Date;
+  replyLengthOverride?: PersonaReplyLengthTarget;
+  immersiveMode?: boolean;
 };
 
 function compactText(text: string): string {
@@ -93,6 +97,20 @@ export function isAffectionExpressionRequest(text: string): boolean {
     includesAny(compact, AFFECTION_ELABORATION_PATTERN)
     && /爱|想|表白|情话|感情|内心|心里|真心|肺腑|喜欢|在乎|舍不得|离不开|占有/.test(compact)
   );
+}
+
+// 用户在自然对话里要求“再多说一点 / 说详细点 / 展开讲讲”等——任何语境下都自动放长本轮回复
+const WANTS_LONGER_REPLY_PATTERN = /多说|多讲|讲详细|说详细|详细点|详细一点|详细些|具体点|具体一点|具体些|展开说|展开讲|展开聊|说长|长一点|长点|久一点|说多一点|说久一点|多一点|别这么短|太短|说清楚点|说细一点|细说|继续说|接着说|再说一点|再说些|再多说|多说点|说得多一点|话多一点/;
+
+export function wantsLongerReply(text: string): boolean {
+  return WANTS_LONGER_REPLY_PATTERN.test(compactText(text));
+}
+
+// 用户要求“不要停 / 别停下来 / 一直说别停”——本轮写成一长串连续推进、绝不收尾的内容（自动连发好几条）
+const WANTS_KEEP_GOING_PATTERN = /不要停|不要停下来|别停下来|别停下|不许停|不准停|一直说别停|继续别停|接着别停|说个不停|不停下来|一直说下去/;
+
+export function wantsKeepGoing(text: string): boolean {
+  return WANTS_KEEP_GOING_PATTERN.test(compactText(text));
 }
 
 function recentAffectionContext(recentMessages: ConversationMessage[] | undefined): boolean {
@@ -134,6 +152,7 @@ function inferMemoryMode(intent: PersonaTurnIntent): PersonaMemoryMode {
 function inferReplyLength(input: PersonaTurnPlanInput, intent: PersonaTurnIntent): PersonaReplyLengthTarget {
   const textLength = compactLength(input.inputText);
   if (input.mode === "proactive") return "short";
+  if (wantsLongerReply(input.inputText) || wantsKeepGoing(input.inputText)) return "long";
   if (intent === "technical" || intent === "source_recall") return "medium";
   if (intent === "affection_expression") {
     return includesAny(input.inputText, /多说|多讲|长一点|长点|久一点|一段|表白|肺腑|内心|心里话|真心话|别这么短|太短|敷衍|继续说|再说一点/)
@@ -202,11 +221,16 @@ export function planPersonaTurn(input: PersonaTurnPlanInput): PersonaTurnPlan {
   const runtime = getActiveRuntimeLifeState(input.personaData, now);
   const intent = inferIntent(input);
   const memoryMode = inferMemoryMode(intent);
-  const replyLength = inferReplyLength(input, intent);
+  const inferred = inferReplyLength(input, intent);
+  const replyLength = input.replyLengthOverride && inferred !== "silent"
+    ? input.replyLengthOverride
+    : inferred;
   const outputMode = inferOutputMode(input, replyLength);
   const activity = runtime?.status === "drowsy_awake"
     ? `drowsy_awake/${schedule.label}`
     : `${schedule.stateId}/${schedule.label}`;
+
+  const replyLengthOverridden = !!(input.replyLengthOverride && inferred !== "silent" && replyLength !== inferred);
 
   return {
     platform: input.platform,
@@ -216,6 +240,8 @@ export function planPersonaTurn(input: PersonaTurnPlanInput): PersonaTurnPlan {
     currentActivity: activity,
     availability: schedule.availability,
     replyLength,
+    replyLengthOverridden,
+    immersiveMode: !!input.immersiveMode,
     outputMode,
     risks: inferRisks(input, intent),
     reasons: [
@@ -268,6 +294,27 @@ export function buildTurnPlanInstruction(plan: PersonaTurnPlan): string {
     ].join("\n")
     : "";
 
+  const immersiveInstruction = plan.immersiveMode
+    ? [
+      "【场景模式——覆盖前文长度与格式限制】",
+      "用户开启了场景模式。本轮忽略前文关于短答、一两句、不要太长的限制，也忽略当前时段和睡眠状态带来的催睡、收尾倾向。",
+      "用旁白（用【】整段包住，只写动作、神态、环境、氛围）和说出口的话交错，展开成一个完整、有起伏的情景片段。",
+      "本轮硬性长度：至少 3 段【】旁白 + 至少 3 到 4 句对话，交错推进；不要刚起头就收尾，不要只回一两句。",
+      "即使现在是深夜、人物困倦，也不要因此缩短、不要催对方睡觉、不要收尾；场景没结束就继续往下写。",
+      "旁白和对话分成不同段落、段落之间空一行。仍要有画面、有推进，不要注水、重复或写成列表。",
+    ].join("\n")
+    : "";
+
+  const verboseInstruction = plan.replyLengthOverridden && !plan.immersiveMode
+    ? [
+      "【详细模式——覆盖前文长度规则】",
+      '用户主动开启了详细模式。本轮必须忽略前文「微信聊天节奏」「对话原则」里所有关于"短答""一两句""不要太长"的限制。',
+      "本轮回复目标：5-8 句完整的话，像两个人认真在聊天、彼此有话说。",
+      "具体做法：围绕用户这句话展开你的想法、感受、联想或细节；可以接着聊一个相关话题或追问用户；让对话有来有回、有内容。",
+      "仍然保持自然口语、不要堆砌无关内容、不要重复、不要列表式输出。",
+    ].join("\n")
+    : "";
+
   return [
     "【本轮内部规划】",
     `入口：${plan.platform}`,
@@ -280,6 +327,8 @@ export function buildTurnPlanInstruction(plan: PersonaTurnPlan): string {
     `判断依据：${plan.reasons.join("；")}`,
     riskInstruction(plan.risks),
     affectionInstruction,
+    immersiveInstruction,
+    verboseInstruction,
     "以上规划只用于指导回复，不要向用户解释这些标签或系统判断。",
   ].filter(Boolean).join("\n");
 }

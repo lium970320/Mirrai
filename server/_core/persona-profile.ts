@@ -53,6 +53,10 @@ export type PersonaRuntimeProfile = {
   runtimeLifeState?: unknown;
 };
 
+export type PersonaAppearanceProfile = {
+  description: string;
+};
+
 export type PersonaProfileSections = {
   schemaVersion: number;
   core: PersonaCoreProfile;
@@ -62,6 +66,7 @@ export type PersonaProfileSections = {
   source: PersonaSourceProfile;
   behavior: PersonaBehaviorProfile;
   runtime: PersonaRuntimeProfile;
+  appearance?: PersonaAppearanceProfile;
 };
 
 export type PersonaProfileContext = {
@@ -130,6 +135,7 @@ export function normalizePersonaProfileSections(
   const source = section(data, "source");
   const behavior = section(data, "behavior");
   const runtime = section(data, "runtime");
+  const appearance = section(data, "appearance");
 
   return {
     schemaVersion: PROFILE_SCHEMA_VERSION,
@@ -187,6 +193,9 @@ export function normalizePersonaProfileSections(
     runtime: {
       proactiveMessages: runtime.proactiveMessages ?? data.proactiveMessages,
       runtimeLifeState: runtime.runtimeLifeState ?? data.runtimeLifeState,
+    },
+    appearance: {
+      description: stringValue(appearance.description, data.appearance, data.appearanceDescription),
     },
   };
 }
@@ -293,8 +302,14 @@ export function buildPersonaProfilePromptSections(
     profile.behavior.proactiveStyle ? `主动消息风格：${profile.behavior.proactiveStyle}` : "",
   ];
 
+  const appearanceLines = [
+    profile.appearance?.description ? `你的长相与形象：${profile.appearance.description}` : "",
+    "被问到长相、身材、穿着或外形时，按上面的形象自然回答、保持前后一致；不要否认自己有具体长相。",
+  ];
+
   return [
     linesForObject("人物核心画像", coreLines),
+    profile.appearance?.description ? linesForObject("外貌与形象", appearanceLines) : "",
     linesForObject("性格与情感模式", personalityLines),
     linesForObject("关系与共同记忆", relationshipLines),
     sourceBackgroundPrompt(profile, options),

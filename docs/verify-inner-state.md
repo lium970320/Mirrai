@@ -125,3 +125,21 @@ SELECT column_name FROM information_schema.columns
 
 ## 第二批回退
 全部在本 PR，可整体 revert。
+
+---
+
+# 第三批：自洽性优化（2026-06-23）
+
+> 自动闸门：`tsc --noEmit` 零错误；相关 `vitest` 单测全过。
+
+## 已修
+- **source-recall 误触发修复**：亲密情话（含「喜欢/抱着」等词）曾被原著触发正则 `SOURCE_RECALL_TRIGGER` 劫持成「原著考据」，落到硬编码兜底「对柱子…不能乱编」并被切成多条发出。已从触发正则移除当下亲密高频词（喜欢/抱着/亲吻/表白/睡在一起/睡一块），并把「柱子」专属兜底收紧为只在用户确实问到「柱子」时才用（`source-recall.ts` / `source-grounding.ts` + 新增回归用例 `source-recall.test.ts`）。
+  - 验证：在 QQ 说一句亲密的话 → 应正常沉浸回应，不再蹦「对柱子…不能乱编」这种出戏元话语。
+- **本轮意图诊断补全**：`[PersonaTurn]` 日志新增 `output / sourceRecall / scene / mood / tone（关系温度）/ day（当日心境）`，让已算出但之前不显示的新模式状态都在本轮意图里可见。
+  - 验证：聊一句后看服务日志的 `[PersonaTurn]` 行 → 应含上述新字段。
+
+## 本批后续（同批推进，做完逐项回填）
+- [x] **主动多模态发送执行链**：第二批 line 123-124 的「发送待接」已落地为「已接」。`proactive-delivery.ts` 新增 `sendProactiveMessageToPreferredPlatform(persona, text, modality)`——voice 走 TTS→语音条、sticker 走文本+表情、任何失败回退纯文本；`ambient-proactive.ts` 把模态决策提前到发送前并记录实际发出的模态。仍由 `PROACTIVE_MULTIMODAL_ENABLED` 门控、默认关（关时恒文本，线上不变）。单测 `proactive-delivery.test.ts` 覆盖 text/voice/voice-fallback/sticker/sticker-fallback。
+  - 验证：设 `PROACTIVE_MULTIMODAL_ENABLED=true` 后，主动消息会按低概率（语音 0.12 / 表情 0.10）发语音条或附表情；`multimodalIntent` 诊断记录的是实际发出的模态。
+- [x] **P0 去硬编码（代表性一块）**：`柱子` 兜底已配置化到 `persona-life-config`（新增 `sourceFallbackTrigger`/`sourceFallbackReply`，默认=原文案）；`source-grounding` 改为按 config 读、`persona-text-chat` 传入分身配置。`persona-profile` 王芃泽快照回归通过 = 默认逐字节不变；新增 `source-grounding` config 覆盖用例。其余去硬编码（`life-schedule` 作息地名、`persona-text-chat`/`turn-planner` 语气句、用户身份「敏子」与代词）改的是深嵌中文提示词的整句，需逐句模板化 + 起服务行为验证，列为**带验证的专项**，不在无法验证时一次性铺。
+- [ ] 自拍集成 B：pusher 无头入口 + Mirrai `generatePersonaSelfie` provider（`PERSONA_SELFIE_ENABLED`，默认关）。

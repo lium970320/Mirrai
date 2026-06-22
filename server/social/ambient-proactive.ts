@@ -20,7 +20,7 @@ import {
 import { cleanAssistantReply } from "../_core/reply-utils";
 import {
   resolveProactivePreferredTarget,
-  sendProactiveTextToPreferredPlatform,
+  sendProactiveMessageToPreferredPlatform,
 } from "./proactive-delivery";
 import { resolveProactiveModality } from "./proactive-multimodal";
 import {
@@ -321,7 +321,9 @@ export async function maybeSendAmbientPresenceMessage(
 
   const generated = await generateAmbientMessageDetailed(persona, eventText, period, now);
   const replyText = generated.replyText;
-  const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
+  // 主动多模态：开关开启时按概率走语音/表情，关闭时恒为文本（resolveProactiveModality 内部门控）。
+  const modality = resolveProactiveModality();
+  const delivery = await sendProactiveMessageToPreferredPlatform(persona, replyText, modality);
   if (!delivery.sent) {
     return { sent: false, reason: delivery.reason || "send_failed", period, count, target };
   }
@@ -371,8 +373,8 @@ export async function maybeSendAmbientPresenceMessage(
           eventText,
           period,
           ambientPresence: nextState,
-          // 多模态开关开启时记录本条打算用的模态（实际语音/表情发送为后续工作）。
-          multimodalIntent: resolveProactiveModality(),
+          // 记录本条实际发出的模态（语音/表情失败会回退文本，这里取实际发送结果）。
+          multimodalIntent: delivery.modality ?? modality,
         },
       }),
     ),

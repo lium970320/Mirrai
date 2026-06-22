@@ -25,6 +25,10 @@ export type PersonaLifeConfig = {
   sourceTerms: string[];
   /** 当前用户性别代词（长期记忆第三人称归一），默认男性"他" */
   userPronoun: "他" | "她";
+  /** 用户问到原著核心人物关系、但证据不足时的「专属诚实兜底」文案（默认=王芃泽对柱子那段） */
+  sourceFallbackReply: string;
+  /** 触发上面专属兜底的核心人物名（默认「柱子」）；用户问题含它才用专属兜底，否则用通用「记不准」兜底 */
+  sourceFallbackTrigger: string;
 };
 
 export const DEFAULT_SETTING_LINE =
@@ -32,6 +36,9 @@ export const DEFAULT_SETTING_LINE =
 export const DEFAULT_PARTNER_NAME = "敏子";
 export const DEFAULT_SOURCE_TERMS = ["柱子", "王玉柱", "敏子", "王芃泽"];
 export const DEFAULT_USER_PRONOUN: "他" | "她" = "他";
+export const DEFAULT_SOURCE_FALLBACK_TRIGGER = "柱子";
+export const DEFAULT_SOURCE_FALLBACK_REPLY =
+  "这事我不能拿一句“我在”糊弄你。对柱子，最早是心疼和责任，后来也有放不下的牵挂；再具体的地方，我得按记得准的说，不能乱编。";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -72,5 +79,7 @@ export function getPersonaLifeConfig(personaData: unknown): PersonaLifeConfig {
     partnerName: stringValue(life.partnerName, DEFAULT_PARTNER_NAME),
     sourceTerms: stringArray(life.sourceTerms, DEFAULT_SOURCE_TERMS),
     userPronoun: life.userPronoun === "她" ? "她" : DEFAULT_USER_PRONOUN,
+    sourceFallbackReply: stringValue(life.sourceFallbackReply, DEFAULT_SOURCE_FALLBACK_REPLY),
+    sourceFallbackTrigger: stringValue(life.sourceFallbackTrigger, DEFAULT_SOURCE_FALLBACK_TRIGGER),
   };
 }

@@ -1,5 +1,9 @@
 const LEADING_ASIDE_PATTERN =
   /^\s*(?:[（(【\[][^）)\]】]{1,80}[）)\]】]\s*)+/;
+const INLINE_ASIDE_PATTERN =
+  /[（(][^）)]{1,80}[）)]/g;
+const ASTERISK_ACTION_PATTERN =
+  /\*[^*]{1,80}\*/g;
 const LEADING_SPEAKER_LABEL_PATTERN =
   /^\s*(王芃泽|王鹏泽|叔|柱子|敏子|敏|Minzi|AI|助手|角色|机器人)\s*[：:]\s*/i;
 const SENTENCE_PATTERN = /[^。！？!?…；;\n]+[。！？!?…；;]*/g;
@@ -36,11 +40,15 @@ const DEFAULT_WECHAT_HARD_LIMIT = 118;
 const DEFAULT_WECHAT_MAX_MESSAGES = 3;
 const DEFAULT_WECHAT_MAX_SENTENCES = 3;
 
-type ChatSplitOptions = {
+export type ChatSplitOptions = {
   softLimit?: number;
   hardLimit?: number;
   maxMessages?: number;
   maxSentencesPerMessage?: number;
+  /** 情景沉浸模式：按空行分段后，段落整条保留、不再按句子拆碎（除非超过 hardLimit） */
+  keepParagraphs?: boolean;
+  /** 场景模式：按【】旁白边界分条——每对【】单独成条、对话单独成条 */
+  immersiveAside?: boolean;
 };
 
 export function stripLeadingAsides(text: string): string {
@@ -53,6 +61,72 @@ export function stripLeadingAsides(text: string): string {
   }
 
   return result.trim() || text.trim();
+}
+
+const NARRATION_VERB_HINT =
+  /笑|叹|摸|拍|靠|抱|拉|推|碰|拂|揉|捏|牵|握|吻|亲|蹭|凑|贴|搂|挠|戳|扯|摁|按|咬|舔|哼|低头|抬头|转身|侧头|歪头|挑眉|皱眉|闭眼|睁眼|眯眼|嘟嘴|撇嘴|翻身|起身|坐下|站|躺|走|停|看|望|盯|瞥|瞄|听|说|声|语气|沉默|顿|无奈|温柔|轻声|认真|慢慢|缓缓|突然|默默|安静|发呆|愣|叹气|吸气|呼气|深呼吸|心想|内心|想着|觉得|感觉|暗自/;
+
+function isNarrationAside(content: string): boolean {
+  return NARRATION_VERB_HINT.test(content);
+}
+
+export function stripInlineAsides(text: string): string {
+  const result = text
+    .replace(INLINE_ASIDE_PATTERN, (match) => {
+      const inner = match.slice(1, -1);
+      return isNarrationAside(inner) ? "" : match;
+    })
+    .replace(ASTERISK_ACTION_PATTERN, (match) => {
+      const inner = match.slice(1, -1);
+      return isNarrationAside(inner) ? "" : match;
+    })
+    .replace(/\s{2,}/g, " ")
+    .replace(/^\s+/gm, "")
+    .trim();
+  return result || text.trim();
+}
+
+const NARRATIVE_BA_ACTION =
+  /把.{1,12}(?:带|拉|扯|推|按|摁|扒|褪|解|松|脱|掀|撩|剥|拽|提|放|搭|托|揉|摸|压|抱|搂|贴|勾|绕|环)/g;
+const NARRATIVE_PHYSICAL_VERBS =
+  /带了?[带一]|扯[了出开]?|推[了开]?|按[了住下]|摁[了住]|扒[了开下]|褪[了下]|脱[了下掉]|掀[了开起]|撩[了开起]|揉[了着]|捏[了着住]|摸[了着上]|亲了?亲|吻[了着上]|咬[了着住上]|舔[了着上]|蹭[了着]|磨[了着蹭]|贴[着了上近]|压[着了在上住]|搂[着了住]|抱[着了住紧]|环[着了住]|探[了进向入]|滑[了着向到]|顶[了着入]|挺[了着进]|沉了?沉/g;
+const NARRATIVE_BODY_CLOTHING =
+  /腰|手指|手掌|掌心|指尖|唇|嘴唇|后颈|脖子|肩膀?|胸口?|脊?背|大?腿|额头|耳[朵垂]|脸颊|下巴|锁骨|手腕|手臂|膝盖|衬衫|裤腰|裤子|扣子|领口|下摆|袖子|皮带|拉链/g;
+const NARRATIVE_POSTURE_MARKERS =
+  /低头|抬头|俯身|侧身|转身|弯腰|伸手|单手|双手|起身|屈膝/g;
+const NARRATIVE_MANNER_ADVERBS =
+  /慢慢|缓缓|轻轻|狠狠|猛地|一把|用力|使劲/g;
+
+function isNarrativeActionProse(sentence: string): boolean {
+  const s = sentence.replace(/\s+/g, "");
+  if (s.length < 10) return false;
+  if (/[？?]/.test(s)) return false;
+  if (/["「『][^"」』]*["」』]/.test(s)) return false;
+
+  const baCount = (s.match(NARRATIVE_BA_ACTION) || []).length;
+  const verbCount = (s.match(NARRATIVE_PHYSICAL_VERBS) || []).length;
+  const bodyCount = (s.match(NARRATIVE_BODY_CLOTHING) || []).length;
+  const postureCount = (s.match(NARRATIVE_POSTURE_MARKERS) || []).length;
+  const mannerCount = (s.match(NARRATIVE_MANNER_ADVERBS) || []).length;
+
+  return baCount * 2 + verbCount + bodyCount + postureCount + mannerCount >= 4;
+}
+
+function stripNarrativeActionProse(text: string): string {
+  const lines = text.split("\n");
+  const processed = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+
+    const sentences = trimmed.match(SENTENCE_PATTERN)?.map(s => s.trim()).filter(Boolean) ?? [];
+    if (sentences.length === 0) return trimmed;
+
+    const kept = sentences.filter(s => !isNarrativeActionProse(s));
+    return kept.join("");
+  });
+
+  const result = processed.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return result || text.trim();
 }
 
 function stripWrappingQuotes(text: string): string {
@@ -147,23 +221,40 @@ function stripOverusedSleepClosureTail(text: string): string {
 export function cleanAssistantReply(
   text: string | null | undefined,
   fallback = "我在。",
+  options: { immersiveMode?: boolean } = {},
 ): string {
   const raw = (text ?? "").trim();
   if (!raw) return fallback;
 
+  if (options.immersiveMode) {
+    // 情景沉浸模式：放行【】旁白与动作描写，只做最小清洗（发言人前缀、装饰引号、套话收尾）
+    const immersiveCleaned = stripReplyDecorativeQuotes(
+      stripOverusedSleepClosureTail(
+        stripForcedDirectnessTail(
+          stripOverusedLeadingCatchphrase(
+            stripLeadingSpeakerLabel(stripReplyDecorativeQuotes(raw)).trim(),
+          ),
+        ),
+      ),
+    );
+    return immersiveCleaned || raw.trim() || fallback;
+  }
+
   const unquoted = stripReplyDecorativeQuotes(raw);
+  const noInlineAsides = stripInlineAsides(unquoted);
+  const noNarration = stripNarrativeActionProse(noInlineAsides);
   const stripped = stripReplyDecorativeQuotes(
     stripOverusedSleepClosureTail(
       stripForcedDirectnessTail(
         stripOverusedLeadingCatchphrase(
-          stripLeadingSpeakerLabel(stripLeadingAsides(unquoted)).trim(),
+          stripLeadingSpeakerLabel(stripLeadingAsides(noNarration)).trim(),
         ),
       ),
     ),
   );
   const strippedAgain = stripReplyDecorativeQuotes(
     stripOverusedLeadingCatchphrase(
-      stripLeadingSpeakerLabel(unquoted.replace(LEADING_ASIDE_PATTERN, "").trim()).trim(),
+      stripLeadingSpeakerLabel(noNarration.replace(LEADING_ASIDE_PATTERN, "").trim()).trim(),
     ),
   );
 
@@ -307,9 +398,11 @@ function splitParagraphForChat(
   softLimit: number,
   hardLimit: number,
   maxSentencesPerMessage: number,
+  keepParagraphs = false,
 ): string[] {
   const sentences = paragraph.match(SENTENCE_PATTERN)?.map(s => s.trim()).filter(Boolean) ?? [];
   if (paragraph.length <= hardLimit) {
+    if (keepParagraphs) return [paragraph];
     if (!shouldSplitCompactParagraph(paragraph, sentences, softLimit)) return [paragraph];
 
     return packSentencesForChat(
@@ -344,10 +437,13 @@ export function splitAssistantReplyForChat(
   const raw = normalizeReplyText(text ?? "");
   if (!raw) return [];
 
+  if (options.immersiveAside) return splitImmersiveReplyForChat(text);
+
   const softLimit = options.softLimit ?? DEFAULT_WECHAT_SOFT_LIMIT;
   const hardLimit = options.hardLimit ?? DEFAULT_WECHAT_HARD_LIMIT;
   const maxMessages = options.maxMessages ?? DEFAULT_WECHAT_MAX_MESSAGES;
   const maxSentencesPerMessage = options.maxSentencesPerMessage ?? DEFAULT_WECHAT_MAX_SENTENCES;
+  const keepParagraphs = options.keepParagraphs ?? false;
   const hasExplicitBreaks = /\n\s*\n/.test(raw);
   const singleParagraphText = raw.replace(/\n+/g, " ").trim();
 
@@ -357,6 +453,7 @@ export function splitAssistantReplyForChat(
       softLimit,
       hardLimit,
       maxSentencesPerMessage,
+      keepParagraphs,
     );
   }
 
@@ -366,8 +463,43 @@ export function splitAssistantReplyForChat(
     .filter(Boolean);
 
   const chunks = paragraphs.flatMap(paragraph =>
-    splitParagraphForChat(paragraph, softLimit, hardLimit, maxSentencesPerMessage),
+    splitParagraphForChat(paragraph, softLimit, hardLimit, maxSentencesPerMessage, keepParagraphs),
   );
 
   return capChatMessages(chunks, maxMessages);
+}
+
+function splitDialogueIntoChunks(text: string): string[] {
+  return text
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 场景模式专用分条：把每对【…】旁白单独成一条（先把【】内部换行压平，避免被空行切散），
+ * 【】之外说出口的话各自成条。无论模型把旁白和对话怎么挤在一起，都能规整成「一条旁白、一条对话」。
+ */
+export function splitImmersiveReplyForChat(text: string | null | undefined): string[] {
+  const raw = normalizeReplyText(text ?? "");
+  if (!raw) return [];
+
+  // 1) 把每对【…】内部的换行与多余空白压平，使一段旁白成为不被拆散的一条
+  const flattened = raw.replace(/【[\s\S]*?】/g, (m) => `【${m.slice(1, -1).replace(/\s+/g, "")}】`);
+
+  // 2) 按【】边界切：每对【】单独成条；【】之外的对话按行成条
+  const chunks: string[] = [];
+  const asideRe = /【[^】]*】/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = asideRe.exec(flattened)) !== null) {
+    chunks.push(...splitDialogueIntoChunks(flattened.slice(last, m.index)));
+    chunks.push(m[0]);
+    last = asideRe.lastIndex;
+  }
+  chunks.push(...splitDialogueIntoChunks(flattened.slice(last)));
+
+  const clean = chunks.filter(Boolean);
+  if (clean.length <= 40) return clean;
+  return [...clean.slice(0, 39), clean.slice(39).join("\n")];
 }

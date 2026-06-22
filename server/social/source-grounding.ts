@@ -1,4 +1,5 @@
 import { cleanAssistantReply } from "../_core/reply-utils";
+import { DEFAULT_SOURCE_FALLBACK_REPLY, DEFAULT_SOURCE_FALLBACK_TRIGGER } from "../_core/persona-life-config";
 import { getCurrentLlmEconomyPolicy, type LlmEconomyPolicy } from "../llm/economy";
 import { llmService, type LLMMessage, type LLMOptions } from "../llm";
 
@@ -12,6 +13,8 @@ type SourceGroundingRewriteOptions = {
   draftReply: string;
   llmOptions?: LLMOptions;
   economyPolicy?: LlmEconomyPolicy;
+  /** 预算好的兜底文案（由调用方按 persona-life-config 生成）；缺省时退回内置默认。 */
+  fallbackReply?: string;
 };
 
 function boundedMaxTokens(maxTokens: unknown, fallback = SOURCE_GROUNDED_MAX_TOKENS): number {
@@ -35,10 +38,23 @@ export function sourceGroundedLlmOptions(options: LLMOptions = {}, maxTokensLimi
   };
 }
 
-export function sourceRecallFallbackReply(userQuestion = ""): string {
+export type SourceRecallFallbackConfig = {
+  sourceFallbackTrigger: string;
+  sourceFallbackReply: string;
+};
+
+export function sourceRecallFallbackReply(
+  userQuestion = "",
+  config?: SourceRecallFallbackConfig,
+): string {
   const compact = userQuestion.replace(/\s+/g, "");
-  if (/爱|感情|喜欢|在乎|舍得|放下|柱子/.test(compact)) {
-    return "这事我不能拿一句“我在”糊弄你。对柱子，最早是心疼和责任，后来也有放不下的牵挂；再具体的地方，我得按记得准的说，不能乱编。";
+  const trigger = (config?.sourceFallbackTrigger ?? DEFAULT_SOURCE_FALLBACK_TRIGGER).trim();
+  const specific = config?.sourceFallbackReply ?? DEFAULT_SOURCE_FALLBACK_REPLY;
+  // 仅当用户确实问到核心人物（默认「柱子」，可经 persona-life-config 覆盖）时才用专属兜底；
+  // 泛感情/亲密词（爱/喜欢/在乎…）一律走通用兜底，避免一句情话被回成「对柱子的感情」
+  // （与 source-recall 触发收窄是同一道防线的两层）。
+  if (trigger && compact.includes(trigger)) {
+    return specific;
   }
   return "这段我不敢乱说。记得准的我会告诉你，记不准的地方，我不能编给你听。";
 }
@@ -89,7 +105,7 @@ export function buildSourceGroundingRewriteMessages(options: SourceGroundingRewr
 }
 
 export async function enforceSourceGroundedReply(options: SourceGroundingRewriteOptions): Promise<string> {
-  const fallback = sourceRecallFallbackReply(options.userQuestion);
+  const fallback = options.fallbackReply ?? sourceRecallFallbackReply(options.userQuestion);
   const draft = cleanAssistantReply(options.draftReply, fallback);
   if (isUnhelpfulSourceRecallReply(draft)) {
     console.warn("[SourceRecall] source_grounding_unhelpful_draft fallback=source_recall_specific");
