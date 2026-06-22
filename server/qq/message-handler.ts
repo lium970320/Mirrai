@@ -536,9 +536,11 @@ async function generateAndSendPhoto(
       const ok = await sendQqImageFile(contactId, result.imagePath);
       if (ok) {
         recordSelfieSent(contactId);
-        // 交付信号：图已送到，紧跟一句让对方看（复用 Codex 话术；按带不带人选自拍/环境口吻）。
+        // 交付信号：图已送到，紧跟一句让对方看（与文字「预告」闭环成三段式）。
+        // 口吻按三态选：带人=自拍 / 不带人但在家=环境 / 不带人也不在家（路上·物）=通用，避免外景说成「家里」。
         if (!shouldAbort?.()) {
-          await sendQqText(contactId, pickSelfieDeliveryLine(req.includeFace ? "selfie" : "environment", contactId));
+          const deliveryKind = req.includeFace ? "selfie" : req.atHome ? "environment" : "scene";
+          await sendQqText(contactId, pickSelfieDeliveryLine(deliveryKind, contactId));
         }
         return;
       }

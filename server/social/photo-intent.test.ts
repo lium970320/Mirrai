@@ -32,9 +32,10 @@ describe("parsePhotoIntent", () => {
 });
 
 describe("buildPhotoIntentInstruction", () => {
-  it("是门控段文本、含标记格式与三态说明", () => {
+  it("是门控段文本、含标记格式、预告口吻与不虚构图片的约束", () => {
     const text = buildPhotoIntentInstruction();
     expect(text).toContain("[[PHOTO|带人=是或否|在家=是或否|画面=简短描述]]");
+    expect(text).toContain("预告");
     expect(text).toContain("不要用文字描述或虚构照片");
   });
 });

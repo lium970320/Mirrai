@@ -19,4 +19,12 @@ describe("pickSelfieDeliveryLine", () => {
     const selfie = pickSelfieDeliveryLine("selfie", "c-k2", () => 0);
     expect(env).not.toBe(selfie);
   });
+
+  it("scene（外景/物）话术不提「家」，避免外景出戏", () => {
+    for (let i = 0; i < 6; i++) {
+      const line = pickSelfieDeliveryLine("scene", "c-scene", () => i / 6);
+      expect(line).not.toContain("家");
+      expect(line.length).toBeGreaterThan(0);
+    }
+  });
 });
