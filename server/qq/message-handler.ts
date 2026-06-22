@@ -12,9 +12,11 @@ import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
 import { tryHandleSceneCommand, getSceneMode } from "./scene-commands";
 import { wantsKeepGoing } from "../social/persona-turn-planner";
-import { tryHandleSelfieCommand } from "./selfie-commands";
+import { decideSelfieOpportunity } from "../social/selfie-decision";
+import { getSelfieCooldown, recordSelfieSent } from "../social/selfie-cooldown";
+import { generatePersonaSelfie } from "../image/selfie-provider";
 import { tryHandleVerboseCommand } from "./verbose-commands";
-import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
+import { getQqRecordFile, parseQqContactId, sendQqImageFile, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
 import { checkVoiceReplyPolicy, markVoiceReplySent, type VoiceReplySource, type VoiceRequestDecision } from "../voice/voice-reply-policy";
@@ -471,6 +473,16 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
       shouldAbort: batch.isStale,
     });
 
+    // 自拍决策（明确要必发 / 问在哪干嘛概率 / 空闲自主，带冷却）：文字已发，图在后台生成完再追发。
+    const selfie = decideSelfieOpportunity({
+      inputText: batch.combinedText,
+      availability: result.turnPlan.availability,
+      cooldown: getSelfieCooldown(batch.contactId),
+    });
+    if (selfie.shouldSend) {
+      void generateAndSendSelfie(batch.contactId, selfie.kind, selfie.situation, selfie.reason, batch.isStale);
+    }
+
     // 「不要停」连发：自动续写若干拍，每拍一次完整生成；用户插话（isStale）或写空就停。
     if (wantsKeepGoing(batch.combinedText)) {
       const MAX_KEEP_GOING_BEATS = 4;
@@ -489,6 +501,35 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
           shouldAbort: batch.isStale,
         });
       }
+    }
+  }
+}
+
+// 自拍：文字回复已发，这里后台生成图、好了再追发。明确要的失败时补一句，概率/自主触发的失败则静默。
+async function generateAndSendSelfie(
+  contactId: string,
+  kind: "selfie" | "environment",
+  situation: string,
+  reason: string,
+  shouldAbort?: () => boolean,
+): Promise<void> {
+  try {
+    const result = await generatePersonaSelfie(situation, kind);
+    if (shouldAbort?.()) return;
+    if (result) {
+      const ok = await sendQqImageFile(contactId, result.imagePath);
+      if (ok) {
+        recordSelfieSent(contactId);
+        return;
+      }
+    }
+    if (reason === "explicit_request") {
+      await sendQqText(contactId, "诶，刚没拍好，等会儿补一张给你。");
+    }
+  } catch (err) {
+    console.warn(`[QQ] selfie generate/send failed contact=${contactId}:`, err);
+    if (reason === "explicit_request") {
+      await sendQqText(contactId, "拍照出了点小状况，等会儿再说哈。");
     }
   }
 }
@@ -853,12 +894,6 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     if (sceneReply != null) {
       await sendQqText(contactId, sceneReply);
       return { handled: true as const, reason: "scene_command" as const };
-    }
-    // 自拍指令：命中则先回执「等下拍给你」，后台异步生成并发图（开关关闭时不识别，当普通聊天）。
-    const selfieAck = tryHandleSelfieCommand(contactId, content);
-    if (selfieAck != null) {
-      await sendQqText(contactId, selfieAck);
-      return { handled: true as const, reason: "selfie_command" as const };
     }
   }
 
