@@ -23,7 +23,9 @@ import {
   buildTurnPlanInstruction,
   isAffectionExpressionTurn,
   planPersonaTurn,
+  wantsLongerReply,
   type PersonaTurnPlan,
+  type PersonaReplyLengthTarget,
 } from "./persona-turn-planner";
 import { buildPersonaReflection, formatPersonaReflectionInstruction } from "./persona-reflection";
 import { consolidateMemoryAfterTurn } from "./memory-consolidation";
@@ -50,6 +52,9 @@ export type SocialPersonaTextChatOptions = {
   sceneOverlay?: string | null;
   outputPreference?: SocialRuntimeOutputPreference;
   shouldAbortReply?: () => boolean;
+  replyLengthOverride?: PersonaReplyLengthTarget;
+  immersiveMode?: boolean;
+  keepGoing?: boolean;
 };
 
 export type SocialPersonaTextChatResult = {
@@ -219,7 +224,7 @@ export function buildSocialTextInstruction(
   platform: SocialPlatform,
   contactName: string,
   messageText: string,
-  options: Pick<SocialPersonaTextChatOptions, "batchMessageCount" | "batchMessages" | "voiceRequestDecision" | "outputPreference">,
+  options: Pick<SocialPersonaTextChatOptions, "batchMessageCount" | "batchMessages" | "voiceRequestDecision" | "outputPreference" | "replyLengthOverride" | "immersiveMode" | "keepGoing">,
   context: RecentConversationContext = {},
 ): string {
   const label = platformLabel(platform);
@@ -234,6 +239,11 @@ export function buildSocialTextInstruction(
     && (options.voiceRequestDecision?.explicitVoiceRequest ?? isExplicitVoiceRequest(continuousText));
   const affectionExpressionInstruction = buildAffectionExpressionInstruction(continuousText, context);
   const voiceRequestInstruction = buildVoiceRequestInstruction(continuousText, explicitVoiceRequest, context);
+  const immersiveMode = options.immersiveMode === true;
+  const verboseMode = options.replyLengthOverride === "long" && !immersiveMode;
+  const keepGoing = options.keepGoing === true;
+  // 用户本轮自然语言里要求“多说一点/说详细点”，临时放长这一轮（不持久，下一轮自动恢复）
+  const wantsLonger = wantsLongerReply(continuousText) && !immersiveMode && !verboseMode && !keepGoing;
 
   if (batchMessageCount > 1) {
     return [
@@ -247,9 +257,17 @@ export function buildSocialTextInstruction(
       "时间规则：如果前一句给出了“中考的时候”“那时候”“之前”“当年”等过去时间框架，后面的短句默认继承这个时间框架。不要拿当前武汉-南京异地设定去否定过去回忆。",
       "边界规则：只有涉及你们关系早期、明显未成年/学生阶段（中考、学校时期）的回忆时，身体亲近才必须含蓄处理、绝不色情化、不扩写身体细节；当前成年恋人关系的亲密、情欲、身体描写不受此限，可以大胆具体。",
       "发送规则：本轮只生成一次综合回复，不要像补旧账一样为每一条消息分别生成一段；如果有没来得及回应的前文，也合并进这一轮的一两句里。",
-      affectionExpressionInstruction
-        ? "本轮回复节奏：按用户要求展开爱意和内心话，不要逐条回答，也不要压成一两句。"
-        : "本轮回复节奏：普通寒暄、简单提问、报平安、吃没吃这类日常问题，1-2句即可；只有对方明显需要安慰、解释或认真讨论时才多说。不要补很多无关关心。",
+      keepGoing
+        ? "本轮回复节奏：用户要求不要停，要连续往下推进、不要收尾、不要问还要不要继续。每段仍然要短、要分开：一句一句、一拍一拍往下走，每段简短、单独成条，绝不要堆成一大段。是否带【】旁白只看是否在场景模式：不在场景模式就只用正常说话往下推、不要写任何旁白。"
+        : immersiveMode
+          ? "本轮回复节奏：情景沉浸模式已开启。用【】旁白（动作/神态/环境）和说出口的话交错，展开成一段沉浸式情景；旁白用【】整段包住、与对话空行分段；可以多段多条、篇幅大幅放开。"
+          : verboseMode
+            ? "本轮回复节奏：详细模式已开启，请充分展开回复，5-8 句，像认真聊天一样；不要压成一两句。"
+            : wantsLonger
+              ? "本轮回复节奏：用户明确要求多说一点/说详细点，请把这一轮展开得更充分——多讲讲、把想法、细节、感受说开，至少 4-6 句，不要短答或一两句收尾。"
+              : affectionExpressionInstruction
+                ? "本轮回复节奏：按用户要求展开爱意和内心话，不要逐条回答，也不要压成一两句。"
+                : "本轮回复节奏：普通寒暄、简单提问、报平安、吃没吃这类日常问题，1-2句即可；只有对方明显需要安慰、解释或认真讨论时才多说。不要补很多无关关心。",
       `平台一致性：这只是${label}入口，语气、称呼、记忆和关系进展要和其他入口一致。`,
     ].filter(Boolean).join("\n\n");
   }
@@ -273,9 +291,17 @@ export function buildSocialTextInstruction(
     messageText,
     `【平台一致性】这只是${label}入口，语气、称呼、记忆和关系进展要和其他入口一致。不要提平台，也不要像新认识的人一样重新建立关系。`,
     "【短句理解】如果这句话很短，例如“没”“嗯”“好”“1”“啊”，先结合上一轮上下文理解成接话，不要另起场景，不要强行催睡、说教或补很多关心。",
-    affectionExpressionInstruction
-      ? "【本轮回复节奏】本轮是用户主动要求更深的情感表达，允许多说，重点是具体、真诚、有内心重量；不要按普通寒暄短答。"
-      : "【本轮回复节奏】根据用户这句话本身决定长短。普通寒暄、简单问题或日常报平安，短答即可；不要为了显得热情而补很多无关内容。只有需要安慰、解释或认真讨论时才展开。",
+    keepGoing
+      ? "【本轮回复节奏】用户要求不要停，要连续往下推进、不要收尾、不要问还要不要继续。每段仍然要短、要分开：一句一句、一拍一拍往下走，每段简短、单独成条，绝不要堆成一大段。是否带【】旁白只看是否在场景模式：不在场景模式就只用正常说话往下推、不要写任何旁白。"
+      : immersiveMode
+        ? "【本轮回复节奏】情景沉浸模式已开启。用【】旁白（动作/神态/环境）和说出口的话交错，展开成一段沉浸式情景；旁白用【】整段包住、与对话空行分段；可以多段多条、篇幅大幅放开，但要有画面、有推进。"
+        : verboseMode
+          ? "【本轮回复节奏】详细模式已开启，请充分展开回复，5-8 句，像认真聊天一样；可以多分享想法、细节，不要一两句打发。"
+          : wantsLonger
+            ? "【本轮回复节奏】用户明确要求多说一点/说详细点，请把这一轮展开得更充分——多讲讲、把想法、细节、感受说开，至少 4-6 句，不要短答或一两句收尾。"
+            : affectionExpressionInstruction
+              ? "【本轮回复节奏】本轮是用户主动要求更深的情感表达，允许多说，重点是具体、真诚、有内心重量；不要按普通寒暄短答。"
+              : "【本轮回复节奏】根据用户这句话本身决定长短。普通寒暄、简单问题或日常报平安，短答即可；不要为了显得热情而补很多无关内容。只有需要安慰、解释或认真讨论时才展开。",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -393,6 +419,8 @@ export async function handleSocialPersonaTextChatDetailed(
     personaData: personaForPrompt.personaData,
     outputPreference,
     now,
+    replyLengthOverride: options.replyLengthOverride,
+    immersiveMode: options.immersiveMode,
   });
   const economy = buildLlmTurnEconomyPolicy(baseEconomy, {
     route: platformRoute,
@@ -401,7 +429,7 @@ export async function handleSocialPersonaTextChatDetailed(
     sourceRecallActive,
   });
   console.info(
-    `[PersonaTurn] platform=${turnPlan.platform} intent=${turnPlan.intent} memory=${turnPlan.memoryMode} activity=${turnPlan.currentActivity} replyLength=${turnPlan.replyLength} risks=${turnPlan.risks.join(",")}`,
+    `[PersonaTurn] platform=${turnPlan.platform} intent=${turnPlan.intent} memory=${turnPlan.memoryMode} activity=${turnPlan.currentActivity} replyLength=${turnPlan.replyLength} immersive=${turnPlan.immersiveMode} output=${turnPlan.outputMode} sourceRecall=${sourceRecallActive} scene=${options.sceneOverlay ? "on" : "off"} mood=${innerState.mood} tone=${innerState.relationshipTone?.tone ?? "none"} day=${innerState.dayContext?.flavor ?? "none"} risks=${turnPlan.risks.join(",")}`,
   );
   const recentContext = getRecentConversationContext(history, userMessageId);
   const reflection = await buildPersonaReflection({
@@ -461,6 +489,7 @@ export async function handleSocialPersonaTextChatDetailed(
       now,
       pinnedFacts,
       innerState,
+      immersiveMode: options.immersiveMode,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
@@ -508,10 +537,11 @@ export async function handleSocialPersonaTextChatDetailed(
     ],
     options: llmOptions,
   });
+  const lifeConfig = getPersonaLifeConfig(personaForPrompt.personaData);
   const sourceFallbackReply = sourceRecallContext
-    ? sourceRecallFallbackReply(options.messageText)
+    ? sourceRecallFallbackReply(options.messageText, lifeConfig)
     : "我在。";
-  let draftReply = cleanAssistantReply(response, sourceFallbackReply);
+  let draftReply = cleanAssistantReply(response, sourceFallbackReply, { immersiveMode: options.immersiveMode });
   if (sourceRecallContext && isUnhelpfulSourceRecallReply(draftReply)) {
     console.warn(
       `[SourceRecall] unhelpful_source_reply_fallback persona=${persona.id} messageId=${userMessageId} rawChars=${Array.from(response || "").length}`,
@@ -525,6 +555,7 @@ export async function handleSocialPersonaTextChatDetailed(
     ? await enforceSourceGroundedReply({
       personaName: persona.name,
       userQuestion: options.messageText,
+      fallbackReply: sourceFallbackReply,
       sourceContext: sourceRecallContext,
       draftReply,
       llmOptions: {

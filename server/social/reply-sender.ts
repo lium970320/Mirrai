@@ -1,4 +1,4 @@
-import { splitAssistantReplyForChat } from "../_core/reply-utils";
+import { splitAssistantReplyForChat, type ChatSplitOptions } from "../_core/reply-utils";
 
 type SocialContactLike = {
   say(text: string): Promise<void> | void;
@@ -6,6 +6,7 @@ type SocialContactLike = {
 
 type SendReplyOptions = {
   shouldAbort?: () => boolean;
+  splitOptions?: ChatSplitOptions;
 };
 
 function wait(ms: number): Promise<void> {
@@ -25,7 +26,7 @@ export async function saySocialReply(
   text: string,
   options: SendReplyOptions = {},
 ): Promise<number> {
-  const chunks = splitAssistantReplyForChat(text);
+  const chunks = splitAssistantReplyForChat(text, options.splitOptions);
   let sent = 0;
   for (let index = 0; index < chunks.length; index += 1) {
     if (options.shouldAbort?.()) break;

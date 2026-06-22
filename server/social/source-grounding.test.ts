@@ -58,4 +58,19 @@ describe("source grounding", () => {
     expect(isUnhelpfulSourceRecallReply("我在。")).toBe(true);
     expect(isUnhelpfulSourceRecallReply(fallback)).toBe(false);
   });
+
+  it("honors a persona-level source fallback override", () => {
+    const override = sourceRecallFallbackReply("你还想着阿哲吗", {
+      sourceFallbackTrigger: "阿哲",
+      sourceFallbackReply: "阿哲那段我得照实说，记不准的不编。",
+    });
+    expect(override).toBe("阿哲那段我得照实说，记不准的不编。");
+
+    // 自定义触发下，旧的「柱子」问句改走通用兜底，不再误命中专属文案。
+    const generic = sourceRecallFallbackReply("你爱柱子吗", {
+      sourceFallbackTrigger: "阿哲",
+      sourceFallbackReply: "阿哲那段我得照实说。",
+    });
+    expect(generic).toContain("我不敢乱说");
+  });
 });

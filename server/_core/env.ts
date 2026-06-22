@@ -144,6 +144,17 @@ export const ENV = {
   personaReplyLatencyEnabled: process.env.PERSONA_REPLY_LATENCY_ENABLED === "true",
   proactiveMultimodalEnabled: process.env.PROACTIVE_MULTIMODAL_ENABLED === "true",
 
+  // 人物自拍生成：经 chatgpt-project-prompt-pusher 的 --generate 入口推到网页版 ChatGPT 出图。
+  // 默认关闭——开关关时自拍指令不被识别（当普通聊天），合入代码不改变现状。
+  personaSelfieEnabled: process.env.PERSONA_SELFIE_ENABLED === "true",
+  personaSelfiePusherProject: firstNonEmpty(process.env.PERSONA_SELFIE_PUSHER_PROJECT),
+  personaSelfiePusherConfig: firstNonEmpty(process.env.PERSONA_SELFIE_PUSHER_CONFIG),
+  personaSelfieBaseFacePath: firstNonEmpty(process.env.PERSONA_SELFIE_BASE_FACE_PATH),
+  personaSelfieTargetUrl: firstNonEmpty(process.env.PERSONA_SELFIE_TARGET_URL),
+  personaSelfieProfileHint: firstNonEmpty(process.env.PERSONA_SELFIE_PROFILE_HINT) || "google-ai-persistent-profile",
+  personaSelfieTimeoutMs: envInt("PERSONA_SELFIE_TIMEOUT_MS", 600_000),
+  personaSelfieDotnetPath: firstNonEmpty(process.env.PERSONA_SELFIE_DOTNET_PATH) || "dotnet",
+
   dailyMemoryEnabled: process.env.DAILY_MEMORY_ENABLED !== "false",
   dailyMemoryHour: envInt("DAILY_MEMORY_HOUR", 3),
   dailyMemoryMinute: envInt("DAILY_MEMORY_MINUTE", 20),

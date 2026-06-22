@@ -10,7 +10,10 @@ import { saySocialReply } from "../social/reply-sender";
 import { computeReplyLatencyMs, isReplyLatencyEnabled } from "../social/reply-latency";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
-import { tryHandleSceneCommand } from "./scene-commands";
+import { tryHandleSceneCommand, getSceneMode } from "./scene-commands";
+import { wantsKeepGoing } from "../social/persona-turn-planner";
+import { tryHandleSelfieCommand } from "./selfie-commands";
+import { tryHandleVerboseCommand } from "./verbose-commands";
 import { getQqRecordFile, parseQqContactId, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
@@ -467,20 +470,51 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
       voiceRequestDecision: result.voiceRequestDecision,
       shouldAbort: batch.isStale,
     });
+
+    // 「不要停」连发：自动续写若干拍，每拍一次完整生成；用户插话（isStale）或写空就停。
+    if (wantsKeepGoing(batch.combinedText)) {
+      const MAX_KEEP_GOING_BEATS = 4;
+      for (let beat = 0; beat < MAX_KEEP_GOING_BEATS; beat++) {
+        if (batch.isStale()) break;
+        const cont = await handleQqPersonaChatDetailed(
+          batch.contactId,
+          batch.contactName,
+          "（继续，不要停，接着你上面那段往下，只从你自己这一方往下推、只说你会说出口的话；不要替对方说话、不要写对方的台词或反应、不要写成一问一答的剧本；每段简短、分开，别重复、别收尾）",
+          { shouldAbortReply: batch.isStale },
+        );
+        if (!cont?.replyText || batch.isStale()) break;
+        await sayQqReplyWithOptionalVoice(batch.contactId, cont.replyText, {
+          source: "text",
+          inputText: batch.combinedText,
+          shouldAbort: batch.isStale,
+        });
+      }
+    }
   }
 }
+
+const SCENE_SPLIT_OPTIONS = {
+  softLimit: 600,
+  hardLimit: 700,
+  maxMessages: 30,
+  maxSentencesPerMessage: 99,
+  keepParagraphs: true,
+  immersiveAside: true,
+};
 
 async function sayQqReply(
   contactId: string,
   reply: string,
-  options: { shouldAbort?: () => boolean } = {},
+  options: { shouldAbort?: () => boolean; inputText?: string } = {},
 ): Promise<void> {
+  const keepGoing = !!options.inputText && wantsKeepGoing(options.inputText);
+  const splitOptions = (getSceneMode(contactId) || keepGoing) ? SCENE_SPLIT_OPTIONS : undefined;
   await saySocialReply({
     say: async (text: string) => {
       const sent = await sendQqText(contactId, text);
       if (!sent) throw new Error("QQ text send failed");
     },
-  }, reply, options);
+  }, reply, { shouldAbort: options.shouldAbort, splitOptions });
 }
 
 async function sayQqReplyWithOptionalSticker(
@@ -488,7 +522,7 @@ async function sayQqReplyWithOptionalSticker(
   reply: string,
   context: { inputText: string; userSentSticker?: boolean; shouldAbort?: () => boolean },
 ): Promise<void> {
-  await sayQqReply(contactId, reply, { shouldAbort: context.shouldAbort });
+  await sayQqReply(contactId, reply, { shouldAbort: context.shouldAbort, inputText: context.inputText });
   if (context.shouldAbort?.()) {
     console.info(`[QQ] Discarded stale sticker reply contact=${contactId}; newer message is pending.`);
     return;
@@ -544,6 +578,7 @@ async function sayQqReplyWithOptionalSticker(
 
 function voiceTextFromReply(reply: string): string {
   const plain = stripReplyDecorativeQuotes(reply)
+    .replace(/【[^】]*】/g, " ")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -807,12 +842,23 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     return { handled: true as const, reason: "image_without_usable_content" as const };
   }
 
-  // 私聊里的场景开关命令（进入/退出/列出场景），命中则直接回执、不进聊天。
+  // 私聊里的开关命令，命中则直接回执、不进聊天。
   if (kind === "private") {
+    const verboseReply = tryHandleVerboseCommand(contactId, content);
+    if (verboseReply != null) {
+      await sendQqText(contactId, verboseReply);
+      return { handled: true as const, reason: "verbose_command" as const };
+    }
     const sceneReply = await tryHandleSceneCommand(contactId, content);
     if (sceneReply != null) {
       await sendQqText(contactId, sceneReply);
       return { handled: true as const, reason: "scene_command" as const };
+    }
+    // 自拍指令：命中则先回执「等下拍给你」，后台异步生成并发图（开关关闭时不识别，当普通聊天）。
+    const selfieAck = tryHandleSelfieCommand(contactId, content);
+    if (selfieAck != null) {
+      await sendQqText(contactId, selfieAck);
+      return { handled: true as const, reason: "selfie_command" as const };
     }
   }
 

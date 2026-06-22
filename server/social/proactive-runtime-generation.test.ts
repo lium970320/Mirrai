@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   getMessagesByPersonaId: vi.fn(),
   updatePersona: vi.fn(),
   resolveProactivePreferredTarget: vi.fn(),
-  sendProactiveTextToPreferredPlatform: vi.fn(),
+  sendProactiveMessageToPreferredPlatform: vi.fn(),
   getCurrentLlmEconomyPolicy: vi.fn(),
 }));
 
@@ -30,7 +30,7 @@ vi.mock("../db", () => ({
 
 vi.mock("./proactive-delivery", () => ({
   resolveProactivePreferredTarget: mocks.resolveProactivePreferredTarget,
-  sendProactiveTextToPreferredPlatform: mocks.sendProactiveTextToPreferredPlatform,
+  sendProactiveMessageToPreferredPlatform: mocks.sendProactiveMessageToPreferredPlatform,
 }));
 
 vi.mock("../llm/economy", async importOriginal => {
@@ -59,7 +59,7 @@ describe("proactive message generation runtime planning", () => {
       platform: "qq",
       channel: "qq",
     });
-    mocks.sendProactiveTextToPreferredPlatform.mockResolvedValue({
+    mocks.sendProactiveMessageToPreferredPlatform.mockResolvedValue({
       sent: true,
       channel: "qq",
       platform: "qq",
@@ -248,7 +248,7 @@ describe("proactive message generation runtime planning", () => {
     await runProactiveTick();
 
     expect(mocks.llmInvoke).not.toHaveBeenCalled();
-    expect(mocks.sendProactiveTextToPreferredPlatform).not.toHaveBeenCalled();
+    expect(mocks.sendProactiveMessageToPreferredPlatform).not.toHaveBeenCalled();
     expect(mocks.createMessage).not.toHaveBeenCalled();
   });
 
@@ -259,7 +259,7 @@ describe("proactive message generation runtime planning", () => {
       platform: "wechat",
       channel: "wechat",
     });
-    mocks.sendProactiveTextToPreferredPlatform.mockResolvedValue({
+    mocks.sendProactiveMessageToPreferredPlatform.mockResolvedValue({
       sent: true,
       channel: "wechat",
       platform: "wechat",
@@ -370,7 +370,7 @@ describe("proactive message generation runtime planning", () => {
       economyLevel: "conservative",
     });
     expect(mocks.llmInvoke).not.toHaveBeenCalled();
-    expect(mocks.sendProactiveTextToPreferredPlatform).not.toHaveBeenCalled();
+    expect(mocks.sendProactiveMessageToPreferredPlatform).not.toHaveBeenCalled();
   });
 
   it("allows forced ambient proactive sends during economy mode for manual verification", async () => {

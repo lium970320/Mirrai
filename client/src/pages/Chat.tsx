@@ -56,6 +56,11 @@ function generateAvatar(name: string): string {
   return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
 }
 
+// 有真实头像 URL 就显示真图，否则回退到算法色块。
+function getAvatarUrl(name: string, avatarUrl?: string | null): string {
+  return avatarUrl && avatarUrl.trim() ? avatarUrl : generateAvatar(name);
+}
+
 function VoicePlayer({ url, duration }: { url: string; duration?: number | null }) {
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -461,7 +466,7 @@ export default function Chat() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <img src={generateAvatar(persona?.name || "?")} alt="" className="w-9 h-9 rounded-xl" />
+            <img src={getAvatarUrl(persona?.name || "?", (persona as { avatarUrl?: string | null } | undefined)?.avatarUrl)} alt="" className="w-9 h-9 rounded-xl" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
                 <p className="text-foreground font-medium text-sm leading-tight truncate">{persona?.name || "..."}</p>

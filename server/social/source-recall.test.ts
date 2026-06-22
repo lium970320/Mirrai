@@ -25,6 +25,18 @@ describe("persona source recall", () => {
     expect(shouldUsePersonaSourceRecall("哈哈")).toBe(false);
   });
 
+  it("不把当下亲密/情话误判成原著考据", () => {
+    // 回归：一句情话曾因触发词含「喜欢」被锁进原著证据模式，吐出硬编码兜底「对柱子…不能乱编」。
+    expect(shouldUsePersonaSourceRecall("喜欢!叔，你身上好香")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("好喜欢你")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("抱着我")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("想跟你睡一块")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("亲吻你")).toBe(false);
+    // 但带专有名词/回忆词的真原著提问仍要命中
+    expect(shouldUsePersonaSourceRecall("柱子后来怎么样了")).toBe(true);
+    expect(shouldUsePersonaSourceRecall("你还记得中考那段吗")).toBe(true);
+  });
+
   it("formats recalled chunks as roleplay-only source context", () => {
     const context = formatSourceRecallContext([
       {

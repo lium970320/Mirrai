@@ -19,8 +19,9 @@ import {
 import { cleanAssistantReply } from "../_core/reply-utils";
 import {
   resolveProactivePreferredTarget,
-  sendProactiveTextToPreferredPlatform,
+  sendProactiveMessageToPreferredPlatform,
 } from "./proactive-delivery";
+import { resolveProactiveModality } from "./proactive-multimodal";
 import {
   buildProactiveRuntimeDiagnostics,
   buildProactiveRuntimePlan,
@@ -346,7 +347,9 @@ export async function runProactiveTick() {
 
         const generated = await generateProactiveMessageDetailed(persona, slot, now);
         const replyText = generated.replyText;
-        const delivery = await sendProactiveTextToPreferredPlatform(persona, replyText);
+        // 主动多模态：开关开启时按概率走语音/表情，关闭时恒为文本。
+        const modality = resolveProactiveModality();
+        const delivery = await sendProactiveMessageToPreferredPlatform(persona, replyText, modality);
         if (!delivery.sent) {
           console.warn(`[Proactive] Scheduled message skipped for persona ${persona.id}: ${delivery.reason || "send_failed"}`);
           continue;
@@ -381,6 +384,7 @@ export async function runProactiveTick() {
               now,
               details: {
                 scheduledSlot: slot,
+                multimodalIntent: delivery.modality ?? modality,
               },
             }),
           ),
