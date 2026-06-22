@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { existsSync, statSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { readFile, rm } from "fs/promises";
 import { createHash } from "crypto";
 import os from "os";
@@ -176,6 +176,7 @@ type GenerateResultJson = {
   success?: boolean;
   exitCode?: number;
   downloadedImages?: string[];
+  downloadDir?: string;
 };
 
 // pusher 会把上传的参考图副本一并下载（与基准脸同内容/同大小），必须排除，否则会把原图当自拍发回。
@@ -186,6 +187,21 @@ export function pickGeneratedImage(
 ): string | undefined {
   const candidates = images.filter(path => path && !isReferenceCopy(path));
   return candidates.length ? candidates[candidates.length - 1] : undefined;
+}
+
+// 兜底：pusher 结果 JSON 可能在真生成图落盘前就写了、只装进参考图副本（漏了真生成图），
+// 导致上面 pickGeneratedImage 过滤完为空。dotnet run 退出 = 本次下载全部完成，此时直接从
+// 下载目录补取「本次新生成」的真图：本次运行后产生（mtime≥sinceMs）、非参考图大小、取最新一张。纯函数便于单测。
+export function pickGeneratedImageFromDir(
+  files: Array<{ path: string; size: number; mtimeMs: number }>,
+  baseSize: number,
+  sinceMs: number,
+): string | undefined {
+  const candidates = files
+    .filter(file => file.mtimeMs >= sinceMs)
+    .filter(file => baseSize <= 0 || file.size !== baseSize)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates.length ? candidates[0].path : undefined;
 }
 
 /**
@@ -236,8 +252,25 @@ export async function generatePersonaSelfie(situation: string): Promise<SelfieRe
           return true;
         }
       };
-      const image = pickGeneratedImage(parsed.downloadedImages ?? [], isReferenceCopy);
-      if (!parsed.success || !image) {
+      let image = pickGeneratedImage(parsed.downloadedImages ?? [], isReferenceCopy);
+      if (!image && typeof parsed.downloadDir === "string" && existsSync(parsed.downloadDir)) {
+        try {
+          const dir = parsed.downloadDir;
+          const entries = readdirSync(dir)
+            .filter(name => /\.(png|jpe?g|webp)$/i.test(name))
+            .map(name => {
+              const full = path.join(dir, name);
+              const st = statSync(full);
+              return { path: full, size: st.size, mtimeMs: st.mtimeMs };
+            });
+          image = pickGeneratedImageFromDir(entries, baseSize, startedAt);
+          if (image) console.info(`persona_selfie_recovered_from_dir image=${image}`);
+        } catch (scanErr) {
+          console.warn("persona_selfie_dir_scan_failed", scanErr);
+        }
+      }
+      // 以「是否真拿到生成图」为准，而非 pusher 的 success 标志——后者把只下到参考图副本也算成功。
+      if (!image) {
         console.warn(
           `persona_selfie_no_generated_image exitCode=${code} success=${parsed.success ?? false} total=${parsed.downloadedImages?.length ?? 0}`,
         );
