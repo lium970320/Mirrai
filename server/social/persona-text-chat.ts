@@ -495,8 +495,11 @@ export async function handleSocialPersonaTextChatDetailed(
       pinnedFacts,
       innerState,
       immersiveMode: options.immersiveMode,
-      // 原著考据轮不拍照（那轮要克制、按证据答）；其余按上层门控（冷却/作息）决定。
-      allowPhotoIntent: Boolean(options.allowPhotoIntent) && !sourceRecallContext,
+      // 原著考据轮不拍照（那轮克制、按证据答）；睡眠/非急事静默时段不主动拍（明确要走规则、不受此限）；其余按上层门控（冷却）决定。
+      allowPhotoIntent:
+        Boolean(options.allowPhotoIntent) &&
+        !sourceRecallContext &&
+        turnPlan.availability !== "silent_unless_urgent",
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
