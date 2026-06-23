@@ -7,7 +7,7 @@ import {
 } from "../social/persona-text-chat";
 import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
 import { getVerboseMode } from "./verbose-commands";
-import { getSceneMode } from "./scene-commands";
+import { getSceneMode, setSceneMode } from "./scene-commands";
 import { wantsKeepGoing } from "../social/persona-turn-planner";
 
 export type QqPersonaChatOptions = {
@@ -69,6 +69,10 @@ export async function handleQqPersonaChatDetailed(
   if (!binding) return null;
 
   const sceneOverlay = await resolveSceneOverlay(binding.personaId, binding.userId);
+  // 网页激活的背景场景（activeSceneId 持久化在 DB）重启后仍应是场景模式：从持久态回灌内存开关 getSceneMode，
+  // 让发送层拆条（只认 getSceneMode）与生成层 immersiveMode（getSceneMode||sceneOverlay）用同一真相；
+  // 否则进程重启丢内存态后会出现「保留【】却不压平拆条」→ 旁白排版错乱、与对话混段。
+  if (sceneOverlay != null) setSceneMode(contactId, true);
   return handleSocialPersonaTextChatDetailed({
     platform: "qq",
     binding,
