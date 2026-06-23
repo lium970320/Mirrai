@@ -10,6 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { ENV } from "./env";
 import { startProactiveScheduler } from "../social/proactive-scheduler";
 import { startDailyMemoryScheduler } from "../social/daily-memory";
+import { startScheduledPhotos } from "../social/scheduled-photo";
 import { registerQqRoutes } from "../qq/routes";
 
 function assertSecureSessionSecretInProduction() {
@@ -68,6 +69,7 @@ async function startServer() {
 
   startProactiveScheduler();
   startDailyMemoryScheduler();
+  startScheduledPhotos();
 }
 
 startServer().catch(error => {

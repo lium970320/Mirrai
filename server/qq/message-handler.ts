@@ -480,24 +480,24 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
     // 拍照：文字已发，图后台生成完再追发。两条路：
     // ① LLM 自然想拍 → result.photoIntent（已被 allowPhotoIntent 按冷却/作息门控）；
     // ② 否则规则版「明确要」（发自拍 / 拍家里）→ 必发、破冷却。
+    // 明确指令（发自拍/拍家里）无论是否在冷却都算 explicit_request：生成失败时要补一句、不静默。
+    const explicit = decideSelfieOpportunity({ inputText: batch.combinedText });
     if (result.photoIntent) {
+      // LLM 自然想拍：用它写的画面；若这同时是用户的明确指令，则按 explicit_request 处理（失败有补救句）。
       void generateAndSendPhoto(batch.contactId, {
         prompt: result.photoIntent.scene,
         includeFace: result.photoIntent.includeFace,
         atHome: result.photoIntent.atHome,
-      }, "spontaneous", batch.isStale);
-    } else {
-      const selfie = decideSelfieOpportunity({ inputText: batch.combinedText });
-      if (selfie.shouldSend) {
-        void generateAndSendPhoto(
-          batch.contactId,
-          selfie.kind === "environment"
-            ? { prompt: selfie.situation, atHome: true }
-            : { prompt: selfie.situation, includeFace: true },
-          selfie.reason,
-          batch.isStale,
-        );
-      }
+      }, explicit.shouldSend ? explicit.reason : "spontaneous", batch.isStale);
+    } else if (explicit.shouldSend) {
+      void generateAndSendPhoto(
+        batch.contactId,
+        explicit.kind === "environment"
+          ? { prompt: explicit.situation, atHome: true }
+          : { prompt: explicit.situation, includeFace: true, withPartner: explicit.withPartner },
+        explicit.reason,
+        batch.isStale,
+      );
     }
 
     // 「不要停」连发：自动续写若干拍，每拍一次完整生成；用户插话（isStale）或写空就停。
@@ -540,7 +540,8 @@ async function generateAndSendPhoto(
         // 口吻按三态选：带人=自拍 / 不带人但在家=环境 / 不带人也不在家（路上·物）=通用，避免外景说成「家里」。
         if (!shouldAbort?.()) {
           const deliveryKind = req.includeFace ? "selfie" : req.atHome ? "environment" : "scene";
-          await sendQqText(contactId, pickSelfieDeliveryLine(deliveryKind, contactId));
+          // 场景模式：交付句带【】动作旁白（拍照动作描写挪到图到达这一刻，不在预告里演）。
+          await sendQqText(contactId, pickSelfieDeliveryLine(deliveryKind, contactId, undefined, getSceneMode(contactId)));
         }
         return;
       }

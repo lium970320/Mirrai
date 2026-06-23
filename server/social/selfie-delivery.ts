@@ -32,17 +32,28 @@ const DELIVERY_LINES: Record<PhotoDeliveryKind, string[]> = {
   ],
 };
 
+// 场景模式专用：图发出后带一个【】动作旁白再口头交付——拍照的动作描写留到图真到这一刻、不在预告里演。
+const IMMERSIVE_DELIVERY_LINES: string[] = [
+  "【把手机屏幕转过来递到你眼前】喏，拍好了。",
+  "【挪近些，把刚拍的照片亮给你看】看，这张。",
+  "【抬手把手机举到你面前】拍好了，给你瞧。",
+  "【侧过身，把屏幕对着你】喏，看看。",
+  "【点开照片，把手机递过去】拍好了。",
+];
+
 // 按 contactId+kind 记上次用的下标，下次尽量错开，避免连着重复同一句。
 const lastDeliveryIndex: Record<string, number> = {};
 
-/** 照片成功发出后补的一句交付语；随机选并尽量不与上一句重复。random 可注入便于单测。 */
+/** 照片成功发出后补的一句交付语；随机选并尽量不与上一句重复。
+ * immersive=true（场景模式）时改用带【】动作旁白的交付句（动作描写留到图到达这一刻）。random 可注入便于单测。 */
 export function pickSelfieDeliveryLine(
   kind: PhotoDeliveryKind,
   contactId: string,
   random: () => number = Math.random,
+  immersive = false,
 ): string {
-  const lines = DELIVERY_LINES[kind];
-  const key = `${contactId}:${kind}`;
+  const lines = immersive ? IMMERSIVE_DELIVERY_LINES : DELIVERY_LINES[kind];
+  const key = `${contactId}:${immersive ? "im" : kind}`;
   const last = lastDeliveryIndex[key];
   let idx = Math.floor(random() * lines.length);
   if (idx < 0) idx = 0;

@@ -60,6 +60,7 @@ export function buildScheduleSelfieContext(now = new Date()): SelfieSceneContext
 
 // 把基准脸锚点 + 情境拼成写实生图提示词。纯函数，便于单测。
 // 带 context 时锚定此刻时间/光线，避免半夜生成大白天的画面；不指定情境则用作息默认场景。
+// 注：生产路径已改用 buildPhotoPrompt（通用三态）；本函数当前仅 selfie-commands.test.ts 引用，保留待清理。
 export function buildSelfiePrompt(situation: string, context?: SelfieSceneContext): string {
   const userScene = situation.trim();
   const scene = userScene || context?.defaultScene || "在家中自然放松的状态，对着镜头温和微笑";
@@ -77,6 +78,7 @@ export function buildSelfiePrompt(situation: string, context?: SelfieSceneContex
 }
 
 // 环境/场景照提示词：参考"家"的图，生成同一处场景、符合此刻时间的写实照片。
+// 注：已被 buildPhotoPrompt（atHome 分支）取代，当前无任何调用方/测试引用，保留待清理。
 export function buildEnvironmentPrompt(situation: string, context?: SelfieSceneContext): string {
   const what = situation.trim() || "家里此刻的样子";
   const timeLine = context
@@ -98,6 +100,8 @@ export type PersonaPhotoRequest = {
   includeFace?: boolean;
   /** 在家 → 附家图、保持同一处（仅当未带人时生效） */
   atHome?: boolean;
+  /** 合拍 → 再附一张「伴侣脸」，生成两人合照（仅当 includeFace 且配了 PARTNER_FACE 才生效） */
+  withPartner?: boolean;
 };
 
 // 通用拍照提示词：吃 LLM 写的任意画面，按三态拼一致性约束 + 套此刻时间/光线。
@@ -107,21 +111,30 @@ export function buildPhotoPrompt(req: PersonaPhotoRequest, context?: SelfieScene
   const timeLine = context
     ? `现在是北京时间 ${context.timeLabel}（${context.dayPart}），画面光线和环境必须符合此刻：${context.lightingHint}。`
     : "";
-  const head = req.includeFace
-    ? "参考所附的这张脸，生成同一个人的写实照片："
-    : req.atHome
-      ? "参考所附的这张图（这是你家/你所在的环境），生成同一处场景的写实照片："
-      : "生成一张写实照片：";
+  const head = (req.includeFace && req.withPartner)
+    ? "参考所附的两张脸照片（是两个不同的人）。生成这两个人在一起、自然亲密的写实合照：两张脸要分别像各自的参考图、就是这两个特定的人，绝不要换脸、不要凭空加入其他人。"
+    : (req.includeFace && req.atHome)
+      ? "参考所附的两张图：第一张是这个人的长相，第二张是 ta 家/所在的环境。生成这个人此刻在这个环境里的写实照片："
+      : req.includeFace
+        ? "参考所附的这张脸，生成同一个人的写实照片："
+        : req.atHome
+          ? "参考所附的这张图（这是你家/你所在的环境），生成同一处场景的写实照片："
+          : "生成一张写实照片：";
   return [
     head,
     timeLine,
     scene,
     "。画面必须与上面说的此刻时间一致，绝不能出现与时间矛盾的场景（例如深夜却是强烈日光或户外大太阳）。",
     req.includeFace
-      ? "务必保持和参考图是同一个人——同样的五官、发型、体型和气质，只是场景、动作、表情和穿着按描述变化，不要复制参考图的背景和衣服。"
+      ? (req.withPartner
+          ? "两个人要分别保持和各自的脸参考图一致——各自的五官、发型、气质都要像，是这两个特定的人；动作、表情、穿着和场景按描述自然变化。"
+          : "务必保持和所附人物参考图是同一个人——同样的五官、发型、体型和气质，只是场景、动作、表情和穿着按描述变化，不要照搬参考图的背景和衣着。")
       : "",
     req.atHome
-      ? "务必和参考图是同一个地方——同样的布置、家具和风格，只是按描述变换角度、物件或此刻状态；可以有人入镜，也可以只拍环境。"
+      ? "务必和所附环境参考图是同一个地方——同样的布置、家具和风格，只是按描述变换角度、物件或此刻状态。"
+      : "",
+    !req.includeFace
+      ? "这张是拍环境或物件、不是拍人：画面里绝不要出现任何人物、人脸或人影，更不要凭空加入陌生人（尤其不要出现其他女性/家人）。"
       : "",
     "写实手机随手拍质感，不要卡通或插画风。",
   ].filter(Boolean).join("");
@@ -133,6 +146,7 @@ type SelfieConfig = {
   pusherConfig: string;
   baseFace: string;
   homeRef?: string; // 环境照参考图（"家"），可选；未配则环境照不可用
+  partnerFace?: string; // 合拍用的「伴侣脸」，可选；未配则合拍退回单人自拍
   targetUrl: string;
   profileHint: string;
   timeoutMs: number;
@@ -163,6 +177,7 @@ function resolveConfig(): SelfieConfig | null {
     pusherConfig,
     baseFace,
     homeRef: ENV.personaSelfieHomeRefPath || undefined,
+    partnerFace: ENV.personaSelfiePartnerFacePath || undefined,
     targetUrl,
     profileHint: ENV.personaSelfieProfileHint,
     timeoutMs: Math.max(60_000, ENV.personaSelfieTimeoutMs),
@@ -247,12 +262,13 @@ export function pickGeneratedImage(
 // 下载目录补取「本次新生成」的真图：本次运行后产生（mtime≥sinceMs）、非参考图大小、取最新一张。纯函数便于单测。
 export function pickGeneratedImageFromDir(
   files: Array<{ path: string; size: number; mtimeMs: number }>,
-  baseSize: number,
+  referenceSizes: number[],
   sinceMs: number,
 ): string | undefined {
+  const refSet = new Set(referenceSizes.filter(size => size > 0));
   const candidates = files
     .filter(file => file.mtimeMs >= sinceMs)
-    .filter(file => baseSize <= 0 || file.size !== baseSize)
+    .filter(file => !refSet.has(file.size))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   return candidates.length ? candidates[0].path : undefined;
 }
@@ -305,16 +321,29 @@ export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<Se
 
   return runExclusive(async () => {
     const context = buildScheduleSelfieContext();
-    // 三态附图：带人→基准脸；仅在家→家图（按画面关键词选区域，退回单图 homeRef）；都不带→不附图（纯文生图）。
-    let attachment: string | undefined;
-    let effectiveAtHome = false;
-    if (req.includeFace) {
-      attachment = config.baseFace;
-    } else if (req.atHome) {
-      attachment = resolveHomeRegionRef(req.prompt) ?? config.homeRef;
-      effectiveAtHome = Boolean(attachment); // 有家图才锚定「同一处」，否则降级为纯文生图的在家画面
+    // 多态附图（可叠加，底层 pusher --attachment-path 支持多张）：
+    //   带人 → 附基准脸；在家 → 附家图（按画面关键词选区域，退回单图 homeRef）；
+    //   人在自己家（带人+在家）→ 同时附两张；都不带 → 不附图（纯文生图，如吃的/路上）。
+    const attachments: string[] = [];
+    if (req.includeFace && existsSync(config.baseFace)) {
+      attachments.push(config.baseFace);
     }
-    const prompt = buildPhotoPrompt({ ...req, atHome: effectiveAtHome }, context);
+    // 合拍：在人物脸之后再附一张伴侣脸，生成两人合照（附到了才算数）。
+    let effectiveWithPartner = false;
+    if (req.withPartner && req.includeFace && config.partnerFace && existsSync(config.partnerFace)) {
+      attachments.push(config.partnerFace);
+      effectiveWithPartner = true;
+    }
+    // 合拍时不再附家图，避免「人物脸+伴侣脸+家图」三张图让模型混乱；地点交给画面文字描述。
+    let effectiveAtHome = false;
+    if (req.atHome && !effectiveWithPartner) {
+      const homeImg = resolveHomeRegionRef(req.prompt) ?? config.homeRef;
+      if (homeImg && existsSync(homeImg)) {
+        attachments.push(homeImg);
+        effectiveAtHome = true; // 有家图才锚定「同一处」，否则不附家图、退回不在家约束
+      }
+    }
+    const prompt = buildPhotoPrompt({ ...req, atHome: effectiveAtHome, withPartner: effectiveWithPartner }, context);
     const outJson = path.join(
       os.tmpdir(),
       `mirrai-selfie-${createHash("sha256").update(`${prompt}${Date.now()}`).digest("hex").slice(0, 12)}.json`,
@@ -326,7 +355,7 @@ export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<Se
         "run", "--project", config.project, "-c", "Release", "--",
         "--generate",
         "--prompt", prompt,
-        ...(attachment ? ["--attachment-path", attachment] : []),
+        ...attachments.flatMap(item => ["--attachment-path", item]),
         "--target-url", config.targetUrl,
         "--output-json", outJson,
       ];
@@ -343,11 +372,20 @@ export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<Se
         return null;
       }
       const parsed = JSON.parse(await readFile(outJson, "utf8")) as GenerateResultJson;
-      const baseSize = attachment && existsSync(attachment) ? statSync(attachment).size : -1;
+      // 参考图副本排除：所附的脸/家等参考图都会被 pusher 一并下载回来，按文件大小集合排除（多图都要排）。
+      const refSizes: number[] = [];
+      for (const item of attachments) {
+        try {
+          if (existsSync(item)) refSizes.push(statSync(item).size);
+        } catch {
+          // ignore
+        }
+      }
+      const refSet = new Set(refSizes.filter(size => size > 0));
       const isReferenceCopy = (entry: string): boolean => {
         if (!existsSync(entry)) return true; // 不存在的当作不可用，过滤掉
         try {
-          return baseSize > 0 && statSync(entry).size === baseSize;
+          return refSet.has(statSync(entry).size);
         } catch {
           return true;
         }
@@ -363,7 +401,7 @@ export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<Se
               const st = statSync(full);
               return { path: full, size: st.size, mtimeMs: st.mtimeMs };
             });
-          image = pickGeneratedImageFromDir(entries, baseSize, startedAt);
+          image = pickGeneratedImageFromDir(entries, refSizes, startedAt);
           if (image) console.info(`persona_selfie_recovered_from_dir image=${image}`);
         } catch (scanErr) {
           console.warn("persona_selfie_dir_scan_failed", scanErr);
@@ -385,16 +423,4 @@ export async function generatePersonaPhoto(req: PersonaPhotoRequest): Promise<Se
       await rm(outJson, { force: true }).catch(() => undefined);
     }
   });
-}
-
-// 退役：薄封装转发 generatePersonaPhoto（向后兼容旧的 situation/kind 调用，如明确指令路径）。
-export async function generatePersonaSelfie(
-  situation: string,
-  kind: "selfie" | "environment" = "selfie",
-): Promise<SelfieResult | null> {
-  return generatePersonaPhoto(
-    kind === "environment"
-      ? { prompt: situation, atHome: true }
-      : { prompt: situation, includeFace: true },
-  );
 }

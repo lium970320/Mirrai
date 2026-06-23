@@ -170,6 +170,10 @@ const FOLLOW_UP_DAY_PATTERNS: Array<{ re: RegExp; days: number }> = [
 const FOLLOW_UP_EVENT_RE =
   /面试|面試|考试|考試|考完|笔试|筆試|复试|複試|出分|看病|就诊|就診|复诊|複診|复查|複查|体检|體檢|手术|手術|答辩|答辯|开庭|開庭|汇报|匯報|交付|截止/;
 
+// 事件已取消 / 黄了 / 不再发生时不埋回访，避免次日尴尬追问「上次那件事怎么样了」。
+const FOLLOW_UP_CANCELLED_RE =
+  /取消|黄了|黃了|没去|沒去|不去了|不用了|不考了|不面了|作罢|作罷|泡汤|泡湯|落空|没成|沒成|算了/;
+
 const DAY_MS = 86_400_000;
 
 /**
@@ -179,6 +183,7 @@ const DAY_MS = 86_400_000;
 export function parseFollowUpAt(card: StructuredMemoryCard, now: Date): Date | null {
   if (card.memoryType !== "open_loop") return null;
   const text = `${card.title} ${card.description} ${card.keywords.join(" ")}`;
+  if (FOLLOW_UP_CANCELLED_RE.test(text)) return null;
   const explicit = text.match(/(\d{1,2})\s*天[后後之]/);
   if (explicit) {
     const n = Number(explicit[1]);

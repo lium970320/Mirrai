@@ -37,6 +37,19 @@ describe("persona source recall", () => {
     expect(shouldUsePersonaSourceRecall("你还记得中考那段吗")).toBe(true);
   });
 
+  it("当下情感冲突/吵架质问不进原著考据（防‘不敢乱说’死循环）", () => {
+    // 回归：吵架质问里的通用疑问词（怎么/为什么）+ 前文，曾被当 source follow-up 锁进考据 →
+    // 资料库 miss → 反复「这段我不敢乱说」→ 整场吵架死循环（2026-06-23 实测）。
+    expect(shouldUsePersonaSourceRecall("你要我怎么相信你", [
+      { role: "user", content: "你为什么孤男寡女待在一间房" },
+    ])).toBe(false);
+    expect(shouldUsePersonaSourceRecall("你是不是出轨了")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("你房间里怎么会有女的")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("我不信你，你在骗我")).toBe(false);
+    // 不误伤：真原著追问仍命中
+    expect(shouldUsePersonaSourceRecall("老鹰峡那次后来怎么样")).toBe(true);
+  });
+
   it("formats recalled chunks as roleplay-only source context", () => {
     const context = formatSourceRecallContext([
       {
