@@ -2,6 +2,8 @@ const LEADING_ASIDE_PATTERN =
   /^\s*(?:[（(【\[][^）)\]】]{1,80}[）)\]】]\s*)+/;
 const INLINE_ASIDE_PATTERN =
   /[（(][^）)]{1,80}[）)]/g;
+// 方括号【…】旁白：场景外（非沉浸）一律不允许，无论在开头还是句中（沉浸模式不走此清洗、保留）。
+const BRACKET_ASIDE_PATTERN = /【[^】]*】/g;
 const ASTERISK_ACTION_PATTERN =
   /\*[^*]{1,80}\*/g;
 const LEADING_SPEAKER_LABEL_PATTERN =
@@ -84,6 +86,22 @@ export function stripInlineAsides(text: string): string {
     .replace(/^\s+/gm, "")
     .trim();
   return result || text.trim();
+}
+
+/**
+ * 去掉所有【…】旁白（非沉浸模式专用）。场景外不允许任何方括号旁白：
+ * stripLeadingAsides 只清开头、stripInlineAsides 只清圆括号，句中/句尾的【】会漏——
+ * 一旦模型被对话历史带成小说腔，就会出现「旁白【】和说话混在一起」。这里整段清干净并折叠空行。
+ * 不兜底返回原文：整条都是旁白时返回空串，交由 cleanAssistantReply 落到 fallback。
+ */
+export function stripBracketAsides(text: string): string {
+  return text
+    .replace(BRACKET_ASIDE_PATTERN, "")
+    .split("\n")
+    .map(line => line.replace(/[ \t]{2,}/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 const NARRATIVE_BA_ACTION =
@@ -241,7 +259,9 @@ export function cleanAssistantReply(
   }
 
   const unquoted = stripReplyDecorativeQuotes(raw);
-  const noInlineAsides = stripInlineAsides(unquoted);
+  // 非沉浸模式：先把所有【…】旁白清干净（开头/句中/句尾都清），避免场景外旁白与对话混在一起。
+  const noBracketAsides = stripBracketAsides(unquoted);
+  const noInlineAsides = stripInlineAsides(noBracketAsides);
   const noNarration = stripNarrativeActionProse(noInlineAsides);
   const stripped = stripReplyDecorativeQuotes(
     stripOverusedSleepClosureTail(
