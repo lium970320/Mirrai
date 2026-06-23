@@ -12,6 +12,7 @@ import { buildConversationContinuityInstruction } from "./conversation-continuit
 import { buildPersonaMemoryRecallContext } from "./memory-recall";
 import { buildPersonaSourceRecallContext } from "./source-recall";
 import { parsePhotoIntent, type PhotoIntent } from "./photo-intent";
+import { decideSelfieOpportunity } from "./selfie-decision";
 import { detectVoiceRequestDecision, isExplicitVoiceRequest, type VoiceRequestDecision } from "../voice/voice-reply-policy";
 import {
   enforceSourceGroundedReply,
@@ -434,11 +435,13 @@ export async function handleSocialPersonaTextChatDetailed(
     sourceRecallActive,
   });
   // 拍照门控（与 buildSystemPrompt 注入标记的条件一致）：allow=允许 LLM 自然拍；off(原因)=本轮不主动拍。
+  // 被叫醒（drowsy_awake）即使基础时段是睡眠，也放开自然拍——半睡半醒也能想给对方拍一张。
+  const isDrowsyAwake = (turnPlan.currentActivity ?? "").startsWith("drowsy_awake");
   const photoGate = !options.allowPhotoIntent
     ? "off(cooldown)"
     : sourceRecallActive
       ? "off(recall)"
-      : turnPlan.availability === "silent_unless_urgent"
+      : (turnPlan.availability === "silent_unless_urgent" && !isDrowsyAwake)
         ? "off(asleep)"
         : "allow";
   console.info(
@@ -507,7 +510,7 @@ export async function handleSocialPersonaTextChatDetailed(
       allowPhotoIntent:
         Boolean(options.allowPhotoIntent) &&
         !sourceRecallContext &&
-        turnPlan.availability !== "silent_unless_urgent",
+        (turnPlan.availability !== "silent_unless_urgent" || isDrowsyAwake),
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),
@@ -644,6 +647,18 @@ export async function handleSocialPersonaTextChatDetailed(
     replyPreview: replyText.slice(0, 240),
     turnPlan,
     reflection,
+    // 拍照判定接入运行诊断（网页面板可见）：gate=本轮门控；mark=LLM 这轮是否真出标记 + 三态。
+    photo: {
+      gate: photoGate,
+      mark: photoIntent
+        ? { includeFace: photoIntent.includeFace, atHome: photoIntent.atHome, scene: photoIntent.scene }
+        : null,
+      // 规则明确指令（发自拍/拍家里）是否命中——这条不受门控，命中即必发、破冷却（解释「门控关却发了图」）。
+      explicit: (() => {
+        const e = decideSelfieOpportunity({ inputText: options.messageText });
+        return e.shouldSend ? { kind: e.kind } : null;
+      })(),
+    },
     voiceRequestDecision,
     economy: {
       level: economy.level,

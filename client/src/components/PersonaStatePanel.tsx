@@ -418,6 +418,7 @@ export default function PersonaStatePanel({ personaId, onClose }: PersonaStatePa
   const turnPlan = diag?.turnPlan;
   const reflection = diag?.reflection;
   const voiceRequestDecision = diag?.voiceRequestDecision;
+  const photo = diag?.photo as { gate?: string; mark?: { includeFace: boolean; atHome: boolean; scene: string } | null; explicit?: { kind: string } | null } | undefined;
   const llmUsage = (runtime as any)?.llmUsage;
   const outputStrategy = (runtime as any)?.outputStrategy;
   const voiceStrategy = outputStrategy?.voice;
@@ -557,6 +558,12 @@ export default function PersonaStatePanel({ personaId, onClose }: PersonaStatePa
                       </Chip>
                     )}
                     {turnPlan?.outputMode && <Chip>输出 {outputModeLabel(turnPlan.outputMode)}</Chip>}
+                    {photo && (
+                      <Chip tone={photo.gate === "allow" ? "good" : "neutral"}>
+                        拍照门控 {photo.gate === "allow" ? "允许" : photo.gate}
+                        {photo.mark ? ` · LLM已出图(${photo.mark.includeFace ? "带人" : "无人"}/${photo.mark.atHome ? "在家" : "在外"})` : ""}
+                      </Chip>
+                    )}
                     {delivery && (
                       <Chip tone={delivery.sent ? "good" : "danger"}>
                         投递 {delivery.sent ? "成功" : delivery.reason || "失败"} · {displayLabel(delivery.channel, PLATFORM_LABELS)}
@@ -782,6 +789,32 @@ export default function PersonaStatePanel({ personaId, onClose }: PersonaStatePa
                           <KeyValue label="置信度" value={<span className="font-mono">{percentLabel(voiceRequestDecision.confidence)}</span>} />
                           <KeyValue label="判定原因" value={voiceRequestDecision.reason || "暂无"} />
                         </div>
+                      </div>
+                    )}
+
+                    {photo && (
+                      <div className="space-y-2 rounded-xl border border-border/70 bg-muted/5 px-3.5 py-3 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+                            <ImageIcon className="h-3.5 w-3.5 text-primary/80" />
+                            拍照判定 (Photo Decision)
+                          </div>
+                          <Chip tone={photo.gate === "allow" ? "good" : "neutral"}>
+                            {photo.gate === "allow" ? "本轮允许拍" : "本轮不主动拍"}
+                          </Chip>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <KeyValue label="门控" value={
+                            photo.gate === "allow" ? "允许（可自然拍）"
+                              : photo.gate === "off(asleep)" ? "关闭（睡眠静默）"
+                                : photo.gate === "off(cooldown)" ? "关闭（冷却中）"
+                                  : photo.gate === "off(recall)" ? "关闭（原著考据轮）"
+                                    : (photo.gate || "未知")
+                          } />
+                          <KeyValue label="LLM 标记" value={photo.mark ? `已出图（${photo.mark.includeFace ? "带人" : "无人"} / ${photo.mark.atHome ? "在家" : "在外"}）` : "本轮未出标记"} />
+                          <KeyValue label="明确指令" value={photo.explicit ? `命中 · ${photo.explicit.kind === "environment" ? "拍环境/家" : "自拍"}（必发·破门控）` : "无"} />
+                        </div>
+                        {photo.mark?.scene ? <KeyValue label="画面" value={photo.mark.scene} /> : null}
                       </div>
                     )}
                   </div>

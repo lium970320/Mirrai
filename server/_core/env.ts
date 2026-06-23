@@ -152,6 +152,7 @@ export const ENV = {
   personaSelfieBaseFacePath: firstNonEmpty(process.env.PERSONA_SELFIE_BASE_FACE_PATH),
   personaSelfieHomeRefPath: firstNonEmpty(process.env.PERSONA_SELFIE_HOME_REF_PATH),
   personaSelfieHomeDir: firstNonEmpty(process.env.PERSONA_SELFIE_HOME_DIR),
+  personaSelfiePartnerFacePath: firstNonEmpty(process.env.PERSONA_SELFIE_PARTNER_FACE_PATH),
   personaSelfieTargetUrl: firstNonEmpty(process.env.PERSONA_SELFIE_TARGET_URL),
   personaSelfieProfileHint: firstNonEmpty(process.env.PERSONA_SELFIE_PROFILE_HINT) || "google-ai-persistent-profile",
   personaSelfieTimeoutMs: envInt("PERSONA_SELFIE_TIMEOUT_MS", 600_000),

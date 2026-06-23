@@ -18,6 +18,17 @@ describe("parseSelfieCommand", () => {
     expect(parseSelfieCommand("给我来张自拍，刚下班")).toEqual({ situation: "刚下班" });
   });
 
+  it("放宽后识别更自然的口语说法", () => {
+    expect(parseSelfieCommand("发个自拍")).toEqual({ situation: "" });
+    expect(parseSelfieCommand("给我发个自拍")).toEqual({ situation: "" });
+    expect(parseSelfieCommand("能拍张照片吗")).toEqual({ situation: "" });
+    expect(parseSelfieCommand("给我拍张照")).toEqual({ situation: "" });
+    expect(parseSelfieCommand("来个自拍呗")).toEqual({ situation: "" });
+    expect(parseSelfieCommand("我们合拍一下嘛")).toEqual({ situation: "", withPartner: true });
+    expect(parseSelfieCommand("拍张合照")).toEqual({ situation: "", withPartner: true });
+    expect(parseSelfieCommand("一起拍一张")).toEqual({ situation: "", withPartner: true });
+  });
+
   it("不误吃正常聊天", () => {
     expect(parseSelfieCommand("今天过得怎么样")).toBeNull();
     expect(parseSelfieCommand("我想看看你")).toBeNull();

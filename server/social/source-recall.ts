@@ -13,6 +13,16 @@ const SOURCE_FOLLOW_UP_PATTERN =
 const SOURCE_CORRECTION_PATTERN =
   /不对|不是这样|不是这样的|瞎说|乱说|记错|说错|再想想|好好想|明明|根本/;
 
+// 当下的情感/关系冲突（吵架、质疑忠诚、要你解释）——这是此刻的关系对峙，不是原著剧情考据。
+// 绝不能落进「记不准/不敢乱说」证据防线：否则一句「你怎么解释」「我怎么信你」会被通用疑问词
+// 劫持成原著考据，资料库必然 miss → 反复「不敢乱说」→ 整场吵架被锁成死循环（2026-06-23 实测踩到）。
+const EMOTIONAL_CONFRONTATION_PATTERN =
+  /相信你|信你|信不信|不信你|怎么信|骗我|骗人|撒谎|说谎|出轨|劈腿|背叛|不爱|分手|渣|花心|小三|孤男寡女|翻云覆雨|偷人|你解释|怎么解释|敷衍|有别的?(女|男)|有女的|有男的/;
+
+function hasEmotionalConfrontation(messageText: string): boolean {
+  return EMOTIONAL_CONFRONTATION_PATTERN.test(messageText.trim());
+}
+
 const ROUTINE_CHAT_PATTERN =
   /^(嗯|哦|好|行|可以|哈哈|嘿嘿|早|晚安|睡了|吃了吗|在吗|你在干嘛|想你|测试|1|没事)[。！？!?,，、\s]*$/;
 
@@ -61,6 +71,8 @@ export function shouldUsePersonaSourceRecall(
   messageText: string,
   recentMessages?: SourceRecallOptions["recentMessages"],
 ): boolean {
+  // 当下情感冲突（吵架/质疑忠诚/要解释）优先否决：这是此刻关系对峙，不是原著考据，绝不进证据防线。
+  if (hasEmotionalConfrontation(messageText)) return false;
   if (hasDirectSourceTrigger(messageText)) return true;
   return hasSourceFollowUpTrigger(messageText) && Boolean(recentUserSourceText(recentMessages, messageText));
 }

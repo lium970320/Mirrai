@@ -1,36 +1,32 @@
 import { parseSelfieCommand } from "../qq/selfie-commands";
 
 /**
- * 决定本轮要不要让人物发照片，以及发哪种（取代旧的「正则命中→固定 ACK→立即触发」）。
- * 纯规则、可单测、不调 LLM、不改回复 prompt：
+ * 只判断「明确指令」要不要拍 + 拍哪种（必发、破冷却）。纯规则、可单测、不调 LLM：
  *  - 明确要拍环境（拍家里/看看你那/你家什么样）→ 必发，kind=environment
  *  - 明确要自拍（发自拍/拍照/拍张照）→ 必发，kind=selfie
- *  - 问「你在哪/在干嘛/现在怎样」→ 概率触发自拍（默认 40%）
- *  - 空闲时段（availability=open）→ 低概率自主自拍（默认 8%）
- *  - 睡眠等时段不主动；冷却内（距上次 < 3h 或当日已 ≥2 张）不做概率/自主触发
+ *  - 其余一律不发：「自然该不该拍」已交给 LLM 在回复里输出 [[PHOTO]] 标记（见 photo-intent.ts）。
+ *    旧的「问在哪→概率自拍」「空闲→自主自拍」等规则概率触发已随 LLM 通用拍照整体移除。
  */
 
 export type PhotoKind = "selfie" | "environment";
 
-export type SelfieReason = "explicit_request" | "location_query" | "spontaneous" | "none";
+// 决策只产出这两态；message-handler 给 generateAndSendPhoto 传的 "spontaneous" 是另写的字面量、与此无关。
+export type SelfieReason = "explicit_request" | "none";
 
 export type SelfieDecision = {
   shouldSend: boolean;
   kind: PhotoKind;
   situation: string;
   reason: SelfieReason;
+  /** 合拍：想要两人合照（仅自拍指令里出现「合拍/合照/一起拍」时为 true） */
+  withPartner?: boolean;
 };
 
-const LOCATION_QUERY_RE =
-  /(你在哪|你在干嘛|你在干什么|你在做什么|在忙什么|这会儿在干|现在在干|现在在哪|你现在在|你那边怎样|你现在怎样|你那边什么样)/;
-
-export function isLocationQuery(text: string): boolean {
-  return LOCATION_QUERY_RE.test((text ?? "").replace(/\s+/g, ""));
-}
-
-// 拍环境/场景：拍家里、看看你那、拍窗外/外面、拍做的饭等；以及「你家/你那边 什么样」。
+// 拍环境/场景：拍家里、看看你那、拍做的饭等；以及「你家/你那边 什么样」。
+// 「家里/卧室/客厅…」这类强场景词允许宽前缀（看看/想看看也算）；
+// 「外面/窗外」太泛，只接「拍/发」紧邻，避免把「看外面下雨没/想看看外面」当成要环境照（那会破冷却必发）。
 const ENV_REQUEST_RE =
-  /(?:拍一?下|拍一?张|拍|来一?张|发一?张|给我看看?|看看?)(?:你的?)?(?:.{0,3})(家里?|屋里|你那边?|窗外|外面|做的饭|做的菜|你这边)/;
+  /(?:拍|来|发|给我看看?|看看?|想看看?)[一个张下]{0,2}(?:你的?)?[^。！？!?\n]{0,4}(家里?|屋里?|你那边?|你这边?|房间|卧室|客厅|阳台|厨房|书房|做的饭|做的菜)|(?:拍|发)[一个张下]{0,2}(?:你的?)?(?:窗外|外面)/;
 const ENV_QUERY_RE = /你(家|那边?)(什么样|长什么样|怎样|啥样)/;
 
 export function parseEnvironmentRequest(text: string): { situation: string } | null {
@@ -80,7 +76,7 @@ export function decideSelfieOpportunity(input: SelfieDecisionInput): SelfieDecis
   // 明确要自拍（发自拍/拍张照…）：必发
   const command = parseSelfieCommand(text);
   if (command) {
-    return { shouldSend: true, kind: "selfie", situation: command.situation, reason: "explicit_request" };
+    return { shouldSend: true, kind: "selfie", situation: command.situation, reason: "explicit_request", withPartner: command.withPartner };
   }
 
   return none();

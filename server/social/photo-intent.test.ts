@@ -29,6 +29,17 @@ describe("parsePhotoIntent", () => {
     const { cleanedText } = parsePhotoIntent("我在看[书名号]那本书。[[PHOTO|带人=是|在家=是|画面=书房看书]]");
     expect(cleanedText).toBe("我在看[书名号]那本书。");
   });
+
+  it("多个标记时只解析第一个、且只剥离第一个", () => {
+    const { intent, cleanedText } = parsePhotoIntent("a[[PHOTO|带人=是|在家=是|画面=一]]b[[PHOTO|带人=否|在家=否|画面=二]]");
+    expect(intent?.scene).toBe("一");
+    expect(cleanedText).toContain("画面=二"); // 第二个标记未被剥离
+  });
+
+  it("画面为空时 scene 为空字符串", () => {
+    const { intent } = parsePhotoIntent("嗯。[[PHOTO|带人=是|在家=是|画面=]]");
+    expect(intent?.scene).toBe("");
+  });
 });
 
 describe("buildPhotoIntentInstruction", () => {
