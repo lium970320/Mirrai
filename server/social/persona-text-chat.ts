@@ -433,8 +433,16 @@ export async function handleSocialPersonaTextChatDetailed(
     intent: turnPlan.intent,
     sourceRecallActive,
   });
+  // 拍照门控（与 buildSystemPrompt 注入标记的条件一致）：allow=允许 LLM 自然拍；off(原因)=本轮不主动拍。
+  const photoGate = !options.allowPhotoIntent
+    ? "off(cooldown)"
+    : sourceRecallActive
+      ? "off(recall)"
+      : turnPlan.availability === "silent_unless_urgent"
+        ? "off(asleep)"
+        : "allow";
   console.info(
-    `[PersonaTurn] platform=${turnPlan.platform} intent=${turnPlan.intent} memory=${turnPlan.memoryMode} activity=${turnPlan.currentActivity} replyLength=${turnPlan.replyLength} immersive=${turnPlan.immersiveMode} output=${turnPlan.outputMode} sourceRecall=${sourceRecallActive} scene=${options.sceneOverlay ? "on" : "off"} mood=${innerState.mood} tone=${innerState.relationshipTone?.tone ?? "none"} day=${innerState.dayContext?.flavor ?? "none"} risks=${turnPlan.risks.join(",")}`,
+    `[PersonaTurn] platform=${turnPlan.platform} intent=${turnPlan.intent} memory=${turnPlan.memoryMode} activity=${turnPlan.currentActivity} replyLength=${turnPlan.replyLength} immersive=${turnPlan.immersiveMode} output=${turnPlan.outputMode} sourceRecall=${sourceRecallActive} scene=${options.sceneOverlay ? "on" : "off"} mood=${innerState.mood} tone=${innerState.relationshipTone?.tone ?? "none"} day=${innerState.dayContext?.flavor ?? "none"} photo=${photoGate} risks=${turnPlan.risks.join(",")}`,
   );
   const recentContext = getRecentConversationContext(history, userMessageId);
   const reflection = await buildPersonaReflection({
@@ -551,7 +559,9 @@ export async function handleSocialPersonaTextChatDetailed(
   const sourceFallbackReply = sourceRecallContext
     ? sourceRecallFallbackReply(options.messageText, lifeConfig)
     : "我在。";
-  let draftReply = cleanAssistantReply(response, sourceFallbackReply, { immersiveMode: options.immersiveMode });
+  // 先从原始输出剥离 [[PHOTO|...]] 拍照标记，再清洗——画面描述里可能含【】，必须赶在清洗删【】之前抽出，否则生图正文被截断。
+  const { intent: photoIntent, cleanedText: responseWithoutPhotoTag } = parsePhotoIntent(response ?? "");
+  let draftReply = cleanAssistantReply(responseWithoutPhotoTag, sourceFallbackReply, { immersiveMode: options.immersiveMode });
   if (sourceRecallContext && isUnhelpfulSourceRecallReply(draftReply)) {
     console.warn(
       `[SourceRecall] unhelpful_source_reply_fallback persona=${persona.id} messageId=${userMessageId} rawChars=${Array.from(response || "").length}`,
@@ -580,9 +590,12 @@ export async function handleSocialPersonaTextChatDetailed(
   if (shouldAbortPendingReply(options, persona.id, "before_persist")) {
     return null;
   }
-  // 从回复里剥离 [[PHOTO|...]] 拍照意图标记（用户看不到标记）；photoIntent 交上层异步发图。
-  const { intent: photoIntent, cleanedText: photoCleanedReply } = parsePhotoIntent(replyText);
-  replyText = photoCleanedReply;
+  // 本轮拍照结果接入运行诊断：LLM 这轮有没有自然输出拍照标记 + 三态（带人/在家/画面）。
+  console.info(
+    `[PersonaPhoto] mark=${photoIntent
+      ? `yes face=${photoIntent.includeFace ? "是" : "否"} home=${photoIntent.atHome ? "是" : "否"} scene="${photoIntent.scene.slice(0, 24)}"`
+      : "none"}`,
+  );
   // 回合结束：演进延续内心状态，并由它派生兼容用的 emotionalState 标签。
   const friction = /冷漠|敷衍|不理我|不理你|生气|委屈|吵架|烦你|讨厌你|不想理|凶我/.test(options.messageText);
   const relationshipSignal = friction

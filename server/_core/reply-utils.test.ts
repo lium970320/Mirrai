@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanAssistantReply, splitAssistantReplyForChat, stripLeadingAsides, stripReplyDecorativeQuotes } from "./reply-utils";
+import { cleanAssistantReply, splitAssistantReplyForChat, stripBracketAsides, stripLeadingAsides, stripReplyDecorativeQuotes } from "./reply-utils";
 
 describe("stripLeadingAsides", () => {
   it("removes leading full-width parenthetical narration", () => {
@@ -132,5 +132,39 @@ describe("splitAssistantReplyForChat", () => {
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.length).toBeLessThanOrEqual(3);
     expect(chunks.every(chunk => chunk.length <= 118)).toBe(true);
+  });
+});
+
+describe("非沉浸模式清除【】旁白（修「旁白和说话混在一起」）", () => {
+  it("清除句中/句尾的【】旁白，只留对话", () => {
+    expect(cleanAssistantReply("你这话冤枉我了。【他撑起身子，低头看你】我哪舍得就睡。")).toBe(
+      "你这话冤枉我了。我哪舍得就睡。"
+    );
+  });
+
+  it("清除多段【】旁白后不残留方括号、对话内容都在", () => {
+    const r = cleanAssistantReply("【他迷迷糊糊嗯了一声】\n\n没睡，守你呢。\n\n【他缓缓睁眼】\n\n你看我耳朵都烫了。");
+    expect(r).not.toMatch(/[【】]/);
+    expect(r).toContain("没睡，守你呢。");
+    expect(r).toContain("你看我耳朵都烫了。");
+  });
+
+  it("整条都是【】旁白时落到 fallback", () => {
+    expect(cleanAssistantReply("【他没说话，只是把你搂得更紧】")).toBe("我在。");
+  });
+
+  it("沉浸模式（场景）保留【】旁白不清", () => {
+    const r = cleanAssistantReply("【他低头看你】我在呢。", "我在。", { immersiveMode: true });
+    expect(r).toContain("【他低头看你】");
+    expect(r).toContain("我在呢。");
+  });
+
+  it("stripBracketAsides 直接调用：去所有【】、整条旁白返回空串", () => {
+    expect(stripBracketAsides("【A】话一。【B】话二。")).toBe("话一。话二。");
+    expect(stripBracketAsides("【整条都是旁白】")).toBe("");
+  });
+
+  it("不误伤没有【】的普通回复", () => {
+    expect(cleanAssistantReply("我在看那本书，挺好的。")).toBe("我在看那本书，挺好的。");
   });
 });
