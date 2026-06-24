@@ -37,6 +37,19 @@ describe("persona source recall", () => {
     expect(shouldUsePersonaSourceRecall("你还记得中考那段吗")).toBe(true);
   });
 
+  it("不把当下高频地点/动作词（学校/北京/南京/见面）误判成原著考据", () => {
+    // 回归：用户随口「我还在学校呢」含「学校」曾被劫持成原著考据 → 资料库 miss → 兜底「这段我不敢乱说」（2026-06-24 实测）。
+    expect(shouldUsePersonaSourceRecall("我还在学校呢")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("我在学校")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("今天学校好累")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("我去北京出差")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("南京最近一直下雨")).toBe(false);
+    expect(shouldUsePersonaSourceRecall("改天我们见面吧")).toBe(false);
+    // 学生时代/原著地点的真提问仍由「中考/考场/初遇/老鹰峡」等更具体的词命中
+    expect(shouldUsePersonaSourceRecall("中考考场那段你还记得吗")).toBe(true);
+    expect(shouldUsePersonaSourceRecall("老鹰峡那次后来怎么样")).toBe(true);
+  });
+
   it("当下情感冲突/吵架质问不进原著考据（防‘不敢乱说’死循环）", () => {
     // 回归：吵架质问里的通用疑问词（怎么/为什么）+ 前文，曾被当 source follow-up 锁进考据 →
     // 资料库 miss → 反复「这段我不敢乱说」→ 整场吵架死循环（2026-06-23 实测）。
