@@ -71,6 +71,12 @@ export type SocialPersonaTextChatResult = {
   voiceRequestDecision: VoiceRequestDecision;
   /** LLM 在回复里输出的拍照意图（已从 replyText 剥离）；无则 null */
   photoIntent?: PhotoIntent | null;
+  /**
+   * 本轮是否按情景沉浸态生成（= 内存 getSceneMode 或 DB activeSceneId 任一为真，实时算）。
+   * 作为沉浸的「单一权威真相」回传发送层，让拆条/交付句与生成层（清不清【】）用同一个值——
+   * 不再让发送层各自重算 getSceneMode（曾因内存开关被单向回灌污染、与 DB 不一致而错乱）。
+   */
+  immersiveMode: boolean;
 };
 
 type RecentConversationContext = {
@@ -699,6 +705,7 @@ export async function handleSocialPersonaTextChatDetailed(
     turnPlan,
     voiceRequestDecision,
     photoIntent,
+    immersiveMode: options.immersiveMode === true,
   };
 }
 
