@@ -475,6 +475,7 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
       inputText: batch.combinedText,
       voiceRequestDecision: result.voiceRequestDecision,
       shouldAbort: batch.isStale,
+      immersiveMode: result.immersiveMode,
     });
 
     // 拍照：文字已发，图后台生成完再追发。两条路：
@@ -488,7 +489,7 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
         prompt: result.photoIntent.scene,
         includeFace: result.photoIntent.includeFace,
         atHome: result.photoIntent.atHome,
-      }, explicit.shouldSend ? explicit.reason : "spontaneous", batch.isStale);
+      }, explicit.shouldSend ? explicit.reason : "spontaneous", batch.isStale, result.immersiveMode);
     } else if (explicit.shouldSend) {
       void generateAndSendPhoto(
         batch.contactId,
@@ -497,6 +498,7 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
           : { prompt: explicit.situation, includeFace: true, withPartner: explicit.withPartner },
         explicit.reason,
         batch.isStale,
+        result.immersiveMode,
       );
     }
 
@@ -516,6 +518,7 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
           source: "text",
           inputText: batch.combinedText,
           shouldAbort: batch.isStale,
+          immersiveMode: cont.immersiveMode,
         });
       }
     }
@@ -528,6 +531,7 @@ async function generateAndSendPhoto(
   req: PersonaPhotoRequest,
   reason: string,
   shouldAbort?: () => boolean,
+  immersive?: boolean,
 ): Promise<void> {
   try {
     const result = await generatePersonaPhoto(req);
@@ -541,7 +545,7 @@ async function generateAndSendPhoto(
         if (!shouldAbort?.()) {
           const deliveryKind = req.includeFace ? "selfie" : req.atHome ? "environment" : "scene";
           // 场景模式：交付句带【】动作旁白（拍照动作描写挪到图到达这一刻，不在预告里演）。
-          await sendQqText(contactId, pickSelfieDeliveryLine(deliveryKind, contactId, undefined, getSceneMode(contactId)));
+          await sendQqText(contactId, pickSelfieDeliveryLine(deliveryKind, contactId, undefined, immersive ?? getSceneMode(contactId)));
         }
         return;
       }
@@ -569,10 +573,12 @@ const SCENE_SPLIT_OPTIONS = {
 async function sayQqReply(
   contactId: string,
   reply: string,
-  options: { shouldAbort?: () => boolean; inputText?: string } = {},
+  options: { shouldAbort?: () => boolean; inputText?: string; immersiveMode?: boolean } = {},
 ): Promise<void> {
   const keepGoing = !!options.inputText && wantsKeepGoing(options.inputText);
-  const splitOptions = (getSceneMode(contactId) || keepGoing) ? SCENE_SPLIT_OPTIONS : undefined;
+  // 沉浸拆条用权威 immersiveMode（生成层 result 算定），缺省回退内存 getSceneMode（主动消息等无 result 的调用点）。
+  const immersive = options.immersiveMode ?? getSceneMode(contactId);
+  const splitOptions = (immersive || keepGoing) ? SCENE_SPLIT_OPTIONS : undefined;
   await saySocialReply({
     say: async (text: string) => {
       const sent = await sendQqText(contactId, text);
@@ -584,9 +590,9 @@ async function sayQqReply(
 async function sayQqReplyWithOptionalSticker(
   contactId: string,
   reply: string,
-  context: { inputText: string; userSentSticker?: boolean; shouldAbort?: () => boolean },
+  context: { inputText: string; userSentSticker?: boolean; shouldAbort?: () => boolean; immersiveMode?: boolean },
 ): Promise<void> {
-  await sayQqReply(contactId, reply, { shouldAbort: context.shouldAbort, inputText: context.inputText });
+  await sayQqReply(contactId, reply, { shouldAbort: context.shouldAbort, inputText: context.inputText, immersiveMode: context.immersiveMode });
   if (context.shouldAbort?.()) {
     console.info(`[QQ] Discarded stale sticker reply contact=${contactId}; newer message is pending.`);
     return;
@@ -709,6 +715,7 @@ async function sayQqReplyWithOptionalVoice(
     inputText: string;
     voiceRequestDecision?: VoiceRequestDecision | null;
     shouldAbort?: () => boolean;
+    immersiveMode?: boolean;
   },
 ): Promise<void> {
   const replyChunks = splitAssistantReplyForChat(reply);
@@ -730,6 +737,7 @@ async function sayQqReplyWithOptionalVoice(
     await sayQqReplyWithOptionalSticker(contactId, reply, {
       inputText: context.inputText,
       shouldAbort: context.shouldAbort,
+      immersiveMode: context.immersiveMode,
     });
     return;
   }
@@ -767,6 +775,7 @@ async function sayQqReplyWithOptionalVoice(
       await sayQqReplyWithOptionalSticker(contactId, fallback.text, {
         inputText: context.inputText,
         shouldAbort: context.shouldAbort,
+        immersiveMode: context.immersiveMode,
       });
       return;
     }
@@ -791,6 +800,7 @@ async function sayQqReplyWithOptionalVoice(
   await sayQqReplyWithOptionalSticker(contactId, fallback.text, {
     inputText: context.inputText,
     shouldAbort: context.shouldAbort,
+    immersiveMode: context.immersiveMode,
   });
 }
 

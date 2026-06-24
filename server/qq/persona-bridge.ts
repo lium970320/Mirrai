@@ -7,7 +7,7 @@ import {
 } from "../social/persona-text-chat";
 import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
 import { getVerboseMode } from "./verbose-commands";
-import { getSceneMode, setSceneMode } from "./scene-commands";
+import { getSceneMode } from "./scene-commands";
 import { wantsKeepGoing } from "../social/persona-turn-planner";
 
 export type QqPersonaChatOptions = {
@@ -69,10 +69,11 @@ export async function handleQqPersonaChatDetailed(
   if (!binding) return null;
 
   const sceneOverlay = await resolveSceneOverlay(binding.personaId, binding.userId);
-  // 网页激活的背景场景（activeSceneId 持久化在 DB）重启后仍应是场景模式：从持久态回灌内存开关 getSceneMode，
-  // 让发送层拆条（只认 getSceneMode）与生成层 immersiveMode（getSceneMode||sceneOverlay）用同一真相；
-  // 否则进程重启丢内存态后会出现「保留【】却不压平拆条」→ 旁白排版错乱、与对话混段。
-  if (sceneOverlay != null) setSceneMode(contactId, true);
+  // 沉浸真相 = 内存 getSceneMode（QQ「场景模式」开关，进程内）或 DB activeSceneId（网页/背景场景，持久）任一为真，
+  // 在此实时合成 immersiveMode 一处算清，随 result.immersiveMode 回传发送层据此拆条/写交付句。
+  // 不再「sceneOverlay!=null 就回灌 setSceneMode(true)」：那是单向只开，网页取消场景（只清 DB、不碰内存）后
+  // 内存仍残留 true → 「已退出场景却仍出【】」。重启恢复也无需回灌——sceneOverlay 持久，本函数实时读到即为 true。
+  const immersiveMode = getSceneMode(contactId) || sceneOverlay != null;
   return handleSocialPersonaTextChatDetailed({
     platform: "qq",
     binding,
@@ -84,8 +85,8 @@ export async function handleQqPersonaChatDetailed(
     channel: "qq",
     sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
-    replyLengthOverride: (getVerboseMode(contactId) || getSceneMode(contactId) || sceneOverlay != null) ? "long" : undefined,
-    immersiveMode: getSceneMode(contactId) || sceneOverlay != null,
+    replyLengthOverride: (getVerboseMode(contactId) || immersiveMode) ? "long" : undefined,
+    immersiveMode,
     keepGoing: wantsKeepGoing(messageText),
     allowPhotoIntent: options.allowPhotoIntent,
   });
