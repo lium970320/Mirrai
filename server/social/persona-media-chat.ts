@@ -37,6 +37,8 @@ export type SocialPersonaMediaChatOptions = {
   storagePrefix: string;
   sceneOverlay?: string | null;
   outputPreference?: SocialRuntimeOutputPreference;
+  immersiveMode?: boolean;
+  dualMode?: boolean;
 };
 
 export type SocialPersonaMediaChatResult = {
@@ -214,6 +216,8 @@ export async function handleSocialPersonaMediaChatDetailed(
       now,
       pinnedFacts,
       innerState,
+      immersiveMode: options.immersiveMode,
+      dualMode: options.dualMode,
     }),
     socialSystemPromptOverlay(options.platform),
     buildTurnPlanInstruction(turnPlan),

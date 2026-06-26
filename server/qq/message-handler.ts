@@ -4,19 +4,19 @@ import { fileURLToPath } from "url";
 import { ENV } from "../_core/env";
 import { recordOperationsEvent } from "../_core/operations-events";
 import { generateTTSFile } from "../_core/tts";
-import { splitAssistantReplyForChat, stripReplyDecorativeQuotes } from "../_core/reply-utils";
+import { splitAssistantReplyForChat, splitImmersiveReplyForChat, stripReplyDecorativeQuotes } from "../_core/reply-utils";
 import { enqueueSocialTextMessage, type BatchedTextMessage } from "../social/incoming-message-batcher";
 import { saySocialReply } from "../social/reply-sender";
 import { computeReplyLatencyMs, isReplyLatencyEnabled } from "../social/reply-latency";
 import { recordRecentQqContact } from "./contact-registry";
 import { handleQqPersonaChatDetailed, handleQqPersonaMediaChat, type QqMediaInput } from "./persona-bridge";
-import { tryHandleSceneCommand, getSceneMode } from "./scene-commands";
-import { wantsKeepGoing } from "../social/persona-turn-planner";
+import { tryHandleSceneCommand, getSceneMode, getDualMode } from "./scene-commands";
+import { generateContinuationGuidance } from "./continuation-guidance";
+import { wantsKeepGoing, keepGoingBeats } from "../social/persona-turn-planner";
 import { decideSelfieOpportunity, isSelfieCooldownActive } from "../social/selfie-decision";
 import { pickSelfieDeliveryLine } from "../social/selfie-delivery";
 import { getSelfieCooldown, recordSelfieSent } from "../social/selfie-cooldown";
 import { generatePersonaPhoto, type PersonaPhotoRequest } from "../image/selfie-provider";
-import { tryHandleVerboseCommand } from "./verbose-commands";
 import { getQqRecordFile, parseQqContactId, sendQqImageFile, sendQqRecordFile, sendQqText, type QqRecordFileInfo } from "./onebot-client";
 import { normalizeAudioForAsr } from "../voice/audio-normalizer";
 import { transcribeWithZhipuAsr } from "../voice/zhipu-asr";
@@ -503,14 +503,24 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
     }
 
     // 「不要停」连发：自动续写若干拍，每拍一次完整生成；用户插话（isStale）或写空就停。
-    if (wantsKeepGoing(batch.combinedText)) {
-      const MAX_KEEP_GOING_BEATS = 4;
-      for (let beat = 0; beat < MAX_KEEP_GOING_BEATS; beat++) {
+    const keepGoingBeatCount = keepGoingBeats(batch.combinedText);
+    if (keepGoingBeatCount > 0) {
+      const dual = getDualMode(batch.contactId);
+      let lastReply = result.replyText;
+      for (let beat = 0; beat < keepGoingBeatCount; beat++) {
         if (batch.isStale()) break;
+        // 先替用户生成一条「引导」——联系首条消息和人物上一拍、每次不同——再驱动续写。
+        const guidance = await generateContinuationGuidance(batch.contactId, batch.combinedText, lastReply, dual);
+        const direction = guidance ?? (dual ? "顺着上一拍自然往下、多写对方的身体反应" : "顺着上一拍自然往下");
+        const tail = dual
+          ? "据此往下推进：把动作、神态、场景都写进【】旁白里，详细写双方动作、尤其多写对方的身体反应；说出口的台词只写你自己的、绝不替对方写。旁白为主，每段【】单独成段，旁白和说出口的话各自成段、空行分开，别收尾"
+          : "据此往下推进：把动作、神态、场景都写进【】旁白里；旁白和说出口的话各自成段、每段【】单独成段、空行分开，只演你自己这一方、不替对方说话，别收尾";
+        // guidance 是「剧情方向」，必须明确标注，否则它那句第三人称叙述会被 LLM 当成范本照着续写、丢掉【】格式。
+        const continuationCue = `（剧情往这个方向走：${direction}。${tail}）`;
         const cont = await handleQqPersonaChatDetailed(
           batch.contactId,
           batch.contactName,
-          "（继续，不要停，接着你上面那段往下，只从你自己这一方往下推、只说你会说出口的话；不要替对方说话、不要写对方的台词或反应、不要写成一问一答的剧本；每段简短、分开，别重复、别收尾）",
+          continuationCue,
           { shouldAbortReply: batch.isStale },
         );
         if (!cont?.replyText || batch.isStale()) break;
@@ -520,6 +530,7 @@ async function handleTextBatch(batch: BatchedTextMessage): Promise<void> {
           shouldAbort: batch.isStale,
           immersiveMode: cont.immersiveMode,
         });
+        lastReply = cont.replyText;
       }
     }
   }
@@ -747,6 +758,18 @@ async function sayQqReplyWithOptionalVoice(
     return;
   }
 
+  // 场景模式语音回复：【】旁白会被 voiceTextFromReply 剥掉、只剩对话进语音，旁白文字会丢失。
+  // 所以发语音前，先把旁白作为文字消息单独发出去，再让语音只念说出口的对话。
+  if (context.immersiveMode) {
+    const asideChunks = splitImmersiveReplyForChat(reply).filter(c => c.startsWith("【") && c.endsWith("】"));
+    if (asideChunks.length > 0 && !context.shouldAbort?.()) {
+      await sayQqReply(contactId, asideChunks.join("\n\n"), {
+        inputText: context.inputText,
+        shouldAbort: context.shouldAbort,
+      });
+    }
+  }
+
   try {
     const forcedByRequest = isExplicitVoiceRequestPolicy(policy.reason);
     const timeoutMs = voiceTtsTimeoutMs(policy.reason, voiceText);
@@ -888,6 +911,7 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
         source: "voice",
         inputText: transcript,
         voiceRequestDecision: result.voiceRequestDecision,
+        immersiveMode: result.immersiveMode,
       });
     }
     return { handled: true as const };
@@ -918,11 +942,6 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
 
   // 私聊里的开关命令，命中则直接回执、不进聊天。
   if (kind === "private") {
-    const verboseReply = tryHandleVerboseCommand(contactId, content);
-    if (verboseReply != null) {
-      await sendQqText(contactId, verboseReply);
-      return { handled: true as const, reason: "verbose_command" as const };
-    }
     const sceneReply = await tryHandleSceneCommand(contactId, content);
     if (sceneReply != null) {
       await sendQqText(contactId, sceneReply);
