@@ -1,26 +1,25 @@
 import * as db from "../db";
 
 /**
- * QQ 私聊「场景模式」开关命令——一个开关进出沉浸状态。
+ * QQ 私聊「场景模式」开关命令——一个开关进出沉浸状态，外加「双人模式」子开关。
  *
  * 进入场景模式后：允许用【】写旁白（动作 / 神态 / 环境，与说出口的话分开）并大幅放开篇幅；
  * 退出后回到日常：不写旁白、回复简短自然。
  *
- * 两种进入方式效果相同，都会打开场景模式：
- *   - 纯沉浸（无固定背景）：发「场景模式 / 进入场景」
- *   - 带背景设定：发「进入场景 名字」，额外加载该预设场景的设定文本（需先在网页建好）
- * 退出：发「退出场景」。不建任何预设场景也能用纯沉浸。
+ * 双人模式（依存于场景模式）：开启后旁白可同时描写人物自己和对方两人的动作/神态/场景，
+ * 用户输入只作「剧情引导」而非对方的真实台词；关闭后回到「只演自己一方」的单人场景。
+ * 开双人会自动开场景；退出场景会一并关掉双人。
  *
- * 「是否处于场景模式」由内存开关 getSceneMode 标记（按 contactId，进程重启清空），
- * 作为「旁白放行 + 篇幅放开」的统一信号贯穿生成与发送各层；
- * activeSceneId 只额外决定有没有背景设定文本，不再单独控制沉浸。
+ * 状态都在内存 Map（按 contactId，进程重启清空）；activeSceneId 只额外决定背景设定文本。
  */
 
 export type SceneCommand =
   | { kind: "list" }
   | { kind: "exit" }
   | { kind: "status" }
-  | { kind: "enter"; query?: string };
+  | { kind: "enter"; query?: string }
+  | { kind: "dual-on" }
+  | { kind: "dual-off" };
 
 export function parseSceneCommand(text: string): SceneCommand | null {
   const t = text.trim().replace(/^\/+/, "").trim();
@@ -28,6 +27,12 @@ export function parseSceneCommand(text: string): SceneCommand | null {
 
   if (/^(退出场景(模式)?|结束场景|离开场景|关闭场景|退出情景|退出沉浸|关闭沉浸|关闭旁白|日常模式|daily)$/i.test(t)) {
     return { kind: "exit" };
+  }
+  if (/^(退出双人|关闭双人|取消双人|单人模式|单人场景|单人)$/.test(t)) {
+    return { kind: "dual-off" };
+  }
+  if (/^(双人模式|双人场景|双人沉浸|开启双人|双人)$/.test(t)) {
+    return { kind: "dual-on" };
   }
   if (/^(场景列表|有哪些场景|场景帮助)$/.test(t)) {
     return { kind: "list" };
@@ -48,6 +53,7 @@ export function parseSceneCommand(text: string): SceneCommand | null {
 }
 
 const sceneModeState = new Map<string, boolean>();
+const dualModeState = new Map<string, boolean>();
 
 export function setSceneMode(contactId: string, on: boolean): void {
   sceneModeState.set(contactId, on);
@@ -55,6 +61,14 @@ export function setSceneMode(contactId: string, on: boolean): void {
 
 export function getSceneMode(contactId: string): boolean {
   return sceneModeState.get(contactId) === true;
+}
+
+export function setDualMode(contactId: string, on: boolean): void {
+  dualModeState.set(contactId, on);
+}
+
+export function getDualMode(contactId: string): boolean {
+  return dualModeState.get(contactId) === true;
 }
 
 function formatSceneList(scenes: Array<{ id: number; name: string; icon: string | null }>, activeId: number | null): string {
@@ -82,13 +96,28 @@ export async function tryHandleSceneCommand(contactId: string, text: string): Pr
 
   if (command.kind === "exit") {
     setSceneMode(contactId, false);
+    setDualMode(contactId, false);
     await db.activateScene(binding.personaId, null);
     return "已退出场景，回到日常：不写旁白，回复简短自然。";
+  }
+
+  if (command.kind === "dual-on") {
+    setSceneMode(contactId, true);
+    setDualMode(contactId, true);
+    return "双人模式已开启（已自动进入场景模式）。我会用【】同时写你和我两个人的动作、神态、反应；你发的话只当剧情引导，我据此推进整段双人情景。想加固定背景发「进入场景 名字」，回到只演我自己发「退出双人」，整个退出发「退出场景」。";
+  }
+
+  if (command.kind === "dual-off") {
+    setDualMode(contactId, false);
+    return getSceneMode(contactId)
+      ? "已关闭双人模式，回到单人场景：只演我自己一方、不替你写台词，旁白照旧。整个退出发「退出场景」。"
+      : "当前不在双人模式。发「双人模式」开启双人；发「场景模式」进入单人沉浸。";
   }
 
   const scenes = (await db.getScenes(binding.userId)) as Array<{ id: number; name: string; icon: string | null }>;
   const persona = await db.getPersonaById(binding.personaId, binding.userId);
   const activeId = (persona as any)?.activeSceneId ?? null;
+  const myName = (persona as any)?.name ?? "我";
 
   if (command.kind === "list") {
     return scenes.length
@@ -97,12 +126,14 @@ export async function tryHandleSceneCommand(contactId: string, text: string): Pr
   }
 
   if (command.kind === "status") {
-    const on = getSceneMode(contactId) || activeId != null;
-    if (!on) return "当前是日常模式：不写旁白、回复简短。发「场景模式」进入沉浸。";
+    const sceneOn = getSceneMode(contactId) || activeId != null;
+    const dualOn = getDualMode(contactId);
+    if (!sceneOn) return "当前是日常模式：不写旁白、回复简短。发「场景模式」进入单人沉浸，发「双人模式」进入双人沉浸。";
+    const mode = dualOn ? `双人场景（旁白写你和${myName}双方）` : `单人场景（只演${myName}自己）`;
     const bg = activeId != null ? scenes.find(s => s.id === activeId)?.name ?? null : null;
     return bg
-      ? `当前在场景模式：背景「${bg}」，旁白 + 放开篇幅已开。发「退出场景」回日常。`
-      : "当前在场景模式：旁白 + 放开篇幅已开（未指定背景）。发「退出场景」回日常。";
+      ? `当前在${mode}：背景「${bg}」，旁白 + 放开篇幅已开。发「退出场景」回日常。`
+      : `当前在${mode}：旁白 + 放开篇幅已开（未指定背景）。发「退出场景」回日常。`;
   }
 
   // kind === "enter"
@@ -115,5 +146,5 @@ export async function tryHandleSceneCommand(contactId: string, text: string): Pr
   }
 
   setSceneMode(contactId, true);
-  return "场景模式已开启。我会用【】写动作、神态、场景旁白，和说出口的话分开；篇幅也放开。想加固定背景就发「进入场景 名字」，退出发「退出场景」。";
+  return "场景模式已开启。我会用【】写动作、神态、场景旁白，和说出口的话分开；篇幅也放开。想加固定背景发「进入场景 名字」，想让旁白写双方发「双人模式」，退出发「退出场景」。";
 }

@@ -6,8 +6,7 @@ import {
   type SocialPersonaTextChatResult,
 } from "../social/persona-text-chat";
 import { defaultOutputPreferenceForPlatform } from "../social/runtime-request";
-import { getVerboseMode } from "./verbose-commands";
-import { getSceneMode } from "./scene-commands";
+import { getSceneMode, getDualMode } from "./scene-commands";
 import { wantsKeepGoing } from "../social/persona-turn-planner";
 
 export type QqPersonaChatOptions = {
@@ -85,8 +84,9 @@ export async function handleQqPersonaChatDetailed(
     channel: "qq",
     sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
-    replyLengthOverride: (getVerboseMode(contactId) || immersiveMode) ? "long" : undefined,
+    replyLengthOverride: immersiveMode ? "long" : undefined,
     immersiveMode,
+    dualMode: immersiveMode && getDualMode(contactId),
     keepGoing: wantsKeepGoing(messageText),
     allowPhotoIntent: options.allowPhotoIntent,
   });
@@ -101,6 +101,7 @@ export async function handleQqPersonaMediaChat(
   if (!binding) return null;
 
   const sceneOverlay = await resolveSceneOverlay(binding.personaId, binding.userId);
+  const immersiveMode = getSceneMode(contactId) || sceneOverlay != null;
   return handleSocialPersonaMediaChat({
     platform: "qq",
     binding,
@@ -110,5 +111,7 @@ export async function handleQqPersonaMediaChat(
     storagePrefix: "qq",
     sceneOverlay,
     outputPreference: defaultOutputPreferenceForPlatform("qq"),
+    immersiveMode,
+    dualMode: immersiveMode && getDualMode(contactId),
   });
 }

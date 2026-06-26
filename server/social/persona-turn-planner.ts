@@ -107,10 +107,20 @@ export function wantsLongerReply(text: string): boolean {
 }
 
 // 用户要求“不要停 / 别停下来 / 一直说别停”——本轮写成一长串连续推进、绝不收尾的内容（自动连发好几条）
-const WANTS_KEEP_GOING_PATTERN = /不要停|不要停下来|别停下来|别停下|不许停|不准停|一直说别停|继续别停|接着别停|说个不停|不停下来|一直说下去/;
+const WANTS_KEEP_GOING_PATTERN = /不要停|不要停下来|别停下来|别停下|不许停|不准停|一直说别停|继续别停|接着别停|说个不停|不停下来|一直说下去|\/long/i;
 
 export function wantsKeepGoing(text: string): boolean {
   return WANTS_KEEP_GOING_PATTERN.test(compactText(text));
+}
+
+// 解析连发段数：消息里写 /long<N> 就连发 N 段（1-15，防失控）；只发 /long 或自然语言「不要停」等无数字触发时默认 3 段；未触发返回 0。
+export function keepGoingBeats(text: string): number {
+  const m = text.match(/\/long\s*(\d+)/i);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    if (Number.isFinite(n) && n > 0) return Math.min(n, 15);
+  }
+  return wantsKeepGoing(text) ? 3 : 0;
 }
 
 function recentAffectionContext(recentMessages: ConversationMessage[] | undefined): boolean {

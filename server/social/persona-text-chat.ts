@@ -57,6 +57,7 @@ export type SocialPersonaTextChatOptions = {
   replyLengthOverride?: PersonaReplyLengthTarget;
   immersiveMode?: boolean;
   keepGoing?: boolean;
+  dualMode?: boolean;
   /** 允许人物在回复末尾输出 [[PHOTO|...]] 拍照意图标记（上层按冷却/作息门控） */
   allowPhotoIntent?: boolean;
 };
@@ -272,7 +273,7 @@ export function buildSocialTextInstruction(
       keepGoing
         ? "本轮回复节奏：用户要求不要停，要连续往下推进、不要收尾、不要问还要不要继续。每段仍然要短、要分开：一句一句、一拍一拍往下走，每段简短、单独成条，绝不要堆成一大段。是否带【】旁白只看是否在场景模式：不在场景模式就只用正常说话往下推、不要写任何旁白。"
         : immersiveMode
-          ? "本轮回复节奏：情景沉浸模式已开启。用【】旁白（动作/神态/环境）和说出口的话交错，展开成一段沉浸式情景；旁白用【】整段包住、与对话空行分段；可以多段多条、篇幅大幅放开。"
+          ? "本轮回复节奏：情景沉浸模式已开启。以【】旁白为主体，多写动作和身体细节（贴着对方的眼睛和身体感受写）；说出口的话可以少、点到为止，不必每段旁白后面都接一句对白；旁白用【】整段包住、与对话空行分段、可以多段多条、篇幅大幅放开。"
           : verboseMode
             ? "本轮回复节奏：详细模式已开启，请充分展开回复，5-8 句，像认真聊天一样；不要压成一两句。"
             : wantsLonger
@@ -306,7 +307,7 @@ export function buildSocialTextInstruction(
     keepGoing
       ? "【本轮回复节奏】用户要求不要停，要连续往下推进、不要收尾、不要问还要不要继续。每段仍然要短、要分开：一句一句、一拍一拍往下走，每段简短、单独成条，绝不要堆成一大段。是否带【】旁白只看是否在场景模式：不在场景模式就只用正常说话往下推、不要写任何旁白。"
       : immersiveMode
-        ? "【本轮回复节奏】情景沉浸模式已开启。用【】旁白（动作/神态/环境）和说出口的话交错，展开成一段沉浸式情景；旁白用【】整段包住、与对话空行分段；可以多段多条、篇幅大幅放开，但要有画面、有推进。"
+        ? "【本轮回复节奏】情景沉浸模式已开启。以【】旁白为主体，多写动作和身体细节（贴着对方的眼睛和身体感受写）；说出口的话可以少、点到为止，不必每段旁白后面都接一句对白；旁白用【】整段包住、与对话空行分段、可以多段多条、篇幅大幅放开，但要有画面、有推进。"
         : verboseMode
           ? "【本轮回复节奏】详细模式已开启，请充分展开回复，5-8 句，像认真聊天一样；可以多分享想法、细节，不要一两句打发。"
           : wantsLonger
@@ -403,14 +404,19 @@ export async function handleSocialPersonaTextChatDetailed(
     intent: "source_recall",
     sourceRecallActive: true,
   });
-  const sourceRecallContext = await buildPersonaSourceRecallContext({
-    personaId: options.binding.personaId,
-    userId: options.binding.userId,
-    messageText: options.messageText,
-    recentMessages: history.slice(-preliminarySourceEconomy.context.recallRecentLimit),
-    limit: preliminarySourceEconomy.sourceRecall.maxChunks,
-    maxExcerptChars: preliminarySourceEconomy.sourceRecall.maxExcerptChars,
-  });
+  // 场景/沉浸模式是虚构 roleplay、不是在问原著事实：绝不进原著考据。否则一旦剧情里出现触发词
+  // （柱子/西北/记得/当年/老鹰峡…），enforceSourceGroundedReply 的「简短、不要括号动作/旁白」改写
+  // 会把整段【】旁白删光——表现就是「场景里旁白完全没了」。沉浸态优先保住【】。
+  const sourceRecallContext = options.immersiveMode === true
+    ? ""
+    : await buildPersonaSourceRecallContext({
+      personaId: options.binding.personaId,
+      userId: options.binding.userId,
+      messageText: options.messageText,
+      recentMessages: history.slice(-preliminarySourceEconomy.context.recallRecentLimit),
+      limit: preliminarySourceEconomy.sourceRecall.maxChunks,
+      maxExcerptChars: preliminarySourceEconomy.sourceRecall.maxExcerptChars,
+    });
   const sourceRecallActive = Boolean(sourceRecallContext);
   const baseLlmOptions = {
     provider,
@@ -512,6 +518,7 @@ export async function handleSocialPersonaTextChatDetailed(
       pinnedFacts,
       innerState,
       immersiveMode: options.immersiveMode,
+      dualMode: options.dualMode,
       // 原著考据轮不拍照（那轮克制、按证据答）；睡眠/非急事静默时段不主动拍（明确要走规则、不受此限）；其余按上层门控（冷却）决定。
       allowPhotoIntent:
         Boolean(options.allowPhotoIntent) &&
