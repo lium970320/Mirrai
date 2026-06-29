@@ -197,6 +197,7 @@ function buildLifeScheduleOverlayForState(
   state: ScheduleState,
   runtime?: RuntimeLifeState | null,
   lifeConfig?: PersonaLifeConfig,
+  immersiveMode = false,
 ): string {
   const lines = [
     "【当前生活行程】",
@@ -210,10 +211,18 @@ function buildLifeScheduleOverlayForState(
     `当前状态：${state.description}`,
     `行为规则：${state.behavior}`,
     `状态转移：${state.transitionHint}`,
-    lifeConfig?.settingLine ?? DEFAULT_SETTING_LINE,
+    immersiveMode
+      ? "场景模式·时空豁免：王芃泽常驻南京、敏子常驻武汉只是平时的地理常驻；本轮在演场景，此刻两人在哪、是否在一起、能否见面，一律以当前所演场景的剧情为准——默认就当两人此刻同处一地、在彼此面前，不受“两人是异地、不要默认同屋同城马上见面”这条日常约束。只有用户在本轮把场景明确设成打电话/视频/异地时，才按隔空写。"
+      : (lifeConfig?.settingLine ?? DEFAULT_SETTING_LINE),
     "行程约束：上班时不要表现得整段时间都闲着；下班路上可以短促报平安；夜里准备睡觉时不要忽然展开长篇；睡眠时段除非用户明显有急事或明确叫醒，不要像白天一样清醒秒回。",
     `时间一致性：如果回复里提到现在的时间段，必须符合“${state.dayPart} / ${state.timeKey}”这个北京时间；用户纠正时间时先承认并修正，不要沿用上一轮错误说法。`,
   ];
+
+  if (immersiveMode) {
+    lines.push(
+      "场景模式·实时定位豁免：上面“当前状态 / 行为规则 / 状态转移”描述的是王芃泽平时此刻独自在南京的作息，本轮在演场景时不作数——不要因为这些就把人物写成独自一人在南京、或只能隔空联系；此刻人在哪、和谁在一起，以所演场景为准。",
+    );
+  }
 
   if (runtime?.status === "drowsy_awake") {
     lines.push(
@@ -273,12 +282,14 @@ function drowsyUntil(now: Date): string {
 export function buildEffectiveLifeScheduleOverlay(
   personaData: unknown,
   now = new Date(),
+  immersiveMode = false,
 ): string {
   const lifeConfig = getPersonaLifeConfig(personaData);
   return buildLifeScheduleOverlayForState(
     getPersonaScheduleState(now, lifeConfig),
     getActiveRuntimeLifeState(personaData, now),
     lifeConfig,
+    immersiveMode,
   );
 }
 

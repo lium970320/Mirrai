@@ -993,7 +993,7 @@ export async function getPersonaById(id: number, userId: number) {
     ))
     .where(and(eq(personas.id, id), eq(personas.userId, userId))).limit(1);
   if (!joined) return undefined;
-  return mergePersonaRuntimeRow(joined.personas, joined.personaRuntimeStates ?? undefined);
+  return mergePersonaRuntimeRow(joined.personas, joined.persona_runtime_states ?? undefined);
 }
 
 export async function updatePersona(id: number, userId: number, data: Partial<InsertPersona>) {
