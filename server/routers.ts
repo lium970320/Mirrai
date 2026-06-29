@@ -474,23 +474,10 @@ export const appRouter = router({
         const intimacy = computeIntimacy(intimacyData);
         await updateIntimacy(input.personaId, ctx.user.id, intimacy.score, intimacy.level);
 
-        let graduationSuggested = false;
-        if (intimacy.level === "灵魂伴侣" && !persona.graduationStatus) {
-          const recentEmotions = await getRecentEmotionTrend(input.personaId, 14);
-          const recentFreq = await getMessageCountInRange(input.personaId, 7, 0);
-          const prevFreq = await getMessageCountInRange(input.personaId, 14, 7);
-          const gradResult = checkGraduationEligibility({
-            intimacyLevel: intimacy.level,
-            recentEmotions,
-            chatCount: (persona.chatCount || 0) + 1,
-            recentChatFrequency: recentFreq,
-            previousChatFrequency: prevFreq,
-          });
-          if (gradResult.eligible) {
-            await setGraduationStatus(input.personaId, ctx.user.id, "suggested");
-            graduationSuggested = true;
-          }
-        }
+        // 产品方向：强化拟人黏性、不主动让分身「毕业/告别」。
+        // 停用主聊天回合里的毕业建议触发——不再每轮在「灵魂伴侣」时跑 checkGraduationEligibility 劝退。
+        // graduationSuggested 字段恒置 false 以保持 client 端类型/调用不变；毕业相关 query/mutation 暂保留待后续清理。
+        const graduationSuggested = false;
 
         return {
           reply: result.replyText,
