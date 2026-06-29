@@ -983,11 +983,17 @@ export async function getRecentActivity(userId: number, limit = 8) {
 export async function getPersonaById(id: number, userId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(personas)
+  // personas LEFT JOIN personaRuntimeStates 一条查询取回主行 + 运行时态，替代原「先查 personas 再单独查 runtime」两条 SQL。
+  // 每条入站消息热路径会多次读 persona（bridge resolveSceneOverlay + 主回合等），合并后单次读减半往返。
+  await ensurePersonaRuntimeStatesTable();
+  const [joined] = await db.select().from(personas)
+    .leftJoin(personaRuntimeStates, and(
+      eq(personaRuntimeStates.personaId, personas.id),
+      eq(personaRuntimeStates.userId, personas.userId),
+    ))
     .where(and(eq(personas.id, id), eq(personas.userId, userId))).limit(1);
-  if (!result[0]) return undefined;
-  const runtime = await getPersonaRuntimeStateRow(id, userId);
-  return mergePersonaRuntimeRow(result[0], runtime);
+  if (!joined) return undefined;
+  return mergePersonaRuntimeRow(joined.personas, joined.personaRuntimeStates ?? undefined);
 }
 
 export async function updatePersona(id: number, userId: number, data: Partial<InsertPersona>) {
