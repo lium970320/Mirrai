@@ -8,8 +8,8 @@ export class ProviderRegistry {
     this.providers.set(provider.name.toLowerCase(), provider);
   }
 
-  setDefault(name: string) {
-    this.defaultName = name.toLowerCase();
+  setDefault(name?: string) {
+    this.defaultName = (name ?? "").toLowerCase();
   }
 
   get(name?: string): LLMProvider | undefined {

@@ -52,6 +52,20 @@ describe("life schedule", () => {
     expect(overlay).toContain("南京研究所");
   });
 
+  it("drops the long-distance behavior rule and adds copresence exemptions in immersive mode", () => {
+    const daily = buildEffectiveLifeScheduleOverlay({}, beijingDate("2026-05-14", "18:00"), false);
+    const scene = buildEffectiveLifeScheduleOverlay({}, beijingDate("2026-05-14", "18:00"), true);
+
+    // 日常模式（默认）：保留异地行为禁令
+    expect(daily).toContain("不要默认同屋、同城、马上见面");
+    expect(daily).not.toContain("时空豁免");
+
+    // 场景模式：异地行为禁令被换成时空豁免，并追加实时定位豁免
+    expect(scene).not.toContain("不要默认同屋、同城、马上见面");
+    expect(scene).toContain("场景模式·时空豁免");
+    expect(scene).toContain("场景模式·实时定位豁免");
+  });
+
   it("persists a drowsy awake runtime state after a wake message", () => {
     const result = applyIncomingLifeState(
       {},

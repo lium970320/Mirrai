@@ -8,6 +8,8 @@ import { buildLlmEconomyPolicy, getLlmBudgetDiagnostics } from "../llm/economy";
 import { personaStickers } from "../stickers/persona-stickers";
 import { getStickerReplyPolicyConfig } from "../stickers/sticker-policy";
 import { getVoiceReplyPolicyConfig } from "../voice/voice-reply-policy";
+// 导出/删除分段以 db.ts 为单一来源，诊断层不再手抄副本（避免新增表时两份静默漂移）。
+import { USER_DATA_EXPORT_SECTIONS, USER_ACCOUNT_DELETE_SECTIONS } from "../db";
 
 type StickerTypeCount = Record<string, number>;
 type RuntimeDatabaseMode = "unconfigured" | "local" | "neon" | "remote" | "invalid";
@@ -27,49 +29,6 @@ const PLAN2_PERSISTENT_TABLES = [
   "wechat_bindings",
   "skill_jobs",
   "diary_entries",
-] as const;
-
-const PLAN2_EXPORT_SECTIONS = [
-  "personas",
-  "messages",
-  "personaFiles",
-  "personaSources",
-  "personaSourceChunks",
-  "memories",
-  "emotionSnapshots",
-  "diaryEntries",
-  "roleplayChannels",
-  "roleplayChannelMembers",
-  "roleplayMessages",
-  "wechatBindings",
-  "skillJobs",
-  "llmUsageRecords",
-  "personaRuntimeStates",
-  "llmConfigs",
-  "wechatBotState",
-  "scenes",
-] as const;
-
-const PLAN2_DELETE_SECTIONS = [
-  "llmUsageRecords",
-  "personaRuntimeStates",
-  "memories",
-  "emotionSnapshots",
-  "diaryEntries",
-  "roleplayMessages",
-  "roleplayChannelMembers",
-  "roleplayChannels",
-  "messages",
-  "personaFiles",
-  "personaSourceChunks",
-  "personaSources",
-  "wechatBindings",
-  "wechatBotState",
-  "skillJobs",
-  "llmConfigs",
-  "scenes",
-  "personas",
-  "users",
 ] as const;
 
 const PLAN2_REQUIRED_MIGRATIONS = [
@@ -870,8 +829,8 @@ export function getOperationsDiagnostics(options: {
         sourceLibrary: "persona_sources / persona_source_chunks",
       },
       persistentTables: PLAN2_PERSISTENT_TABLES,
-      exportSections: PLAN2_EXPORT_SECTIONS,
-      deleteSections: PLAN2_DELETE_SECTIONS,
+      exportSections: USER_DATA_EXPORT_SECTIONS,
+      deleteSections: USER_ACCOUNT_DELETE_SECTIONS,
       requiredMigrations: PLAN2_REQUIRED_MIGRATIONS,
       localRuntimeCleanupScript: "scripts/cleanup-local-runtime.ps1",
       syncScript: "scripts/sync-local-worktree.ps1",
