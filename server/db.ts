@@ -2649,6 +2649,17 @@ export async function deleteScene(id: number, userId: number) {
   await db.delete(scenes).where(and(eq(scenes.id, id), eq(scenes.isBuiltin, false), eq(scenes.userId, userId)));
 }
 
+/** 编辑场景：只允许改自己创建的非内置场景。 */
+export async function updateScene(id: number, userId: number, data: Partial<InsertScene>) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.update(scenes)
+    .set(data)
+    .where(and(eq(scenes.id, id), eq(scenes.isBuiltin, false), eq(scenes.userId, userId)))
+    .returning();
+  return row || null;
+}
+
 export async function activateScene(personaId: number, sceneId: number | null) {
   const db = await getDb();
   if (!db) return;

@@ -276,13 +276,41 @@ export default function Chat() {
   const [showScenePanel, setShowScenePanel] = useState(false);
   const [showGraduation, setShowGraduation] = useState(false);
 
-  const { data: scenesList } = trpc.scene.list.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: scenesList, refetch: refetchScenes } = trpc.scene.list.useQuery(undefined, { enabled: isAuthenticated });
   const activateSceneMutation = trpc.scene.activate.useMutation({
     onSuccess: () => { toast.success("场景已激活"); setShowScenePanel(false); },
   });
   const deactivateSceneMutation = trpc.scene.deactivate.useMutation({
     onSuccess: () => { toast.success("已退出场景"); setShowScenePanel(false); },
   });
+
+  // 场景新建/编辑表单：null=列表视图；对象=正在编辑（有 id）或新建（无 id）
+  const [sceneForm, setSceneForm] = useState<null | { id?: number; name: string; icon: string; description: string; systemPromptOverlay: string; starters: string }>(null);
+  const createSceneMutation = trpc.scene.create.useMutation({
+    onSuccess: () => { toast.success("场景已创建"); void refetchScenes(); setSceneForm(null); },
+    onError: (e: any) => toast.error("创建失败：" + e.message),
+  });
+  const updateSceneMutation = trpc.scene.update.useMutation({
+    onSuccess: () => { toast.success("场景已保存"); void refetchScenes(); setSceneForm(null); },
+    onError: (e: any) => toast.error("保存失败：" + e.message),
+  });
+  const deleteSceneMutation = trpc.scene.delete.useMutation({
+    onSuccess: () => { toast.success("场景已删除"); void refetchScenes(); setSceneForm(null); },
+    onError: (e: any) => toast.error("删除失败：" + e.message),
+  });
+  const generateDraftMutation = trpc.scene.generateOverlayDraft.useMutation({
+    onSuccess: (r: any) => { setSceneForm(f => f ? { ...f, systemPromptOverlay: r.draft } : f); toast.success("初稿已生成，可继续改"); },
+    onError: (e: any) => toast.error("生成失败：" + e.message),
+  });
+  const saveSceneForm = () => {
+    if (!sceneForm) return;
+    const starters = sceneForm.starters.split("\n").map(s => s.trim()).filter(Boolean);
+    const name = sceneForm.name.trim();
+    if (!name) { toast.error("请先填场景名"); return; }
+    const payload = { name, icon: sceneForm.icon.trim() || "🎭", description: sceneForm.description.trim(), systemPromptOverlay: sceneForm.systemPromptOverlay.trim(), starters };
+    if (sceneForm.id) updateSceneMutation.mutate({ id: sceneForm.id, ...payload });
+    else createSceneMutation.mutate(payload);
+  };
 
   const activeScene = scenesList?.find((s: any) => s.id === persona?.activeSceneId);
 
@@ -561,33 +589,88 @@ export default function Chat() {
       {showSearch && <SearchPanel personaId={personaId} onClose={() => { setShowSearch(false); setSearchQuery(""); }} />}
 
       {showScenePanel && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm p-4 pt-16 sm:pt-20 animate-fade-in" onClick={() => setShowScenePanel(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm p-4 pt-16 sm:pt-20 animate-fade-in" onClick={() => { setShowScenePanel(false); setSceneForm(null); }}>
           <div className="w-full max-w-lg bg-card border border-border rounded-2xl shadow-xl p-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold">场景模式</p>
-              <button onClick={() => setShowScenePanel(false)} className="text-muted-foreground hover:text-foreground">
+              <p className="text-sm font-semibold">{sceneForm ? (sceneForm.id ? "编辑场景" : "新建场景") : "场景模式"}</p>
+              <button onClick={() => { setShowScenePanel(false); setSceneForm(null); }} className="text-muted-foreground hover:text-foreground">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            {activeScene && (
-              <div className="mb-3 flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">当前场景：{activeScene.icon} {activeScene.name}</span>
-                <button onClick={() => deactivateSceneMutation.mutate({ personaId })}
-                  className="text-xs text-destructive hover:underline">退出场景</button>
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(scenesList || []).map((scene: any) => (
-                <button key={scene.id} onClick={() => activateSceneMutation.mutate({ personaId, sceneId: scene.id })}
-                  className={`text-left p-3 rounded-xl border transition-all ${scene.id === persona?.activeSceneId ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-base">{scene.icon || "🎭"}</span>
-                    <span className="text-sm font-medium">{scene.name}</span>
+
+            {sceneForm ? (
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input value={sceneForm.icon} onChange={(e) => setSceneForm(f => f ? { ...f, icon: e.target.value } : f)} placeholder="🎭" className="w-16 text-center" maxLength={2} />
+                  <Input value={sceneForm.name} onChange={(e) => setSceneForm(f => f ? { ...f, name: e.target.value } : f)} placeholder="场景名（如：深夜独处）" className="flex-1" maxLength={100} />
+                </div>
+                <Input value={sceneForm.description} onChange={(e) => setSceneForm(f => f ? { ...f, description: e.target.value } : f)} placeholder="一句话描述（列表里显示）" maxLength={200} />
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs text-muted-foreground">这个场景里希望人物怎么做（专属行为 / 提示词）</label>
+                    <button type="button" onClick={() => generateDraftMutation.mutate({ personaId, sceneName: sceneForm.name, hint: sceneForm.description })}
+                      disabled={generateDraftMutation.isPending}
+                      className="text-xs inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
+                      <Sparkles className="w-3 h-3" />{generateDraftMutation.isPending ? "生成中…" : "从记忆/画像生成初稿"}
+                    </button>
                   </div>
-                  {scene.description && <p className="text-xs text-muted-foreground line-clamp-2">{scene.description}</p>}
+                  <Textarea value={sceneForm.systemPromptOverlay} onChange={(e) => setSceneForm(f => f ? { ...f, systemPromptOverlay: e.target.value } : f)}
+                    placeholder="例：在这个场景里，你更主动、更黏人，多照顾敏子的情绪、少讲道理；动作和语气都更近一些……" rows={6} />
+                </div>
+                <Textarea value={sceneForm.starters} onChange={(e) => setSceneForm(f => f ? { ...f, starters: e.target.value } : f)}
+                  placeholder="开场白（可选，一行一句）" rows={2} />
+                <div className="flex items-center justify-between pt-1">
+                  <div>
+                    {sceneForm.id ? (
+                      <button type="button" onClick={() => { if (sceneForm.id && window.confirm("删除这个场景？")) deleteSceneMutation.mutate({ id: sceneForm.id }); }}
+                        className="text-xs inline-flex items-center gap-1 text-destructive hover:underline">
+                        <Trash2 className="w-3 h-3" />删除
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => setSceneForm(null)}>取消</Button>
+                    <Button size="sm" onClick={saveSceneForm} disabled={createSceneMutation.isPending || updateSceneMutation.isPending}>
+                      <Save className="w-3.5 h-3.5 mr-1" />保存
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeScene && (
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">当前场景：{activeScene.icon} {activeScene.name}</span>
+                    <button onClick={() => deactivateSceneMutation.mutate({ personaId })}
+                      className="text-xs text-destructive hover:underline">退出场景</button>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {(scenesList || []).map((scene: any) => (
+                    <div key={scene.id}
+                      className={`relative p-3 rounded-xl border transition-all ${scene.id === persona?.activeSceneId ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}>
+                      <button onClick={() => activateSceneMutation.mutate({ personaId, sceneId: scene.id })} className="w-full text-left">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-base">{scene.icon || "🎭"}</span>
+                          <span className="text-sm font-medium pr-6">{scene.name}</span>
+                        </div>
+                        {scene.description && <p className="text-xs text-muted-foreground line-clamp-2">{scene.description}</p>}
+                      </button>
+                      {!scene.isBuiltin && (
+                        <button onClick={(e) => { e.stopPropagation(); setSceneForm({ id: scene.id, name: scene.name || "", icon: scene.icon || "", description: scene.description || "", systemPromptOverlay: scene.systemPromptOverlay || "", starters: (scene.starters || []).join("\n") }); }}
+                          className="absolute top-2 right-2 text-muted-foreground hover:text-primary" title="编辑">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => setSceneForm({ name: "", icon: "", description: "", systemPromptOverlay: "", starters: "" })}
+                  className="mt-3 w-full inline-flex items-center justify-center gap-1 text-sm py-2 rounded-xl border border-dashed border-border hover:border-primary/40 text-muted-foreground hover:text-foreground">
+                  <Plus className="w-4 h-4" />新建场景
                 </button>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}
