@@ -22,6 +22,7 @@ import {
   sendProactiveMessageToPreferredPlatform,
 } from "./proactive-delivery";
 import { resolveProactiveModality } from "./proactive-multimodal";
+import { runSceneAutoExitTick } from "../qq/scene-auto-exit";
 import {
   buildProactiveRuntimeDiagnostics,
   buildProactiveRuntimePlan,
@@ -299,6 +300,12 @@ export async function runProactiveTick() {
 
   try {
     const now = new Date();
+    // 作息守门：工作日到上班点，把过夜没关的场景/双人退回日常（与主动消息共用这趟每分钟 tick）。
+    try {
+      await runSceneAutoExitTick(now);
+    } catch (err) {
+      console.warn("[SceneAutoExit] tick error:", err);
+    }
     const hhmm = currentTimeKey(now);
     const personas = await getReadyPersonasForProactiveMessages();
 

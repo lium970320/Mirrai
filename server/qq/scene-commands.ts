@@ -54,9 +54,19 @@ export function parseSceneCommand(text: string): SceneCommand | null {
 
 const sceneModeState = new Map<string, boolean>();
 const dualModeState = new Map<string, boolean>();
+// 沉浸会话开始时间（epoch ms，按 contactId）：作息自动退出时用它区分「过夜遗留（开得早、该清）」
+// 和「用户当天上班时段内主动重开（不该被自动清）」。
+const sceneOpenedAt = new Map<string, number>();
+// 某 contact「今天已因上班自动退出过」的北京日期键：保证一天只自动退一次，且不打扰白天手动重开。
+const lastAutoExitDate = new Map<string, string>();
 
 export function setSceneMode(contactId: string, on: boolean): void {
   sceneModeState.set(contactId, on);
+  if (on) {
+    if (!sceneOpenedAt.has(contactId)) sceneOpenedAt.set(contactId, Date.now());
+  } else {
+    sceneOpenedAt.delete(contactId);
+  }
 }
 
 export function getSceneMode(contactId: string): boolean {
@@ -69,6 +79,29 @@ export function setDualMode(contactId: string, on: boolean): void {
 
 export function getDualMode(contactId: string): boolean {
   return dualModeState.get(contactId) === true;
+}
+
+/** 当前内存里处于场景或双人模式的所有 contactId（供作息自动退出遍历）。 */
+export function getActiveSceneContactIds(): string[] {
+  const ids = new Set<string>();
+  sceneModeState.forEach((on, id) => { if (on) ids.add(id); });
+  dualModeState.forEach((on, id) => { if (on) ids.add(id); });
+  const out: string[] = [];
+  ids.forEach(id => out.push(id));
+  return out;
+}
+
+/** 该 contact 沉浸会话的开始时间（epoch ms）；未开返回 undefined。 */
+export function getSceneOpenedAt(contactId: string): number | undefined {
+  return sceneOpenedAt.get(contactId);
+}
+
+export function getLastAutoExitDate(contactId: string): string | undefined {
+  return lastAutoExitDate.get(contactId);
+}
+
+export function setLastAutoExitDate(contactId: string, dateKey: string): void {
+  lastAutoExitDate.set(contactId, dateKey);
 }
 
 function formatSceneList(scenes: Array<{ id: number; name: string; icon: string | null }>, activeId: number | null): string {
@@ -147,4 +180,47 @@ export async function tryHandleSceneCommand(contactId: string, text: string): Pr
 
   setSceneMode(contactId, true);
   return "场景模式已开启。我会用【】写动作、神态、场景旁白，和说出口的话分开；篇幅也放开。想加固定背景发「进入场景 名字」，想让旁白写双方发「双人模式」，退出发「退出场景」。";
+}
+
+// ───────────────────────── 作息驱动的自动退出 ─────────────────────────
+
+/** 工作日「白天该上班 / 在单位」的作息状态：覆盖出门通勤到下午下班（约 07:40–17:30）。 */
+export const WORKDAY_DAYTIME_STATES = new Set<string>([
+  "commuting_to_work",
+  "working_morning",
+  "lunch_break",
+  "midday_rest",
+  "working_afternoon",
+]);
+
+/**
+ * 自动退出场景 + 双人，回到日常（清内存双开关 + DB 背景场景）。供作息守门调用。
+ */
+export async function autoExitSceneAndDualMode(contactId: string, personaId: number): Promise<void> {
+  setSceneMode(contactId, false); // 同时清掉 sceneOpenedAt
+  setDualMode(contactId, false);
+  await db.activateScene(personaId, null);
+}
+
+/**
+ * 纯判定：工作日到上班点时，当前是否应自动退出沉浸场景。
+ * 规则：仅工作日；仅白天上班时段；只清「过夜 / 上班点之前就开着」的场景（当天上班后手动重开的不动）；
+ * 每天每 contact 只退一次。
+ */
+export function shouldAutoExitForWork(params: {
+  dayKind: string;
+  stateId: string;
+  sceneOn: boolean;
+  openedAtMs: number | undefined;
+  workStartMs: number;
+  lastExitDateKey: string | undefined;
+  todayDateKey: string;
+}): boolean {
+  if (params.dayKind !== "weekday") return false;
+  if (!WORKDAY_DAYTIME_STATES.has(params.stateId)) return false;
+  if (!params.sceneOn) return false;
+  if (params.lastExitDateKey === params.todayDateKey) return false;
+  // 当天上班点之后才开的（用户白天主动玩）不自动退；过夜 / 上班前开的 / 无记录的才退。
+  if (params.openedAtMs !== undefined && params.openedAtMs >= params.workStartMs) return false;
+  return true;
 }
