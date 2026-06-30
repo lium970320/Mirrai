@@ -166,6 +166,7 @@ export async function handleSocialPersonaMediaChatDetailed(
     persona.personaData,
     [mediaLabel(options.media), caption || ""].filter(Boolean).join(" "),
     now,
+    options.immersiveMode === true,
   );
   if (lifeGate.changed) {
     await db.updatePersona(options.binding.personaId, options.binding.userId, {

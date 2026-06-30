@@ -8,7 +8,7 @@ import { getPersonaRuntimeState } from "./persona-runtime";
  * 纯逻辑、无 LLM 调用、不绑定具体人物（基线由作息 + dayContext 派生）。
  */
 
-type ScheduleState = ReturnType<typeof getPersonaScheduleState>;
+export type ScheduleState = ReturnType<typeof getPersonaScheduleState>;
 
 /** 人物「自己的一天」：与用户无关的日内心境种子，按 dateKey 失效重生。 */
 export type PersonaDayContext = {
@@ -85,6 +85,33 @@ function energyBaselineForSchedule(schedule: ScheduleState): number {
     case "rest": return 0.6;
     case "home": return schedule.availability === "open" ? 0.85 : 0.7;
     default: return 0.6;
+  }
+}
+
+/** 作息类别 → 情绪正负基线偏移：上班克制压抑、居家放松、夜里微软。 */
+function valenceBaselineForSchedule(schedule: ScheduleState): number {
+  switch (schedule.category) {
+    case "work": return -0.12;
+    case "commute": return -0.05;
+    case "wake": return -0.03;
+    case "meal": return 0.05;
+    case "rest": return 0.05;
+    case "home": return schedule.availability === "open" ? 0.12 : 0.06;
+    default: return 0;
+  }
+}
+
+/** 作息时段 → 无强情绪时的「默认心情」底色（上班闷、在家松、夜里静）。 */
+function baselineMoodForSchedule(schedule: ScheduleState): string {
+  switch (schedule.category) {
+    case "sleep": return "困倦";
+    case "wake": return "刚醒、还有点发懵";
+    case "commute": return "在路上、心不在焉";
+    case "work": return "有点闷、心思没全在这";
+    case "meal": return "刚歇下来";
+    case "rest": return "懒懒的、松着";
+    case "home": return schedule.availability === "open" ? "松快" : "安静";
+    default: return BASELINE_MOOD;
   }
 }
 
@@ -200,8 +227,8 @@ function normalizeInnerState(raw: unknown): PersonaInnerState | null {
 
 function baselineInnerState(now: Date, schedule: ScheduleState, dayContext: PersonaDayContext): PersonaInnerState {
   return {
-    mood: BASELINE_MOOD,
-    valence: clampSigned(dayContext.valenceBias),
+    mood: baselineMoodForSchedule(schedule),
+    valence: clampSigned(dayContext.valenceBias + valenceBaselineForSchedule(schedule)),
     energy: clampUnit(energyBaselineForSchedule(schedule) + dayContext.energyBias),
     intensity: 0,
     cause: "",
@@ -225,13 +252,16 @@ function decayInnerState(prev: PersonaInnerState, schedule: ScheduleState, dayCo
   const elapsed = hoursSince(prev.updatedAt, now);
   const intensity = clampUnit(prev.intensity * 0.5 ** (elapsed / INTENSITY_HALFLIFE_HOURS));
   const energyTarget = clampUnit(energyBaselineForSchedule(schedule) + dayContext.energyBias);
+  // 情绪正负的回归目标 = 今天基调 + 当前作息底色（上班往闷里收、在家往松里走）。
+  const valenceTarget = clampSigned(dayContext.valenceBias + valenceBaselineForSchedule(schedule));
   // 强度越低，越向基线靠拢（情绪平复）。
   const pull = clampUnit(1 - intensity);
   const energy = clampUnit(prev.energy + (energyTarget - prev.energy) * pull);
-  const valence = clampSigned(prev.valence + (dayContext.valenceBias - prev.valence) * pull);
+  const valence = clampSigned(prev.valence + (valenceTarget - prev.valence) * pull);
   const relaxed = intensity < INTENSITY_RELAX_THRESHOLD;
   return {
-    mood: relaxed ? BASELINE_MOOD : prev.mood,
+    // 平复后心情松回「当前作息的底色」，而不是永远的「平静」。
+    mood: relaxed ? baselineMoodForSchedule(schedule) : prev.mood,
     valence,
     energy,
     intensity,
@@ -279,7 +309,28 @@ function toneOverlayLine(tone: PersonaRelationshipTone | null): string {
 }
 
 /** 生成注入系统提示词的【当前内心状态】块；强调这是延续状态、自然流露、不要直接报出来。 */
-export function buildInnerStateOverlay(state: PersonaInnerState): string {
+/** 作息×情绪的协同提示：把「此刻在上班还是在家」翻成对语气的具体指引。 */
+function scheduleEmotionHint(schedule?: { category: string; availability: string }): string {
+  if (!schedule) return "";
+  switch (schedule.category) {
+    case "work":
+      return "你现在在所里上班，心思没法全放在对话上——回复短一些、克制一些，像工作间隙抽空回的样子。";
+    case "commute":
+      return "你正在通勤路上，低头看一眼手机的状态，回复短促自然就好。";
+    case "sleep":
+      return "你这会儿本该睡着，除非被叫醒，语气要低、慢、短。";
+    case "meal":
+      return "你正在吃饭或刚歇下来，语气日常、放松。";
+    case "home":
+      return schedule.availability === "open"
+        ? "你现在在家、空下来了，可以更自在、更有来有回；心情好就让它自然流露。"
+        : "你现在在家，状态比上班松；夜深了的话语气可以更柔、更低一点。";
+    default:
+      return "";
+  }
+}
+
+export function buildInnerStateOverlay(state: PersonaInnerState, schedule?: ScheduleState): string {
   const lines = [
     "【当前内心状态】",
     "以下是你此刻延续下来的心情，不是对用户这条消息的即时反应。让它自然影响你的语气和主动性，但不要直接说破，也不要解释这些字段。",
@@ -289,6 +340,7 @@ export function buildInnerStateOverlay(state: PersonaInnerState): string {
     state.preoccupation ? `还惦记着：${state.preoccupation}` : "",
     toneOverlayLine(state.relationshipTone),
     energyToneHint(state.energy),
+    scheduleEmotionHint(schedule),
     "如果这份心情和用户当前消息明显不搭（比如你正低落但对方很兴奋），先接住对方，再让自己的状态稍微流露，而不是瞬间切换成完全相反的情绪。",
   ];
   return lines.filter(Boolean).join("\n");

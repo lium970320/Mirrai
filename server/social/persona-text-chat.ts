@@ -376,7 +376,7 @@ export async function handleSocialPersonaTextChatDetailed(
     platform: options.platform,
   });
   const history = await db.getMessagesByPersonaId(options.binding.personaId, initialEconomy.context.historyFetchLimit);
-  const lifeGate = applyIncomingLifeState(persona.personaData, options.messageText, now);
+  const lifeGate = applyIncomingLifeState(persona.personaData, options.messageText, now, options.immersiveMode === true);
   if (lifeGate.changed) {
     await db.updatePersona(options.binding.personaId, options.binding.userId, {
       personaData: lifeGate.personaData,
