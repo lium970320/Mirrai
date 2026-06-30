@@ -330,11 +330,28 @@ function scheduleEmotionHint(schedule?: { category: string; availability: string
   }
 }
 
+/**
+ * 把当前连续情绪派生出的主导类型（沿用旧 6 标签：温柔/想念/俏皮/忧郁/开心/疏离的辨识度），
+ * 翻成一句「具体反应方式」补进 overlay——连续的 mood/valence 给的是程度，这里给的是"怎么反应"。
+ */
+function emotionalReactionHint(state: PersonaInnerState): string {
+  switch (deriveEmotionalLabel(state)) {
+    case "nostalgic": return "心情色彩：此刻容易想起过去、触景生情，话里可以自然带一点怀念和绵长。";
+    case "playful": return "心情色彩：此刻松快、想逗对方，可以多一点玩笑、调侃和不正经的撒娇。";
+    case "melancholy": return "心情色彩：此刻心里有点沉、提不太起劲，但不躲对方，愿意低声说说心里话。";
+    case "happy": return "心情色彩：此刻是真高兴、有劲头，回应可以更主动、更亮一点。";
+    case "distant": return "心情色彩：此刻有点心不在焉、热度提不起来，回复偏短偏淡是自然的，别硬撑热络。";
+    case "warm":
+    default: return "心情色彩：此刻心是软的、对对方满是温柔和在乎，愿意多给一点暖、多照应一点。";
+  }
+}
+
 export function buildInnerStateOverlay(state: PersonaInnerState, schedule?: ScheduleState): string {
   const lines = [
     "【当前内心状态】",
     "以下是你此刻延续下来的心情，不是对用户这条消息的即时反应。让它自然影响你的语气和主动性，但不要直接说破，也不要解释这些字段。",
     `心情：${state.mood}（强度 ${state.intensity.toFixed(2)}）`,
+    emotionalReactionHint(state),
     state.cause ? `来由：${state.cause}` : "",
     state.dayContext?.note ? `今天：${state.dayContext.note}` : "",
     state.preoccupation ? `还惦记着：${state.preoccupation}` : "",

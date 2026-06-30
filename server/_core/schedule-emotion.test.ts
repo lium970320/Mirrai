@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getEffectiveInnerState } from "./persona-inner-state";
+import { buildInnerStateOverlay, getEffectiveInnerState, type PersonaInnerState } from "./persona-inner-state";
 import { applyIncomingLifeState } from "./life-schedule";
 
 // 用北京时间构造 Date（北京 = UTC+8）。
@@ -51,5 +51,36 @@ describe("沉浸态豁免睡眠抑制（E）", () => {
 
   it("非睡眠时段不受影响", () => {
     expect(applyIncomingLifeState({}, "在干嘛", beijing(WORKDAY, "20:00"), false).suppress).toBe(false);
+  });
+});
+
+describe("旧情绪标签的人物反应融进新框架（emotionalReactionHint）", () => {
+  function makeState(p: Partial<PersonaInnerState>): PersonaInnerState {
+    return {
+      mood: "平静", valence: 0, energy: 0.6, intensity: 0.5,
+      cause: "", preoccupation: "", dayContext: null, relationshipTone: null,
+      updatedAt: "2026-05-14T00:00:00.000Z",
+      ...p,
+    };
+  }
+
+  it("想念 → 触景生情", () => {
+    expect(buildInnerStateOverlay(makeState({ mood: "想念加重", cause: "好久没见" }))).toContain("触景生情");
+  });
+
+  it("低落 → 低声说心里话", () => {
+    expect(buildInnerStateOverlay(makeState({ valence: -0.5 }))).toContain("说说心里话");
+  });
+
+  it("开心有劲 → 更主动更亮", () => {
+    expect(buildInnerStateOverlay(makeState({ valence: 0.6, energy: 0.7 }))).toContain("更亮");
+  });
+
+  it("精力很低 → 偏短偏淡", () => {
+    expect(buildInnerStateOverlay(makeState({ energy: 0.2 }))).toContain("偏短偏淡");
+  });
+
+  it("默认温柔 → 多给一点暖", () => {
+    expect(buildInnerStateOverlay(makeState({ valence: 0.1, energy: 0.6 }))).toContain("多给一点暖");
   });
 });
