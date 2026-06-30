@@ -23,7 +23,7 @@ import {
   getIntimacyData, updateIntimacy,
   getMessageVolume, getEmotionTimeline, getPersonaEngagement, getHourlyDistribution, getAnalyticsStats,
   createDiaryEntry, getDiaryEntries, getDiaryByDate, deleteDiaryEntry, getMessagesByDate, getDiaryDates,
-  getScenes, getSceneById, createScene, deleteScene, activateScene,
+  getScenes, getSceneById, createScene, updateScene, deleteScene, activateScene,
   getExportData, getRecentEmotionTrend, getMessageCountInRange, setGraduationStatus,
   getPersonaSourceLibraryStats, getPersonaSourceLibraryOverview,
   createRoleplayChannel, getRoleplayChannels, getRoleplayChannelById,
@@ -1102,6 +1102,15 @@ export const appRouter = router({
         return createScene({ ...input, userId: ctx.user.id, starters: input.starters || [], isBuiltin: false });
       }),
 
+    update: protectedProcedure
+      .input(z.object({ id: z.number(), name: z.string().min(1).max(100).optional(), description: z.string().optional(), icon: z.string().max(10).optional(), systemPromptOverlay: z.string().optional(), emotionalState: z.string().optional(), starters: z.array(z.string()).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...rest } = input;
+        const updated = await updateScene(id, ctx.user.id, rest);
+        if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "场景不存在或不可编辑（内置场景不能改）" });
+        return updated;
+      }),
+
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -1131,6 +1140,56 @@ export const appRouter = router({
         if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
         await activateScene(input.personaId, null);
         return { success: true };
+      }),
+
+    // 从人物画像 + 用户偏好记忆，生成一版「场景专属行为提示词」初稿，供用户在编辑器里改。
+    generateOverlayDraft: protectedProcedure
+      .input(z.object({ personaId: z.number(), sceneName: z.string().max(100).optional(), hint: z.string().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const persona = await getPersonaById(input.personaId, ctx.user.id);
+        if (!persona) throw new TRPCError({ code: "NOT_FOUND" });
+        const name = (persona as any).name ?? "对方";
+        const pd = (persona as any).personaData ?? {};
+        const ps = pd.profileSections ?? {};
+        const loveLanguage = ps.personality?.loveLanguage ?? pd.loveLanguage ?? "";
+        const feelingsForUser = ps.relationship?.feelingsForUser ?? "";
+        const boundaries = ps.relationship?.boundaries ?? "";
+        const nickname = ps.relationship?.nickname ?? pd.nickname ?? "";
+        const memories = await getActiveMemoriesByPersonaId(input.personaId, ctx.user.id);
+        const prefs = (memories as any[])
+          .filter((m) => m.memoryType === "preference" || m.memoryType === "user_fact")
+          .slice(0, 12)
+          .map((m) => `- ${m.title}：${m.description ?? ""}`);
+        const sceneLabel = input.sceneName?.trim() || "这个场景";
+        const sys = [
+          `你在帮用户给一个 AI 恋人角色「${name}」定制「场景模式专属行为指引」。`,
+          "基于下面的人物设定和用户偏好，写一段可直接当系统提示词用的指引：聚焦「在这个场景里、面对用户，该怎么对待、怎么主动、什么语气、什么分寸」。",
+          "要求：用第二人称「你」指代人物；只写行为/语气/态度，不复述人物固定设定；具体、可执行、贴合用户偏好；150–280 字；只返回这段指引本身，不要标题、不要解释、不要引号。",
+        ].join("\n");
+        const usr = [
+          `场景：${sceneLabel}`,
+          input.hint?.trim() ? `用户的额外要求：${input.hint.trim()}` : "",
+          "",
+          `人物：${name}`,
+          loveLanguage ? `爱的语言：${loveLanguage}` : "",
+          feelingsForUser ? `对用户的情感：${feelingsForUser}` : "",
+          boundaries ? `关系边界：${boundaries}` : "",
+          nickname ? `称呼对方：${nickname}` : "",
+          "",
+          "用户偏好记忆（用户希望人物怎么对待自己）：",
+          prefs.length ? prefs.join("\n") : "（暂无明确偏好记忆，按人物设定与一般亲密关系合理发挥）",
+          "",
+          `请据此写「${sceneLabel}」里的人物专属行为指引。`,
+        ].filter(Boolean).join("\n");
+        const response = await llmService.invoke({
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: usr },
+          ],
+          options: { purpose: "persona_analysis", userId: ctx.user.id, personaId: input.personaId, route: "scene.overlay_draft" },
+        });
+        const draft = (response ?? "").toString().trim().replace(/^[「"']+/, "").replace(/[」"']+$/, "").trim();
+        return { draft };
       }),
   }),
 
