@@ -1,4 +1,4 @@
-import { buildEffectiveLifeScheduleOverlay } from "./life-schedule";
+import { buildEffectiveLifeScheduleOverlay, getPersonaScheduleState } from "./life-schedule";
 import {
   BEIJING_DAY_PARTS,
   formatBeijingDateTime,
@@ -194,7 +194,7 @@ export function buildSystemPrompt(persona: any, sceneOrOptions?: string | null |
       longBackgroundMode: options.longBackgroundMode ?? "compact",
     }),
     options.innerState
-      ? buildInnerStateOverlay(options.innerState)
+      ? buildInnerStateOverlay(options.innerState, getPersonaScheduleState(now, getPersonaLifeConfig(p)))
       : `【当前情感状态】\n${getEmotionalStateDesc(persona.emotionalState)}`,
     options.sceneOverlay ? `【当前场景】\n${options.sceneOverlay}` : "",
     `【对话原则】\n- 用第一人称说话，回复像真实聊天消息，不要太长\n- 偶尔主动提起你们共同的回忆\n- 保持 ${name} 独特的语言风格\n- 如果原著/长篇背景设定里有相关信息，优先使用设定里的细节，让人物显得立体而连续`,

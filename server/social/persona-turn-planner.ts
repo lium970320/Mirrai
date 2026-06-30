@@ -232,15 +232,22 @@ export function planPersonaTurn(input: PersonaTurnPlanInput): PersonaTurnPlan {
   const intent = inferIntent(input);
   const memoryMode = inferMemoryMode(intent);
   const inferred = inferReplyLength(input, intent);
-  const replyLength = input.replyLengthOverride && inferred !== "silent"
+  // 作息约束：非沉浸态下，上班/睡前等克制时段把 medium 收成 short（用户明确要长的除外）。
+  const scheduleShrink = !input.immersiveMode
+    && (schedule.availability === "brief" || schedule.availability === "silent_unless_urgent")
+    && inferred === "medium"
+    && !wantsLongerReply(input.inputText)
+    && !wantsKeepGoing(input.inputText);
+  const baseLength: PersonaReplyLengthTarget = scheduleShrink ? "short" : inferred;
+  const replyLength = input.replyLengthOverride && baseLength !== "silent"
     ? input.replyLengthOverride
-    : inferred;
+    : baseLength;
   const outputMode = inferOutputMode(input, replyLength);
   const activity = runtime?.status === "drowsy_awake"
     ? `drowsy_awake/${schedule.label}`
     : `${schedule.stateId}/${schedule.label}`;
 
-  const replyLengthOverridden = !!(input.replyLengthOverride && inferred !== "silent" && replyLength !== inferred);
+  const replyLengthOverridden = !!(input.replyLengthOverride && baseLength !== "silent" && replyLength !== baseLength);
 
   return {
     platform: input.platform,

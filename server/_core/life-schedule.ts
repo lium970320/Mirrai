@@ -308,6 +308,7 @@ export function applyIncomingLifeState(
   personaData: unknown,
   text: string,
   now = new Date(),
+  immersiveMode = false,
 ): {
   suppress: boolean;
   reason?: string;
@@ -318,6 +319,11 @@ export function applyIncomingLifeState(
   const data = clonePersonaData(personaData);
   const state = getPersonaScheduleState(now, getPersonaLifeConfig(personaData));
   const activeRuntime = getActiveRuntimeLifeState(data, now);
+
+  // 场景/沉浸模式：用户已主动进入场景，睡眠时段也照常进行（场景时空豁免），不抑制回复。
+  if (immersiveMode && state.status === "asleep") {
+    return { suppress: false, state, personaData: data, changed: false };
+  }
 
   if (state.status !== "asleep") {
     if (getPersonaRuntimeState(data).runtimeLifeState) {
