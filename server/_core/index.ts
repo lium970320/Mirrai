@@ -12,6 +12,7 @@ import { startProactiveScheduler } from "../social/proactive-scheduler";
 import { startDailyMemoryScheduler } from "../social/daily-memory";
 import { startScheduledPhotos } from "../social/scheduled-photo";
 import { registerQqRoutes } from "../qq/routes";
+import { startQqHistorySync } from "../qq/history-sync";
 
 function assertSecureSessionSecretInProduction() {
   if (process.env.NODE_ENV !== "production") return;
@@ -70,6 +71,7 @@ async function startServer() {
   startProactiveScheduler();
   startDailyMemoryScheduler();
   startScheduledPhotos();
+  startQqHistorySync();
 }
 
 startServer().catch(error => {

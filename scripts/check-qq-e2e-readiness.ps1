@@ -171,7 +171,29 @@ if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
 $mirraiProcesses = Get-ProcessByRoot $runRootFull "^(node|cmd|powershell|pwsh)(\.exe)?$"
 $napCatProcesses = Get-ProcessByRoot $napCatRootFull "^(NapCatWinBootMain|QQ|node|python)(\.exe)?$"
 $mirraiWeb = Test-Web $mirraiUrl
-$oneBot = Test-HttpJson "$($BaseUrl.TrimEnd('/'))/get_login_info" $headers
+$oneBotStatus = Test-HttpJson "$($BaseUrl.TrimEnd('/'))/get_status" $headers
+$oneBotLogin = Test-HttpJson "$($BaseUrl.TrimEnd('/'))/get_login_info" $headers
+$oneBotFriends = Test-HttpJson "$($BaseUrl.TrimEnd('/'))/get_friend_list" $headers
+$oneBotOnline = $oneBotStatus.ok -and
+  ($oneBotStatus.response.status -eq "ok") -and
+  ($oneBotStatus.response.data.online -eq $true) -and
+  ($oneBotStatus.response.data.good -ne $false)
+$oneBotFriendCount = if ($oneBotFriends.ok -and $oneBotFriends.response.data) { @($oneBotFriends.response.data).Count } else { 0 }
+$oneBot = [pscustomobject]@{
+  ok = $oneBotOnline -and $oneBotLogin.ok -and $oneBotFriends.ok -and ($oneBotFriendCount -gt 0)
+  error = if (-not $oneBotStatus.ok) {
+    $oneBotStatus.error
+  } elseif (-not $oneBotOnline) {
+    "OneBot reports offline (online=$($oneBotStatus.response.data.online), good=$($oneBotStatus.response.data.good))"
+  } elseif (-not $oneBotFriends.ok) {
+    $oneBotFriends.error
+  } elseif ($oneBotFriendCount -le 0) {
+    "OneBot reports online but friend list is empty"
+  } else {
+    $oneBotLogin.error
+  }
+  response = $oneBotLogin.response
+}
 
 $envSummary = [ordered]@{
   exists = Test-Path -LiteralPath $envPath
@@ -216,6 +238,7 @@ $report = [pscustomobject]@{
     baseUrl = $BaseUrl
     error = $oneBot.error
     loggedInUser = if ($oneBot.response.data) { "$($oneBot.response.data.nickname) ($($oneBot.response.data.user_id))" } else { $null }
+    friendCount = $oneBotFriendCount
   }
   recentLogSignals = Read-RecentLogSignals $logRootFull $RecentLogLines
   nextSteps = if ($ready) {

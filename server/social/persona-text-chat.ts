@@ -1,5 +1,6 @@
 import { llmService } from "../llm";
 import { buildLlmTurnEconomyPolicy, getCurrentLlmEconomyPolicy } from "../llm/economy";
+import { ENV } from "../_core/env";
 import * as db from "../db";
 import { applyIncomingLifeState } from "../_core/life-schedule";
 import { buildCurrentUserIdentityOverride } from "../_core/current-user-identity";
@@ -7,7 +8,7 @@ import { withPersonaRuntimeDiagnostics, withPersonaRuntimeInnerState } from "../
 import { buildSystemPrompt } from "../_core/persona-utils";
 import { deriveEmotionalLabel, evolveInnerState, getEffectiveInnerState } from "../_core/persona-inner-state";
 import { getPersonaLifeConfig } from "../_core/persona-life-config";
-import { cleanAssistantReply } from "../_core/reply-utils";
+import { cleanAssistantReply, isRepetitiveReply } from "../_core/reply-utils";
 import { buildConversationContinuityInstruction } from "./conversation-continuity";
 import { buildPersonaMemoryRecallContext } from "./memory-recall";
 import { buildPersonaSourceRecallContext } from "./source-recall";
@@ -149,6 +150,7 @@ function catchphraseVariationInstruction(context: RecentConversationContext): st
   const lines = [
     "【口癖降频】不要把“你听好了”“听好了”作为常规开头；不要用“行了，别闹了，快睡/睡吧/早点睡”作为机械收尾。",
     "不要用“行了吧”“够真了”“够认真了”“够不够直接”这类阴阳怪气、自我评分或反问句收尾。",
+    "别靠套话标榜真诚：少用甚至不用“说句实的”“再说句实在的”“说句心里话”“不瞒你说”这类开场，不用“你心里知道就行”“你懂就行”这种自我了断收尾，也别动不动说“这些事没跟你说过”“只跟你一个人说”来表掏心——真诚靠讲具体的事、细节和感受体现，不是贴“我很真”的标签；这些话说多了反而显假、像背台词。",
     "本轮如果要表达认真、心疼、责备或深情，请换成更自然的说法，直接接用户当前内容。",
   ];
   if (recentlyUsedCatchphrase) {
@@ -205,6 +207,7 @@ function buildAffectionExpressionInstruction(text: string, context: RecentConver
     "本轮不要敷衍成一句“爱你/想你/我在”，也不要用“好了、睡吧、明天再说”把话题关掉。",
     "请把爱说具体：可以讲异地时怎样惦记敏子，想到武汉、课堂、夜里电话、南京所里的空房间或下班路时心里怎么动；也可以说为什么认定敏子、为什么放不下、愿意怎样认真等下去。",
     "保持他成熟低沉、笃定的味道——成年关系里可以浓烈、直接、露骨、带占有欲，不必收着；只是不要轻浮油腔，也不要写成被用户逼出来的证明。比普通寒暄更充分、更有重量、更敢说。",
+    "“有重量”靠讲具体的事、细节和真实感受，不是靠“说句实的”“说句心里话”“不瞒你说”开场、或“你心里知道就行”收尾、或“这些事没跟你说过”这种标榜——这些宣称真诚的套话说多了反而显假，别用，直接把真实的话说出来。",
     "如果用户明确要求“多说/长一点/表白/内心话”，文本回复可以 3-6 句；语音回复可以是一整段，不要压成五六秒。",
   ].join("\n");
 }
@@ -426,6 +429,10 @@ export async function handleSocialPersonaTextChatDetailed(
     userId: options.binding.userId,
     personaId: options.binding.personaId,
     route: platformRoute,
+    // 仅日常聊天注入重复/出现惩罚抑制复读；原著考据轮要稳定按证据答，不加惩罚以免遣词跑偏。
+    ...(sourceRecallActive
+      ? {}
+      : { frequencyPenalty: ENV.chatFrequencyPenalty, presencePenalty: ENV.chatPresencePenalty }),
   };
   const outputPreference = resolveRuntimeOutputPreference(options);
   const turnPlan = planPersonaTurn({
@@ -564,13 +571,58 @@ export async function handleSocialPersonaTextChatDetailed(
         : baseLlmOptions
     ),
   };
-  const response = await llmService.invoke({
+  let response = await llmService.invoke({
     messages: [
       { role: "system", content: systemPrompt },
       ...llmHistory,
     ],
     options: llmOptions,
   });
+  // 跨轮复读兜底（非原著考据、非沉浸场景）：若本轮与最近几条 assistant 回复高度雷同，
+  // 追加「严禁复读」指令重生成一次；二次仍重复就保留原文（不强行清空、不退化成「我在。」）。
+  // 沉浸场景的【】旁白允许氛围性重复、原著考据轮按证据答天然相似，故都跳过。
+  if (!sourceRecallContext && options.immersiveMode !== true) {
+    const priorAssistantTexts = history
+      .filter(m => m.role === "assistant")
+      .slice(-5)
+      .map(m => m.content);
+    const candidateForCheck = priorAssistantTexts.length > 0
+      ? cleanAssistantReply(parsePhotoIntent(response ?? "").cleanedText, "", { immersiveMode: false })
+      : "";
+    // 若本轮已被新消息取代（陈旧轮），不必再为它重生成、白跑一次 LLM——下游 after_llm 检查会丢弃它。
+    if (
+      candidateForCheck
+      && isRepetitiveReply(candidateForCheck, priorAssistantTexts)
+      && !shouldAbortPendingReply(options, persona.id, "after_llm")
+    ) {
+      console.warn(
+        `[Repetition] reply_repeat_detected persona=${persona.id} messageId=${userMessageId}; regenerating once`,
+      );
+      const antiRepeatLines = priorAssistantTexts
+        .slice(-3)
+        .map(t => `- ${Array.from(t.replace(/\s+/g, " ").trim()).slice(0, 60).join("")}`)
+        .join("\n");
+      const antiRepeatSystemPrompt = `${systemPrompt}\n\n【严禁复读·最高优先】你最近几轮已经说过下面这些话，本轮务必换一个全新的切入点、措辞和具体细节重新表达，绝不要原样或近义重复其中任何一句：\n${antiRepeatLines}`;
+      try {
+        const retry = await llmService.invoke({
+          messages: [
+            { role: "system", content: antiRepeatSystemPrompt },
+            ...llmHistory,
+          ],
+          options: llmOptions,
+        });
+        const retryForCheck = cleanAssistantReply(parsePhotoIntent(retry ?? "").cleanedText, "", { immersiveMode: false });
+        if (retryForCheck && !isRepetitiveReply(retryForCheck, priorAssistantTexts)) {
+          response = retry;
+        }
+      } catch (err) {
+        console.warn(
+          `[Repetition] regeneration_failed persona=${persona.id}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
   const lifeConfig = getPersonaLifeConfig(personaForPrompt.personaData);
   const sourceFallbackReply = sourceRecallContext
     ? sourceRecallFallbackReply(options.messageText, lifeConfig)

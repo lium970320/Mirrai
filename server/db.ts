@@ -1994,6 +1994,38 @@ export async function getQqBindingsByUserId(userId: number) {
   ));
 }
 
+export async function listActiveQqBindingContactIds() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ contactId: wechatBindings.wechatContactId })
+    .from(wechatBindings)
+    .where(and(eq(wechatBindings.isActive, true), qqBindingFilter()))
+    .orderBy(desc(wechatBindings.createdAt));
+
+  const seen = new Set<string>();
+  return rows
+    .map(row => row.contactId?.trim())
+    .filter((contactId): contactId is string => Boolean(contactId))
+    .filter((contactId) => {
+      if (seen.has(contactId)) return false;
+      seen.add(contactId);
+      return true;
+    });
+}
+
+export async function getLatestQqMessageCreatedAt(): Promise<Date | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.channel, "qq"))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  return rows[0]?.createdAt ?? null;
+}
+
 export async function getActiveQqBindingsByPersonaId(personaId: number, userId: number) {
   const db = await getDb();
   if (!db) return [];

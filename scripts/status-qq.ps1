@@ -67,10 +67,22 @@ try {
   if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
     $headers.Authorization = "Bearer $AccessToken"
   }
+  $status = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_status" -Headers $headers -TimeoutSec 5
+  if ($status.status -ne "ok" -or $status.data.online -ne $true -or $status.data.good -eq $false) {
+    Write-Host "OneBot: OFFLINE (online=$($status.data.online), good=$($status.data.good))"
+    exit 1
+  }
   $response = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_login_info" -Headers $headers -TimeoutSec 5
+  $friends = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_friend_list" -Headers $headers -TimeoutSec 8
+  $friendCount = @($friends.data).Count
+  if ($friends.status -ne "ok" -or $friendCount -le 0) {
+    Write-Host "OneBot: DEGRADED (friend list unavailable or empty)"
+    exit 1
+  }
   Write-Host "OneBot: OK"
   if ($response.data) {
     Write-Host "Logged in: $($response.data.nickname) ($($response.data.user_id))"
+    Write-Host "Friends : $friendCount"
   } else {
     $response | ConvertTo-Json -Depth 4 | Write-Host
   }

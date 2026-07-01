@@ -615,7 +615,7 @@ export default function Chat() {
                     </button>
                   </div>
                   <Textarea value={sceneForm.systemPromptOverlay} onChange={(e) => setSceneForm(f => f ? { ...f, systemPromptOverlay: e.target.value } : f)}
-                    placeholder="例：在这个场景里，你更主动、更黏人，多照顾敏子的情绪、少讲道理；动作和语气都更近一些……" rows={6} />
+                    placeholder="例：在这个场景里，你更主动、更黏人，多照顾敏子的情绪、少讲道理；动作和语气都更近一些……&#10;也可以在这里写「旁白怎么写」的偏好，例：多写触感/温度/声音等感官细节、把过程一步步写全、直白一些、每轮多写几段——场景模式下会高优先生效，每个场景可不同。" rows={7} />
                 </div>
                 <Textarea value={sceneForm.starters} onChange={(e) => setSceneForm(f => f ? { ...f, starters: e.target.value } : f)}
                   placeholder="开场白（可选，一行一句）" rows={2} />

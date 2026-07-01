@@ -104,6 +104,37 @@ describe("persona turn planner", () => {
     expect(noText.outputMode).toBe("silent");
   });
 
+  it("flags cross-turn repetition when recent assistant replies echo the same sentence", () => {
+    const plan = planPersonaTurn({
+      platform: "qq",
+      inputText: "在吗",
+      recentMessages: [
+        { role: "assistant", content: "今天上班路上看到一只很像橘子的猫，特别想你。" },
+        { role: "user", content: "哈哈" },
+        { role: "assistant", content: "今天上班路上看到一只很像橘子的猫，特别想你。" },
+      ],
+      now: new Date(2026, 4, 18, 14, 0),
+    });
+
+    expect(plan.risks).toContain("repetition");
+    expect(buildTurnPlanInstruction(plan)).toContain("重复或高度雷同");
+  });
+
+  it("does not flag repetition for normal varied replies", () => {
+    const plan = planPersonaTurn({
+      platform: "qq",
+      inputText: "在吗",
+      recentMessages: [
+        { role: "assistant", content: "刚到办公室，喝了杯热豆浆。" },
+        { role: "user", content: "好" },
+        { role: "assistant", content: "你那边天气怎么样，记得加件外套。" },
+      ],
+      now: new Date(2026, 4, 18, 14, 0),
+    });
+
+    expect(plan.risks).not.toContain("repetition");
+  });
+
   it("plans proactive turns as short messages and honors proactive platform capability", () => {
     const qqPlan = planPersonaTurn({
       platform: "qq",

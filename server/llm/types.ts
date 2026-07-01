@@ -10,6 +10,10 @@ export type LLMMessage = {
 export type LLMOptions = {
   maxTokens?: number;
   temperature?: number;
+  /** 重复惩罚：降低已出现 token 再现概率。OpenAI 兼容接口的 frequency_penalty。仅非 reasoner（thinking 关）分支生效。 */
+  frequencyPenalty?: number;
+  /** 出现惩罚：降低已出现话题再现概率。OpenAI 兼容接口的 presence_penalty。仅非 reasoner（thinking 关）分支生效。 */
+  presencePenalty?: number;
   provider?: string;
   purpose?: LLMPurpose;
   userId?: number;

@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   normalizeAudioForAsr: vi.fn(),
   transcribeWithZhipuAsr: vi.fn(),
   generateTTSFile: vi.fn(),
+  hasSeenQqMessage: vi.fn(),
+  markQqMessageSeen: vi.fn(),
   pendingBatches: [] as Promise<unknown>[],
 }));
 
@@ -57,6 +59,11 @@ vi.mock("./onebot-client", async () => {
 vi.mock("./persona-bridge", () => ({
   handleQqPersonaChatDetailed: mocks.handleQqPersonaChatDetailed,
   handleQqPersonaMediaChat: mocks.handleQqPersonaMediaChat,
+}));
+
+vi.mock("./message-dedupe", () => ({
+  hasSeenQqMessage: mocks.hasSeenQqMessage,
+  markQqMessageSeen: mocks.markQqMessageSeen,
 }));
 
 vi.mock("../voice/audio-normalizer", () => ({
@@ -170,6 +177,8 @@ describe("QQ OneBot event handling", () => {
     mocks.sendQqText.mockResolvedValue(true);
     mocks.sendQqRecordFile.mockResolvedValue(true);
     mocks.sendQqSticker.mockResolvedValue({ ok: false, status: "sticker_send_failed", reason: "test_disabled" });
+    mocks.hasSeenQqMessage.mockResolvedValue(false);
+    mocks.markQqMessageSeen.mockResolvedValue(undefined);
     mocks.handleQqPersonaChatDetailed.mockResolvedValue({
       replyText: "我在。",
       voiceRequestDecision: {
@@ -217,6 +226,24 @@ describe("QQ OneBot event handling", () => {
       }),
     );
     expect(mocks.sendQqText).toHaveBeenCalledWith("qq:private:12345", "我在。");
+  });
+
+  it("skips duplicate message ids before dispatching into the runtime", async () => {
+    mocks.hasSeenQqMessage.mockResolvedValue(true);
+
+    const result = await handleQqOneBotEvent({
+      post_type: "message",
+      message_type: "private",
+      user_id: 12345,
+      message_id: 1,
+      sender: { nickname: "敏子" },
+      message: [{ type: "text", data: { text: "你在吗" } }],
+    });
+
+    expect(result).toEqual({ handled: false, reason: "duplicate_message" });
+    expect(mocks.markQqMessageSeen).not.toHaveBeenCalled();
+    expect(mocks.handleQqPersonaChatDetailed).not.toHaveBeenCalled();
+    expect(mocks.sendQqText).not.toHaveBeenCalled();
   });
 
   it("skips group messages while group support is disabled", async () => {

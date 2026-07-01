@@ -194,12 +194,35 @@ function recentAssistantRepeatedSleep(recentMessages: ConversationMessage[] | un
   return /睡|休息|熬夜|明天|躺|困/.test(recentAssistant);
 }
 
+// 不限话题的整句跨条复读探测：归一化后某个长句（≥6 字）在最近多条 assistant 回复里出现 ≥2 次即判重。
+// 与 recentAssistantRepeatedSleep（只锁催睡关键词）互补，覆盖陈述/情话/整段的机械复读。
+function recentAssistantHasHeavyRepeat(recentMessages: ConversationMessage[] | undefined): boolean {
+  const texts = (recentMessages ?? [])
+    .filter(message => message.role === "assistant")
+    .slice(-4)
+    .map(message => (message.content ?? "").trim())
+    .filter(Boolean);
+  if (texts.length < 2) return false;
+  const normalize = (value: string) =>
+    value.replace(/[\s，。！？、,.!?…；;：:~～“”‘’"'「」『』（）()【】*]+/g, "").toLowerCase();
+  const sentenceCounts = new Map<string, number>();
+  for (const text of texts) {
+    const sentences = Array.from(new Set(
+      text.split(/[。！？\n!?…；;]+/).map(normalize).filter(sentence => sentence.length >= 6),
+    ));
+    for (const sentence of sentences) {
+      sentenceCounts.set(sentence, (sentenceCounts.get(sentence) ?? 0) + 1);
+    }
+  }
+  return Array.from(sentenceCounts.values()).some(count => count >= 2);
+}
+
 function inferRisks(input: PersonaTurnPlanInput, intent: PersonaTurnIntent): PersonaTurnRisk[] {
   const risks = new Set<PersonaTurnRisk>();
   if (intent === "source_recall" || intent === "correction") risks.add("source_hallucination");
   if (intent === "source_recall" || intent === "correction") risks.add("memory_contamination");
   if ((input.batchMessageCount ?? 1) > 1) risks.add("context_fragmentation");
-  if (recentAssistantRepeatedSleep(input.recentMessages)) risks.add("repetition");
+  if (recentAssistantRepeatedSleep(input.recentMessages) || recentAssistantHasHeavyRepeat(input.recentMessages)) risks.add("repetition");
   const schedule = getPersonaScheduleState(input.now, getPersonaLifeConfig(input.personaData));
   if (schedule.status === "asleep") risks.add("sleep_state_conflict");
   if (compactLength(input.inputText) <= 8 && intent === "daily_chat") risks.add("over_reply");
@@ -281,7 +304,7 @@ function riskInstruction(risks: PersonaTurnRisk[]): string {
       case "persona_drift":
         return "存在人物偏离风险：表达可以更有内心，但语气、价值观、亲密边界和说话方式必须仍然像这个人物。";
       case "repetition":
-        return "存在重复催睡/重复关心风险：如果最近已经问过吃饭、睡觉、到家，就不要再机械重复。";
+        return "存在重复风险：最近几条回复里出现了重复或高度雷同的句子/段落（不只是反复问吃饭、睡觉、到家，也包括重复的陈述、解释、情话和开场白）。本轮必须换一个角度和全新措辞，不要再复述已经说过的句子，也不要套用相同的句式模板。";
       case "memory_contamination":
         return "存在记忆污染风险：不要把小说资料、猜测、用户玩笑或不确定回忆直接当成共同经历。";
       case "relationship_boundary":
@@ -309,6 +332,7 @@ export function buildTurnPlanInstruction(plan: PersonaTurnPlan): string {
         : "要给出具体内心：为什么放不下、异地时怎样想起对方、哪些日常细节让你心软、你愿意怎样认真对待这段关系。",
       "表达要符合王芃泽：成熟、低声、笃定、真诚，有生活细节和分量；成年关系里可以浓烈、直接、露骨、带占有欲，不必收着，只是别轻浮油腔、别写成被逼证明的语气。",
       "不要用“行了吧”“够真了”“够认真了”“够不够直接”这类阴阳怪气、自我评分或反问句收尾。",
+      "真诚和分量靠具体的事、细节、感受体现，别靠套话宣称：别用“说句实的”“再说句实在的”“说句心里话”“不瞒你说”开场，别用“你心里知道就行”“你懂就行”收尾，也别动辄“这些事没跟你说过”“只跟你说”——这类标榜掏心的话说多了显假、像背台词，去掉。",
       "除非用户明确说困了/晚安/要结束对话，不要用“好了”“睡吧”“明天再说”“明天给你发”来收尾。",
     ].join("\n")
     : "";

@@ -394,12 +394,13 @@ export function buildLlmTurnEconomyPolicy(
     });
   } else if (highFrequencySocialRoute && lowValueChatIntent) {
     profile = "high_frequency_chat";
-    reasons.push("QQ / 微信日常短聊属于高频入口，默认压低长期记忆和原著召回体量。");
+    reasons.push("QQ / 微信日常短聊属于高频入口，压低长期记忆和原著召回体量；但保留足够的对话历史窗口，让人物能看见自己几轮前说过的话、避免复读。");
     nextContext = capContext(nextContext, {
-      historyFetchLimit: 12,
-      llmHistoryLimit: 8,
-      continuityRecentLimit: 6,
-      continuityTimelineLimit: 4,
+      // 省的是“记忆/原著召回体量”，不是“对话历史”——历史砍太短模型看不见自己说过什么，必复读。
+      historyFetchLimit: 20,
+      llmHistoryLimit: 14,
+      continuityRecentLimit: 10,
+      continuityTimelineLimit: 8,
       reflectionRecentLimit: 5,
       recallRecentLimit: 4,
       consolidationRecentLimit: 6,

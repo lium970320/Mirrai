@@ -17,7 +17,7 @@ import {
   withPersonaRuntimeDiagnostics,
   withProactiveMessageRuntime,
 } from "../_core/persona-runtime";
-import { cleanAssistantReply } from "../_core/reply-utils";
+import { cleanAssistantReply, isRepetitiveReply } from "../_core/reply-utils";
 import {
   resolveProactivePreferredTarget,
   sendProactiveMessageToPreferredPlatform,
@@ -156,14 +156,35 @@ function tooSoon(lastIso: string | undefined, minIntervalMs: number, now: Date) 
   return now.getTime() - last < minIntervalMs;
 }
 
+// 兜底句池 + 轮转游标：LLM 失败回退时不要每次都发同一句固定话，按游标错开避免连发重复。
+let ambientFallbackCursor = 0;
+const AMBIENT_FALLBACK_POOL: Record<"lateNight" | "evening" | "default", string[]> = {
+  lateNight: [
+    "夜深了，我没想打扰你，只是忽然想到你。早点睡，别一个人胡思乱想。",
+    "这会儿夜静，脑子里又转到你身上了。困了就睡，别硬撑。",
+    "睡前突然惦记你一下。别熬太晚，盖好被子。",
+  ],
+  evening: [
+    "刚把今天的事收了收，忽然想问你累不累。晚饭要好好吃。",
+    "傍晚总算闲下来，第一件事就是想起你。今天还顺吗。",
+    "忙完这阵子，心里头就冒出你。别又忘了吃饭。",
+  ],
+  default: [
+    "刚忙完手边的事，短短地想起你一下。记得吃饭，别一忙就忘了照顾自己。",
+    "手头刚空下来，脑子一晃就是你。别太累着自己。",
+    "中间歇了口气，顺手想问问你这会儿在做什么。",
+  ],
+};
+
 function fallbackMessage(period: AmbientPeriod) {
-  if (period === "lateNight") {
-    return "夜深了，我没想打扰你，只是忽然想到你。早点睡，别一个人胡思乱想。";
-  }
-  if (period === "evening") {
-    return "刚把今天的事收了收，忽然想问你累不累。晚饭要好好吃。";
-  }
-  return "刚忙完手边的事，短短地想起你一下。记得吃饭，别一忙就忘了照顾自己。";
+  const pool = period === "lateNight"
+    ? AMBIENT_FALLBACK_POOL.lateNight
+    : period === "evening"
+      ? AMBIENT_FALLBACK_POOL.evening
+      : AMBIENT_FALLBACK_POOL.default;
+  const message = pool[ambientFallbackCursor % pool.length];
+  ambientFallbackCursor += 1;
+  return message;
 }
 
 export type AmbientProactiveMessageResult = {
@@ -256,8 +277,16 @@ export async function generateAmbientMessageDetailed(
     },
   });
 
+  // 主动消息复读兜底：生成内容为空、或与最近几条 assistant 回复高度雷同时，改用错开的兜底句池，避免反复发同样的话。
+  // fallbackMessage 仅在真正需要兜底时调用一次（游标只在使用时前进），happy path 不空转游标。
+  const priorAssistant = history.filter(message => message.role === "assistant").slice(-5).map(message => message.content);
+  const cleaned = cleanAssistantReply(response, "");
+  const replyText = (!cleaned || (priorAssistant.length > 0 && isRepetitiveReply(cleaned, priorAssistant)))
+    ? fallbackMessage(period)
+    : cleaned;
+
   return {
-    replyText: cleanAssistantReply(response, fallbackMessage(period)),
+    replyText,
     runtimePlan,
     inputText,
     followUpId: followUp?.id ?? null,
