@@ -118,8 +118,10 @@ describe("LLM economy policy", () => {
     expect(policy.level).toBe("off");
     expect(policy.recallDegradation.profile).toBe("high_frequency_chat");
     expect(policy.context).toMatchObject({
-      historyFetchLimit: 12,
-      llmHistoryLimit: 8,
+      historyFetchLimit: 20,
+      llmHistoryLimit: 14,
+      continuityRecentLimit: 10,
+      continuityTimelineLimit: 8,
       recallRecentLimit: 4,
     });
     expect(policy.memoryRecall).toEqual({ maxMemories: 2, maxDescriptionChars: 140 });
@@ -130,8 +132,8 @@ describe("LLM economy policy", () => {
         profile: "high_frequency_chat",
       },
       context: {
-        historyFetchLimit: 12,
-        llmHistoryLimit: 8,
+        historyFetchLimit: 20,
+        llmHistoryLimit: 14,
       },
       sourceRecall: {
         maxChunks: 2,

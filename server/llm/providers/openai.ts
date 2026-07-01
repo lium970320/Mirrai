@@ -59,6 +59,14 @@ export class OpenAIProvider implements LLMProvider {
       body.temperature = options?.temperature ?? 0.7;
     }
 
+    // 重复/出现惩罚只在非 reasoner 分支注入：thinking 开启时模型走推理路径，
+    // 这些参数可能被拒（400）或无意义，故仅在 thinking 关闭或未设 thinking 时随 temperature 一起发。
+    const usesSamplingControls = !this.requestOptions.thinking || this.requestOptions.thinking === "disabled";
+    if (usesSamplingControls) {
+      if (typeof options?.frequencyPenalty === "number") body.frequency_penalty = options.frequencyPenalty;
+      if (typeof options?.presencePenalty === "number") body.presence_penalty = options.presencePenalty;
+    }
+
     const response = await fetch(url, {
       method: "POST",
       headers: {

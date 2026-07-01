@@ -17,6 +17,22 @@ export type QqRecordFileInfo = {
   base64?: string;
 };
 
+export type QqFriendHistoryMessage = {
+  message_id?: number | string;
+  time?: number;
+  message_type?: string;
+  sub_type?: string;
+  self_id?: number | string;
+  user_id?: number | string;
+  sender?: {
+    user_id?: number | string;
+    nickname?: string;
+    card?: string;
+  };
+  message?: string | Array<{ type: string; data?: Record<string, unknown> }>;
+  raw_message?: string;
+};
+
 type OneBotResponse<T = unknown> = {
   status?: string;
   retcode?: number;
@@ -26,6 +42,8 @@ type OneBotResponse<T = unknown> = {
 };
 
 let lastError: string | null = null;
+const QQ_TEXT_SEND_MAX_ATTEMPTS = 2;
+const QQ_TEXT_SEND_RETRY_DELAY_MS = 800;
 
 function baseUrl(): string {
   return ENV.qqOnebotBaseUrl.replace(/\/+$/, "");
@@ -44,6 +62,29 @@ function onebotHeaders(): Record<string, string> {
 function toOnebotId(id: string): number | string {
   const parsed = Number(id);
   return Number.isSafeInteger(parsed) ? parsed : id;
+}
+
+function isTransientOnebotSendError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|fetch failed|econnreset|econnrefused|socket|network|aborted/i.test(message);
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function sendTextAction(target: ParsedQqContactId, text: string): Promise<void> {
+  if (target.kind === "private") {
+    await onebotAction("send_private_msg", {
+      user_id: toOnebotId(target.id),
+      message: text,
+    });
+    return;
+  }
+  await onebotAction("send_group_msg", {
+    group_id: toOnebotId(target.id),
+    message: text,
+  });
 }
 
 export function parseQqContactId(contactId: string): ParsedQqContactId | null {
@@ -81,26 +122,28 @@ export async function sendQqText(contactId: string, text: string): Promise<boole
     return false;
   }
 
-  try {
-    if (parsed.kind === "private") {
-      await onebotAction("send_private_msg", {
-        user_id: toOnebotId(parsed.id),
-        message: text,
-      });
-    } else {
-      await onebotAction("send_group_msg", {
-        group_id: toOnebotId(parsed.id),
-        message: text,
-      });
+  for (let attempt = 1; attempt <= QQ_TEXT_SEND_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await sendTextAction(parsed, text);
+      const retry = attempt > 1 ? " retry=1" : "";
+      console.info(`[QQ] Sent text contact=${contactId} chars=${Array.from(text).length}${retry}`);
+      lastError = null;
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const shouldRetry = attempt < QQ_TEXT_SEND_MAX_ATTEMPTS && isTransientOnebotSendError(err);
+      if (shouldRetry) {
+        console.warn(`[QQ] Transient text send failure contact=${contactId}; retrying once:`, message);
+        await wait(QQ_TEXT_SEND_RETRY_DELAY_MS);
+        continue;
+      }
+      lastError = message;
+      console.warn(`[QQ] Failed to send text contact=${contactId}:`, lastError);
+      return false;
     }
-    console.info(`[QQ] Sent text contact=${contactId} chars=${Array.from(text).length}`);
-    lastError = null;
-    return true;
-  } catch (err) {
-    lastError = err instanceof Error ? err.message : String(err);
-    console.warn(`[QQ] Failed to send text contact=${contactId}:`, lastError);
-    return false;
   }
+
+  return false;
 }
 
 export async function sendQqRecordFile(contactId: string, filePath: string): Promise<boolean> {
@@ -207,6 +250,52 @@ export async function getQqRecordFile(
   }
 }
 
+export async function getQqLoginInfo(): Promise<{ user_id?: number | string; nickname?: string } | null> {
+  try {
+    const loginInfo = await onebotAction<{ user_id?: number | string; nickname?: string }>("get_login_info");
+    lastError = null;
+    return loginInfo ?? null;
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+    console.warn("[QQ] Failed to get login info:", lastError);
+    return null;
+  }
+}
+
+export async function getQqFriendList(): Promise<Array<{ user_id?: number | string; nickname?: string; remark?: string }> | null> {
+  try {
+    const friends = await onebotAction<Array<{ user_id?: number | string; nickname?: string; remark?: string }>>("get_friend_list");
+    lastError = null;
+    return Array.isArray(friends) ? friends : [];
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+    console.warn("[QQ] Failed to get friend list:", lastError);
+    return null;
+  }
+}
+
+export async function getQqFriendMessageHistory(
+  userId: string | number,
+  count = 20,
+): Promise<QqFriendHistoryMessage[] | null> {
+  try {
+    const data = await onebotAction<{ messages?: QqFriendHistoryMessage[] } | QqFriendHistoryMessage[]>(
+      "get_friend_msg_history",
+      {
+        user_id: toOnebotId(String(userId)),
+        count,
+      },
+    );
+    const messages = Array.isArray(data) ? data : Array.isArray(data?.messages) ? data.messages : [];
+    lastError = null;
+    return messages;
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+    console.warn(`[QQ] Failed to get friend history user=${userId}:`, lastError);
+    return null;
+  }
+}
+
 export async function getQqBotStatus() {
   if (!ENV.qqEnabled) {
     return {
@@ -220,7 +309,18 @@ export async function getQqBotStatus() {
   }
 
   try {
+    const status = await onebotAction<{ online?: boolean; good?: boolean }>("get_status");
+    if (status?.online !== true || status?.good === false) {
+      throw new Error(`OneBot reports offline (online=${status?.online ?? "unknown"}, good=${status?.good ?? "unknown"})`);
+    }
     const loginInfo = await onebotAction<{ user_id?: number | string; nickname?: string }>("get_login_info");
+    const friends = await getQqFriendList();
+    if (friends === null) {
+      throw new Error(`OneBot friend list check failed (${lastError ?? "unknown error"})`);
+    }
+    if (friends && friends.length === 0) {
+      throw new Error("OneBot reports online but friend list is empty");
+    }
     lastError = null;
     return {
       enabled: true,

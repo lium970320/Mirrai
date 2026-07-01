@@ -36,6 +36,9 @@ export const ENV = {
   deepseekProModel: firstNonEmpty(process.env.DEEPSEEK_PRO_MODEL) || "deepseek-v4-pro",
   deepseekThinking: firstNonEmpty(process.env.DEEPSEEK_THINKING) || "enabled",
   deepseekReasoningEffort: firstNonEmpty(process.env.DEEPSEEK_REASONING_EFFORT) || "high",
+  // 主聊天（chat purpose、走 Flash/非 reasoner）默认的重复/出现惩罚，抑制复读；可经 .env 调参或回滚为 0。
+  chatFrequencyPenalty: envFloat("CHAT_FREQUENCY_PENALTY", 0.4),
+  chatPresencePenalty: envFloat("CHAT_PRESENCE_PENALTY", 0.3),
 
   kimiApiKey: process.env.KIMI_API_KEY ?? "",
   kimiBaseUrl: process.env.KIMI_BASE_URL ?? "https://api.moonshot.cn/v1",
@@ -83,6 +86,11 @@ export const ENV = {
   qqAllowGroups: process.env.QQ_ALLOW_GROUPS === "true",
   qqAutoBindSingleReadyPersona:
     process.env.QQ_AUTO_BIND_SINGLE_READY_PERSONA !== "false",
+  qqHistorySyncEnabled: process.env.QQ_HISTORY_SYNC_ENABLED !== "false",
+  qqHistorySyncContacts: firstNonEmpty(process.env.QQ_HISTORY_SYNC_CONTACTS),
+  qqHistorySyncIntervalSeconds: envInt("QQ_HISTORY_SYNC_INTERVAL_SECONDS", 60),
+  qqHistorySyncHistoryCount: envInt("QQ_HISTORY_SYNC_HISTORY_COUNT", 20),
+  qqHistorySyncMaxBackfillPerContact: envInt("QQ_HISTORY_SYNC_MAX_BACKFILL_PER_CONTACT", 6),
   qqVoiceReplyEnabled: process.env.QQ_VOICE_REPLY_ENABLED !== "false",
   qqVoiceReplyMode: firstNonEmpty(process.env.QQ_VOICE_REPLY_MODE) || "sometimes",
   qqVoiceReplyProbability: envFloat("QQ_VOICE_REPLY_PROBABILITY", 0.25),

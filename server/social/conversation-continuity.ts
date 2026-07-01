@@ -84,6 +84,7 @@ export function buildConversationContinuityInstruction(
     lines.push("如果你上一条问过一个具体问题而用户还没回答，可以自然接一句，但不要重新问一个相似的新问题，也不要装作没问过。");
   } else {
     lines.push("用户回消息时，先判断他是在回答前面哪句话；短句、表情、图片都可能是在接上一轮，不要孤立理解。");
+    lines.push("除了别重复问句，也不要原样或近义重复你最近几轮已经说过的整句或整段——包括陈述、解释、情话、开场白。同一个意思，本轮务必换一个角度、换具体细节、换说法来讲；实在没有新内容，宁可说短一点，也不要把说过的话再发一遍。");
   }
 
   if (mode === "reply" && unansweredUsers.length > 1) {
@@ -102,6 +103,16 @@ export function buildConversationContinuityInstruction(
   if (lastAssistant && lastUser && lastUser !== last) {
     lines.push(`最近用户曾说：${compact(lastUser.content, 120)}`);
     lines.push(`你最近曾回：${compact(lastAssistant.content, 120)}`);
+  }
+
+  if (mode === "reply") {
+    const recentAssistantLines = recent
+      .filter(message => message.role === "assistant")
+      .slice(-3)
+      .map(message => compact(message.content, 80));
+    if (recentAssistantLines.length > 0) {
+      lines.push(`你最近几条已经说过的话（本轮别再原样或近义复述这些句子，要换新的说法和内容）：\n${recentAssistantLines.map(text => `· ${text}`).join("\n")}`);
+    }
   }
 
   if (timeline) {

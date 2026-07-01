@@ -1,9 +1,10 @@
-param(
+﻿param(
   [string]$RunRoot = "F:\Code\Mirrai",
   [string]$NapCatRoot = "F:\.mirrai-local\Mirrai\tools\napcat\onekey-v4.18.1",
   [string]$BaseUrl,
   [string]$AccessToken,
   [string]$QuickLoginUin,
+  [string]$QqPasswordMd5File = "F:\.mirrai-local\Mirrai\secrets\qq-login-password-md5.dpapi",
   [string]$LogDir = "F:\.mirrai-local\Mirrai\logs",
   [int]$WebUiPort = 6099,
   [int]$WaitSeconds = 60,
@@ -36,6 +37,7 @@ function Read-DotEnvValue([string]$Path, [string]$Name) {
 
 $runRootFull = Resolve-FullPath $RunRoot
 $napCatRootFull = Resolve-FullPath $NapCatRoot
+$qqPasswordMd5FileFull = Resolve-FullPath $QqPasswordMd5File
 $logDirFull = Resolve-FullPath $LogDir
 $envPath = Join-Path $runRootFull ".env"
 
@@ -55,6 +57,39 @@ if ([string]::IsNullOrWhiteSpace($QuickLoginUin)) {
   $QuickLoginUin = Read-DotEnvValue $envPath "QQ_BOT_UIN"
 }
 
+function Convert-SecureStringToPlainText([securestring]$SecureString) {
+  if ($null -eq $SecureString) {
+    return $null
+  }
+
+  $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+  try {
+    return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+  } finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+  }
+}
+
+function Read-SavedQqPasswordMd5 {
+  if (-not (Test-Path -LiteralPath $qqPasswordMd5FileFull)) {
+    return $null
+  }
+
+  try {
+    $encrypted = (Get-Content -LiteralPath $qqPasswordMd5FileFull -Raw -Encoding UTF8).Trim([char]0xFEFF).Trim()
+    $secure = $encrypted | ConvertTo-SecureString
+    $plain = Convert-SecureStringToPlainText $secure
+    if ($plain -match "^[a-fA-F0-9]{32}$") {
+      return $plain.ToLowerInvariant()
+    }
+    Write-Warning "Saved QQ password MD5 file is invalid; ignoring it."
+  } catch {
+    Write-Warning "Failed to read saved QQ password fallback: $($_.Exception.Message)"
+  }
+
+  return $null
+}
+
 function Get-NapCatProcess {
   $napCatPattern = [regex]::Escape($napCatRootFull)
   Get-CimInstance Win32_Process |
@@ -72,7 +107,16 @@ function Test-OneBot {
     if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
       $headers.Authorization = "Bearer $AccessToken"
     }
+    $status = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_status" -Headers $headers -TimeoutSec 5
+    if ($status.status -ne "ok" -or $status.data.online -ne $true -or $status.data.good -eq $false) {
+      throw "OneBot reports offline (online=$($status.data.online), good=$($status.data.good))"
+    }
     $response = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_login_info" -Headers $headers -TimeoutSec 5
+    $friends = Invoke-RestMethod -Uri "$($BaseUrl.TrimEnd('/'))/get_friend_list" -Headers $headers -TimeoutSec 8
+    $friendCount = @($friends.data).Count
+    if ($friends.status -ne "ok" -or $friendCount -le 0) {
+      throw "OneBot online but friend list is unavailable or empty"
+    }
     return [pscustomobject]@{
       Ok = $true
       Response = $response
@@ -284,6 +328,12 @@ function Start-NapCatLauncherUtf8([string]$Launcher, [string]$QuickLogin) {
     $launchCommand
   ) -join " && "
 
+  $savedPasswordMd5 = Read-SavedQqPasswordMd5
+  $previousPasswordMd5 = $env:NAPCAT_QUICK_PASSWORD_MD5
+  if (-not [string]::IsNullOrWhiteSpace($savedPasswordMd5)) {
+    $env:NAPCAT_QUICK_PASSWORD_MD5 = $savedPasswordMd5
+  }
+
   $startArgs = @{
     FilePath = "cmd.exe"
     ArgumentList = @("/d", "/c", $command)
@@ -297,13 +347,24 @@ function Start-NapCatLauncherUtf8([string]$Launcher, [string]$QuickLogin) {
     $startArgs.WindowStyle = "Hidden"
   }
 
-  Start-Process @startArgs
+  try {
+    $process = Start-Process @startArgs
+  } finally {
+    if ($null -eq $previousPasswordMd5) {
+      Remove-Item Env:\NAPCAT_QUICK_PASSWORD_MD5 -ErrorAction SilentlyContinue
+    } else {
+      $env:NAPCAT_QUICK_PASSWORD_MD5 = $previousPasswordMd5
+    }
+  }
+
+  return $process
 }
 
 Write-Host "QQ/NapCat startup"
 Write-Host "Run root   : $runRootFull"
 Write-Host "NapCat root: $napCatRootFull"
 Write-Host "OneBot URL : $BaseUrl"
+Write-Host "Password fallback: $(if (Test-Path -LiteralPath $qqPasswordMd5FileFull) { 'configured' } else { 'not configured' })"
 Write-Host "Log dir    : $logDirFull"
 
 if (-not (Test-Path -LiteralPath $napCatRootFull)) {
@@ -315,11 +376,37 @@ if ($Restart) {
   $existingForRestart = @(Get-NapCatProcess)
   if ($existingForRestart.Count -gt 0) {
     Write-Host ""
-    Write-Host ">>> Restart requested; stopping NapCat-managed QQ processes only..."
-    foreach ($process in ($existingForRestart | Sort-Object ProcessId -Descending)) {
-      Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    Write-Host ">>> Restart requested; gracefully stopping NapCat-managed QQ processes..."
+    $pids = @($existingForRestart | Sort-Object ProcessId -Descending | ForEach-Object { $_.ProcessId })
+    foreach ($procId in $pids) {
+      try {
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if ($proc -and -not $proc.HasExited) {
+          [void]$proc.CloseMainWindow()
+        }
+      } catch {}
     }
-    Start-Sleep -Seconds 3
+    $gracefulDeadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $gracefulDeadline) {
+      $stillRunning = @($pids | Where-Object {
+        try { $p = Get-Process -Id $_ -ErrorAction Stop; -not $p.HasExited } catch { $false }
+      })
+      if ($stillRunning.Count -eq 0) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    $remaining = @($pids | Where-Object {
+      try { $p = Get-Process -Id $_ -ErrorAction Stop; -not $p.HasExited } catch { $false }
+    })
+    if ($remaining.Count -gt 0) {
+      Write-Host ">>> Graceful stop timed out; force-killing $($remaining.Count) remaining process(es)..."
+      foreach ($procId in $remaining) {
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+      }
+      Start-Sleep -Seconds 3
+    } else {
+      Write-Host ">>> NapCat processes exited gracefully."
+      Start-Sleep -Seconds 1
+    }
   }
 }
 
@@ -354,7 +441,7 @@ if ($existing.Count -gt 0) {
   Write-Host "Started NapCat launcher process: $($process.Id)"
 }
 
-Write-Host "Waiting for $($BaseUrl.TrimEnd('/'))/get_login_info ..."
+Write-Host "Waiting for OneBot online status and login info at $($BaseUrl.TrimEnd('/')) ..."
 $firstWaitSeconds = [Math]::Min([Math]::Max($WaitSeconds, 1), 10)
 $ready = Wait-OneBot $firstWaitSeconds
 if ($ready.Ok) {

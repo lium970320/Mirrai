@@ -28,9 +28,14 @@ const FORCED_DIRECTNESS_TAIL_SENTENCE_PATTERNS = [
   /^你要是还嫌/,
   /^这样(?:够|还不够)/,
   /^行了吧$/,
+  // 标榜真诚的自我了断尾巴："你心里知道就行""你懂就行"——说多了显假，清掉
+  /^你(?:心里)?(?:知道|清楚|懂|有数|明白)(?:就行|就好|就成|就够了?)?$/,
 ];
 const OVERUSED_LEADING_CATCHPHRASE_PATTERN =
   /^(?:你听好了|听好了)[，,。.!！：:\s]*/;
+// 标榜真诚的开场套话："再说句实的""说句心里话""不瞒你说"——说多了显假，清掉（保守：要求其后带标点/空白，避免误删正文）
+const OVERUSED_SINCERITY_LEADING_PATTERN =
+  /^(?:再?说句?(?:实在?的话?|实的话?|实话|心里话|掏心(?:窝)?的?话?)|不瞒你说|说点实在的话?|实话(?:跟你)?说|跟你交个?底|说真的)[，,。.!！：:、\s]+/;
 const OVERUSED_SLEEP_CLOSURE_TAIL_SENTENCE_PATTERNS = [
   /^(?:行了[，,、\s]*)?(?:别闹了?|不闹了)[，,、\s]*(?:快|早点|早些|赶紧)?睡(?:吧|了)?$/,
   /^行了[，,、\s]*(?:不早了[，,、\s]*)?(?:快|早点|早些|赶紧)?睡(?:吧|了)?$/,
@@ -213,9 +218,17 @@ function stripForcedDirectnessTail(text: string): string {
 }
 
 function stripOverusedLeadingCatchphrase(text: string): string {
-  const compact = text.trimStart();
-  const stripped = compact.replace(OVERUSED_LEADING_CATCHPHRASE_PATTERN, "").trimStart();
-  return stripped || compact;
+  let result = text.trimStart();
+  // 循环：可能叠用多个开场套话（如「再说句实的，不瞒你说，……」）
+  for (let i = 0; i < 4; i++) {
+    const next = result
+      .replace(OVERUSED_LEADING_CATCHPHRASE_PATTERN, "")
+      .replace(OVERUSED_SINCERITY_LEADING_PATTERN, "")
+      .trimStart();
+    if (next === result) break;
+    result = next;
+  }
+  return result || text.trimStart();
 }
 
 function stripOverusedSleepClosureTail(text: string): string {
@@ -522,4 +535,101 @@ export function splitImmersiveReplyForChat(text: string | null | undefined): str
   const clean = chunks.filter(Boolean);
   if (clean.length <= 40) return clean;
   return [...clean.slice(0, 39), clean.slice(39).join("\n")];
+}
+
+// ===== 跨轮重复检测（防复读兜底）=====
+// cleanAssistantReply 只删硬编码口癖、不比对历史；这里补一层确定性的「这句我几轮前说过」检测，
+// 用于发送前判断本轮回复是否与最近若干条 assistant 回复高度雷同。判定与具体禁词无关，是「类别兜底」。
+
+// 归一化：去标点/空白/装饰引号/括号/星号、统一小写，便于识别「只差标点」的复读。
+function normalizeForRepeatCompare(text: string): string {
+  return text
+    .replace(/[\s，。！？、,.!?…；;：:~～“”‘’"'「」『』（）()【】\[\]*—\-]+/g, "")
+    .toLowerCase();
+}
+
+function charBigrams(text: string): Set<string> {
+  const grams = new Set<string>();
+  if (text.length <= 1) {
+    if (text) grams.add(text);
+    return grams;
+  }
+  for (let i = 0; i < text.length - 1; i += 1) {
+    grams.add(text.slice(i, i + 2));
+  }
+  return grams;
+}
+
+function bigramJaccard(a: string, b: string): number {
+  const ga = charBigrams(a);
+  const gb = charBigrams(b);
+  if (ga.size === 0 || gb.size === 0) return 0;
+  let inter = 0;
+  for (const g of Array.from(ga)) {
+    if (gb.has(g)) inter += 1;
+  }
+  return inter / (ga.size + gb.size - inter);
+}
+
+/** 把一段回复切成可比对的「长句」集合：归一化后达到 minLen 才算，短句/语气词不参与去重。 */
+export function comparableSentences(text: string, minLen = 8): string[] {
+  const sentences = text.match(SENTENCE_PATTERN)?.map(s => normalizeForRepeatCompare(s)).filter(Boolean) ?? [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const sentence of sentences) {
+    if (sentence.length >= minLen && !seen.has(sentence)) {
+      seen.add(sentence);
+      result.push(sentence);
+    }
+  }
+  return result;
+}
+
+export type RepetitionCheckOptions = {
+  /** 整体相似度阈值（字符 bigram Jaccard）。默认 0.82。 */
+  wholeThreshold?: number;
+  /** 单句相似度阈值。默认 0.9。 */
+  sentenceThreshold?: number;
+  /** 归一化后短于此长度的回复整体不判重（语气词/简短确认豁免）。默认 8。 */
+  minLength?: number;
+};
+
+/**
+ * 判断 candidate 是否与最近若干条 assistant 回复高度雷同（跨轮复读）。命中三选一：
+ * ①整体归一化完全相同；②整体 bigram Jaccard ≥ wholeThreshold；③候选里某长句与历史某长句几乎相同。
+ * 短回复（归一化后 < minLength）一律豁免，避免误杀「嗯 / 好 / 我在 / 晚安」等正常重复短句。
+ * 与具体禁词无关，是结构性的类别兜底；调用方负责跳过沉浸/原著等需要合理重复的场景。
+ */
+export function isRepetitiveReply(
+  candidate: string | null | undefined,
+  recentAssistantTexts: Array<string | null | undefined>,
+  options: RepetitionCheckOptions = {},
+): boolean {
+  const wholeThreshold = options.wholeThreshold ?? 0.82;
+  const sentenceThreshold = options.sentenceThreshold ?? 0.9;
+  const minLength = options.minLength ?? 8;
+
+  const candNorm = normalizeForRepeatCompare(candidate ?? "");
+  if (candNorm.length < minLength) return false;
+  const candSentences = comparableSentences(candidate ?? "", minLength);
+
+  for (const prior of recentAssistantTexts) {
+    const priorNorm = normalizeForRepeatCompare(prior ?? "");
+    if (priorNorm.length < minLength) continue;
+    if (candNorm === priorNorm) return true;
+    if (bigramJaccard(candNorm, priorNorm) >= wholeThreshold) return true;
+
+    const priorSentences = comparableSentences(prior ?? "", minLength);
+    if (priorSentences.length === 0) continue;
+    const priorSet = new Set(priorSentences);
+    for (const cs of candSentences) {
+      if (priorSet.has(cs)) return true;
+      for (const ps of priorSentences) {
+        if (Math.min(cs.length, ps.length) >= 10 && bigramJaccard(cs, ps) >= sentenceThreshold) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }

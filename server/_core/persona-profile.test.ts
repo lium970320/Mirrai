@@ -124,6 +124,42 @@ describe("persona profile sections", () => {
     expect(prompt).toContain("克制短句");
   });
 
+  it("immersive overlay injects default explicit-detail preference", () => {
+    const base = {
+      name: "王芃泽",
+      relationshipDesc: "爱人",
+      togetherFrom: null,
+      togetherTo: null,
+      emotionalState: "warm",
+      personaData: { profileSections: { relationship: { nickname: "敏子" } } },
+    };
+
+    // 默认：未配置时注入默认四方向清单，且优先于第 12 条克制
+    const def = buildSystemPrompt(base, { immersiveMode: true });
+    expect(def).toContain("13·补·露骨细节偏好");
+    expect(def).toContain("感官密度");
+    expect(def).toContain("过程连续");
+    expect(def).toContain("篇幅");
+    expect(def).toContain("主动顺着已知偏好");
+    expect(def).toContain("场景专属写法优先");
+
+    // 非沉浸（日常）模式不注入
+    expect(buildSystemPrompt(base, null)).not.toContain("13·补·露骨细节偏好");
+  });
+
+  it("pinned facts instruct proactively following user preferences", () => {
+    const prompt = buildSystemPrompt({
+      name: "王芃泽",
+      relationshipDesc: "爱人",
+      togetherFrom: null,
+      togetherTo: null,
+      emotionalState: "warm",
+      personaData: { profileSections: { relationship: { nickname: "敏子" } } },
+    }, { pinnedFacts: ["喜欢慢慢来：用户说过喜欢慢一点、贴着感受写。"] });
+    expect(prompt).toContain("喜欢慢慢来");
+    expect(prompt).toContain("主动顺着来");
+  });
+
   it("system prompt can suppress long background when source evidence is active", () => {
     const prompt = buildSystemPrompt({
       name: "王芃泽",

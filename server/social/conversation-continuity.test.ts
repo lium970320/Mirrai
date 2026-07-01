@@ -54,4 +54,24 @@ describe("conversation continuity", () => {
     expect(instruction).toContain("第 8 条");
     expect(instruction).toContain("第 10 条");
   });
+
+  it("warns against repeating recent statements (not just questions) and lists them as anchors in reply mode", () => {
+    const instruction = buildConversationContinuityInstruction([
+      { role: "user", content: "在吗" },
+      { role: "assistant", content: "我刚泡了杯茶，靠在窗边看楼下的梧桐。" },
+      { role: "user", content: "嗯" },
+    ], "王芃泽", "reply");
+
+    expect(instruction).toContain("不要原样或近义重复你最近几轮已经说过的整句或整段");
+    expect(instruction).toContain("本轮别再原样或近义复述");
+    expect(instruction).toContain("我刚泡了杯茶");
+  });
+
+  it("does not add the reply-mode repeat anchors for proactive mode", () => {
+    const instruction = buildConversationContinuityInstruction([
+      { role: "assistant", content: "我刚泡了杯茶，靠在窗边看楼下的梧桐。" },
+    ], "王芃泽", "proactive");
+
+    expect(instruction).not.toContain("本轮别再原样或近义复述");
+  });
 });

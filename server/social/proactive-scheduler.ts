@@ -16,7 +16,7 @@ import {
   withProactiveMessageConfig,
   withProactiveMessageRuntime,
 } from "../_core/persona-runtime";
-import { cleanAssistantReply } from "../_core/reply-utils";
+import { cleanAssistantReply, isRepetitiveReply } from "../_core/reply-utils";
 import {
   resolveProactivePreferredTarget,
   sendProactiveMessageToPreferredPlatform,
@@ -211,6 +211,14 @@ export type ScheduledProactiveMessageResult = {
   inputText: string;
 };
 
+// 兜底句池 + 轮转游标：LLM 失败或复读时回退，不要每次都发同一句固定话。
+let scheduledFallbackCursor = 0;
+const SCHEDULED_FALLBACK_POOL = [
+  "我刚刚突然想到你，就想问问你现在在做什么。",
+  "手头刚空下来，脑子一晃就是你。这会儿在忙什么。",
+  "忽然有点惦记你，过来冒个泡——今天过得怎么样。",
+];
+
 export async function generateProactiveMessageDetailed(
   persona: any,
   slot: ProactiveRandomizedSlot,
@@ -282,8 +290,20 @@ export async function generateProactiveMessageDetailed(
     },
   });
 
+  // 主动消息复读兜底：生成内容为空、或与最近几条 assistant 回复高度雷同时，取错开的兜底句池。
+  // 兜底游标只在真正使用兜底时前进，happy path 不空转。
+  const priorAssistant = history.filter(message => message.role === "assistant").slice(-5).map(message => message.content);
+  const cleaned = cleanAssistantReply(response, "");
+  let replyText: string;
+  if (!cleaned || (priorAssistant.length > 0 && isRepetitiveReply(cleaned, priorAssistant))) {
+    replyText = SCHEDULED_FALLBACK_POOL[scheduledFallbackCursor % SCHEDULED_FALLBACK_POOL.length];
+    scheduledFallbackCursor += 1;
+  } else {
+    replyText = cleaned;
+  }
+
   return {
-    replyText: cleanAssistantReply(response, "我刚刚突然想到你，就想问问你现在在做什么。"),
+    replyText,
     runtimePlan,
     inputText,
   };

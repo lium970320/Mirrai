@@ -25,6 +25,7 @@ import { detectStickerIntent } from "../stickers/sticker-intent";
 import { checkStickerReplyPolicy, markStickerReplySent } from "../stickers/sticker-policy";
 import { selectSticker, markStickerSent } from "../stickers/sticker-selector";
 import { sendQqSticker } from "../stickers/sticker-sender";
+import { hasSeenQqMessage, markQqMessageSeen } from "./message-dedupe";
 
 export type OneBotMessageSegment = {
   type: string;
@@ -846,6 +847,9 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
   if (!contactId) {
     return { handled: false, reason: "unsupported_message_type" as const };
   }
+  if (event.message_id != null && await hasSeenQqMessage(contactId, event.message_id)) {
+    return { handled: false, reason: "duplicate_message" as const };
+  }
 
   const content = extractQqPlainText(event.message, event.raw_message);
   const imageSegments = extractQqImageSegments(event.message, event.raw_message);
@@ -866,6 +870,7 @@ export async function handleQqOneBotEvent(event: OneBotMessageEvent) {
     kind,
     messageText: content || (recordSegments.length > 0 ? "[语音]" : "[图片]"),
   });
+  await markQqMessageSeen(contactId, event.message_id);
 
   if (recordSegments.length > 0) {
     const voice = await extractQqVoiceFromSegment(recordSegments[0], event);
